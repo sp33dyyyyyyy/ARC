@@ -28,6 +28,7 @@ func _on_screen(screen: String, args: Dictionary) -> void:
 		_:
 			push_error("Unknown screen %s" % screen)
 			return
+	Engine.physics_ticks_per_second = 240 if screen == "fly" else 60   # the 240 Hz flight sim is only needed while flying
 	add_child(_current)
 	Audio.set_music(screen != "fly")
 	Audio.motor_level = 0.0

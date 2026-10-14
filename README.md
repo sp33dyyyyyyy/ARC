@@ -51,9 +51,14 @@ If you want a custom exe icon/metadata on Windows, install `rcedit`, set it unde
 
 | Preset | Shadows | MSAA | 3D render scale | Trees | Terrain mesh | Draw distance | Glow |
 |---|---|---|---|---|---|---|---|
-| Low    | off | off | 75 % (bilinear) | 140 | 6 m grid | 420 m | off |
-| Medium | 2048 PSSM | 2x | 100 % | 320 | 5 m grid | 650 m | off |
-| High   | 4096 PSSM | 4x | 100 % | 520 | 3 m grid | 900 m | glow |
+| Low    | off | off | 85 % (bilinear) | 110 | 10 m grid | 380 m | off |
+| Medium | 1024, 110 m | off | 100 % | 240 | 6 m grid | 520 m | off |
+| High   | 2048, 180 m | 2x | 100 % | 420 | 5 m grid | 800 m | on |
+
+On first launch the preset is picked automatically: integrated / unknown GPUs start on **Low**, GeForce GTX/RTX and Radeon RX cards on **Medium**.
+**F3** (rebindable) shows an FPS / frame-time / draw-call overlay and the GPU name; Godot also writes a log to
+`%APPDATA%\Godot\app_userdata\Propwash Workshop\logs\godot.log`. The flight sim only runs at 240 Hz while flying (60 Hz elsewhere), the field loads over several
+frames with a progress bar, hidden viewports (parts tray, gyro view) don't render, and the video-effect shader is skipped on Low while the link is clean.
 
 Terrain is chunked (frustum-culled), trees are two `MultiMesh`es, the flight model costs ~25 µs per 240 Hz step.
 The terrain is generated when a flight starts (about a second on Medium).
@@ -79,6 +84,7 @@ un-binds it from its old action. Gamepad: any standard (XInput/DualShock/etc.) p
 | Restart mission | `F5` | Back |
 | Pause / back | `Esc` | Start |
 | Fullscreen | `F11` | – |
+| FPS / performance overlay | `F3` | – |
 | Grab / place / select (workshop) | Left mouse | – |
 | Rotate held part | `R` | – |
 | Orbit camera (hold) | Right mouse (drag) | – |

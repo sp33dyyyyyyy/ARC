@@ -10,6 +10,8 @@ const LAKE_C := Vector2(260, -180)
 const LAKE_R := 150.0
 const START_H := 14.0
 
+signal progress(fraction: float, label: String)
+
 var quality: Dictionary
 var _n1 := FastNoiseLite.new()
 var _n2 := FastNoiseLite.new()
@@ -71,14 +73,23 @@ func trees_near(x: float, z: float) -> Array:
 
 
 # --- building -------------------------------------------------------------------------------------
+## Builds the world over several frames (emits `progress`) so the window stays responsive.
 func build(q: Dictionary) -> void:
 	quality = q
 	_step = q["terrain_step"]
+	progress.emit(0.0, "Sky and light")
 	_build_environment()
-	_build_terrain()
+	await get_tree().process_frame
+	await _build_terrain()
+	progress.emit(0.8, "Lake")
 	_build_water()
-	_build_trees()
+	await get_tree().process_frame
+	progress.emit(0.85, "Trees")
+	await _build_trees()
+	progress.emit(0.98, "Launch pad")
 	_build_pad()
+	await get_tree().process_frame
+	progress.emit(1.0, "Done")
 
 
 func _build_environment() -> void:
@@ -119,8 +130,8 @@ func _build_environment() -> void:
 	sun.light_color = Color(1.0, 0.8, 0.66)
 	sun.light_energy = 1.35
 	sun.shadow_enabled = quality["shadows"]
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 260.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if quality["shadow_size"] >= 2048 else DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = quality.get("shadow_dist", 140.0)
 	sun.shadow_bias = 0.08
 	sun.shadow_normal_bias = 1.5
 	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY
@@ -135,6 +146,9 @@ func _build_terrain() -> void:
 		var z := -HALF + iz * _step
 		for ix in n1:
 			_grid[iz * n1 + ix] = height(-HALF + ix * _step, z)
+		if iz % 30 == 29:
+			progress.emit(0.05 + 0.25 * iz / n1, "Shaping hills")
+			await get_tree().process_frame
 	var per_chunk := int(round(CHUNK / _step))
 	var chunks := int(round(HALF * 2.0 / CHUNK))
 	var mat := StandardMaterial3D.new()
@@ -191,6 +205,8 @@ func _build_terrain() -> void:
 			mi.position = Vector3(-HALF + cx * CHUNK, 0, -HALF + cz * CHUNK)
 			mi.custom_aabb = AABB(Vector3(0, -30, 0), Vector3(CHUNK, 140, CHUNK))
 			add_child(mi)
+		progress.emit(0.3 + 0.5 * float(cz + 1) / chunks, "Building terrain")
+		await get_tree().process_frame
 
 
 func _terrain_color(h: float, n: Vector3, noise: float) -> Color:
@@ -232,6 +248,8 @@ func _build_trees() -> void:
 	var tries := 0
 	while pts.size() < want and tries < want * 40:
 		tries += 1
+		if tries % 150 == 0:
+			await get_tree().process_frame
 		var x := rng.randf_range(-HALF + 20.0, HALF - 20.0)
 		var z := rng.randf_range(-HALF + 20.0, HALF - 20.0)
 		if Vector2(x, z).length() < 55.0:

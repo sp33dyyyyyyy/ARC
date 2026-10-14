@@ -18,8 +18,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sv = SubViewport.new()
 	_sv.own_world_3d = true
-	_sv.msaa_3d = Viewport.MSAA_4X
-	_sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_sv.msaa_3d = Viewport.MSAA_2X if Settings.graphics_preset >= 2 else Viewport.MSAA_DISABLED
+	_sv.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	add_child(_sv)
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR

@@ -7,10 +7,11 @@ signal settings_changed
 const SETTINGS_PATH := "user://settings.cfg"
 
 const PRESET_NAMES := ["Low", "Medium", "High"]
+## terrain_step must divide the 150 m chunk size (10, 6, 5, 3, ...)
 const PRESETS := [
-	{"shadows": false, "shadow_size": 1024, "msaa": 0, "scale3d": 0.75, "trees": 140, "view": 420.0, "glow": false, "ssao": false, "terrain_step": 6.0},
-	{"shadows": true, "shadow_size": 2048, "msaa": 1, "scale3d": 1.0, "trees": 320, "view": 650.0, "glow": false, "ssao": false, "terrain_step": 5.0},
-	{"shadows": true, "shadow_size": 4096, "msaa": 2, "scale3d": 1.0, "trees": 520, "view": 900.0, "glow": true, "ssao": false, "terrain_step": 3.0},
+	{"shadows": false, "shadow_size": 1024, "shadow_dist": 80.0, "msaa": 0, "scale3d": 0.85, "trees": 110, "view": 380.0, "glow": false, "ssao": false, "terrain_step": 10.0},
+	{"shadows": true, "shadow_size": 1024, "shadow_dist": 110.0, "msaa": 0, "scale3d": 1.0, "trees": 240, "view": 520.0, "glow": false, "ssao": false, "terrain_step": 6.0},
+	{"shadows": true, "shadow_size": 2048, "shadow_dist": 180.0, "msaa": 1, "scale3d": 1.0, "trees": 420, "view": 800.0, "glow": true, "ssao": false, "terrain_step": 5.0},
 ]
 
 # --- values -----------------------------------------------------------------
@@ -28,6 +29,7 @@ var sfx_vol: float = 0.8
 ## action id -> {"kb": "key:87", "pad": "joyaxis:1:-1"}   ("" = unbound)
 var bindings: Dictionary = {}
 
+var show_stats: bool = false          # F3 performance overlay
 var capturing: bool = false  # true while the options menu is waiting for a key press
 
 
@@ -51,6 +53,7 @@ func action_table() -> Array:
 		{"id": "restart", "label": "Restart mission", "group": "Flight", "kb": "key:%d" % KEY_F5, "pad": "joybtn:%d" % JOY_BUTTON_BACK},
 		{"id": "pause", "label": "Pause / back", "group": "General", "kb": "key:%d" % KEY_ESCAPE, "pad": "joybtn:%d" % JOY_BUTTON_START},
 		{"id": "fullscreen", "label": "Toggle fullscreen", "group": "General", "kb": "key:%d" % KEY_F11, "pad": ""},
+		{"id": "debug_stats", "label": "Show FPS / performance overlay", "group": "General", "kb": "key:%d" % KEY_F3, "pad": ""},
 		{"id": "interact", "label": "Grab / place / select", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_LEFT, "pad": ""},
 		{"id": "build_rotate", "label": "Rotate held part", "group": "Workshop", "kb": "key:%d" % KEY_R, "pad": ""},
 		{"id": "cam_orbit", "label": "Orbit camera (hold)", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_RIGHT, "pad": ""},
@@ -66,13 +69,23 @@ func action_table() -> Array:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_reset_bindings()
+	var had_file := FileAccess.file_exists(SETTINGS_PATH)
 	load_settings()
+	if not had_file:
+		graphics_preset = _detect_preset()
+		save_settings()
 	rebuild_input_map()
 	apply_all()
+	_make_stats_overlay()
 
 
 func _input(event: InputEvent) -> void:
 	if capturing:
+		return
+	if event.is_action_pressed("debug_stats"):
+		show_stats = not show_stats
+		_stats_layer.visible = show_stats
+		get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("fullscreen"):
 		fullscreen = not fullscreen
@@ -321,3 +334,43 @@ func apply_audio() -> void:
 func _set_bus_linear(idx: int, v: float) -> void:
 	AudioServer.set_bus_mute(idx, v <= 0.001)
 	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.001)))
+
+
+# --- first-run GPU detection & performance overlay -----------------------------
+func _detect_preset() -> int:
+	var name := RenderingServer.get_video_adapter_name().to_lower()
+	var slow := ["intel", "uhd", "iris", "llvmpipe", "software", "basic render", "microsoft", "vega", "radeon(tm) graphics", "radeon graphics", "mesa"]
+	for k in slow:
+		if name.contains(k):
+			return 0
+	if name.contains("geforce") or name.contains("rtx") or name.contains("gtx") or name.contains("radeon rx") or name.contains("rx "):
+		return 1
+	return 0
+
+
+var _stats_layer: CanvasLayer
+var _stats_label: Label
+
+
+func _make_stats_overlay() -> void:
+	_stats_layer = CanvasLayer.new()
+	_stats_layer.layer = 100
+	_stats_layer.visible = false
+	add_child(_stats_layer)
+	_stats_label = Label.new()
+	_stats_label.position = Vector2(8, 4)
+	_stats_label.add_theme_font_size_override("font_size", 18)
+	_stats_label.add_theme_color_override("font_color", Color(0.6, 1, 0.6))
+	_stats_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_stats_label.add_theme_constant_override("outline_size", 6)
+	_stats_layer.add_child(_stats_label)
+
+
+func _process(_dt: float) -> void:
+	if not show_stats:
+		return
+	_stats_label.text = "%d FPS  (%.1f ms)   draws %d   tris %dk   preset %s\n%s" % [
+		Engine.get_frames_per_second(), 1000.0 / maxf(Engine.get_frames_per_second(), 1.0),
+		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000.0),
+		PRESET_NAMES[graphics_preset], RenderingServer.get_video_adapter_name()]

@@ -192,7 +192,7 @@ func _build_tray() -> void:
 	_tray_vp = SubViewport.new()
 	_tray_vp.own_world_3d = true
 	_tray_vp.transparent_bg = true
-	_tray_vp.msaa_3d = Viewport.MSAA_4X
+	_tray_vp.msaa_3d = Viewport.MSAA_2X if Settings.graphics_preset >= 2 else Viewport.MSAA_DISABLED
 	_tray_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	_tray_vp.size = Vector2i(1920, int(TRAY_H))
 	_tray_container.add_child(_tray_vp)
@@ -463,6 +463,7 @@ func set_active(on: bool) -> void:
 	_ui.visible = on
 	if _tray_container:
 		_tray_container.visible = on
+		_tray_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 	if on:
 		reset_layout()
 		_restore_if_needed()

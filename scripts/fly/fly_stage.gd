@@ -22,6 +22,8 @@ var hud: Hud
 var fx_rect: ColorRect
 var fx_mat: ShaderMaterial
 var loading_label: Label
+var _load_bar: ColorRect
+var _deg_cache := 0.0
 var pause_ui: Control = null
 var result_ui: Control = null
 
@@ -87,19 +89,32 @@ func _ready() -> void:
 	ll.add_child(bgc)
 	loading_label.position = Vector2(760, 500)
 	ll.add_child(loading_label)
+	var bar_bg := ColorRect.new()
+	bar_bg.color = Color(1, 1, 1, 0.12)
+	bar_bg.position = Vector2(560, 580)
+	bar_bg.size = Vector2(800, 14)
+	ll.add_child(bar_bg)
+	_load_bar = ColorRect.new()
+	_load_bar.color = UITheme.ACCENT
+	_load_bar.position = bar_bg.position
+	_load_bar.size = Vector2(1, 14)
+	ll.add_child(_load_bar)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	_build_all()
+	await _build_all()
 	ll.queue_free()
 
 
-func _build_all() -> void:
+func _build_all() -> void:   # coroutine
 	var q := Settings.quality()
 	world = FlyWorld.new()
 	if mission == "gate_race":
 		world.exclusions = Missions.exclusions()
 	add_child(world)
-	world.build(q)
+	world.progress.connect(func(f: float, what: String):
+		loading_label.text = "LOADING FIELD...  %s" % what
+		_load_bar.size.x = maxf(800.0 * f, 1.0))
+	await world.build(q)
 	Settings.apply_to_viewport(get_viewport())
 
 	cam = Camera3D.new()
@@ -730,10 +745,13 @@ func _video_degrade() -> float:
 
 func _update_fx() -> void:
 	var deg := _video_degrade()
+	_deg_cache = deg
 	fx_mat.set_shader_parameter("degrade", deg)
 	fx_mat.set_shader_parameter("tcount", _fx_time)
 	fx_mat.set_shader_parameter("static_only", 0.0 if cfg["vtx_enabled"] else 1.0)
 	fx_mat.set_shader_parameter("intensity", 1.0)
+	# the screen-copy the shader needs costs fill-rate: on Low only pay for it once the link degrades
+	fx_rect.visible = (Settings.graphics_preset > 0) or deg > 0.03 or not cfg["vtx_enabled"]
 	hud.link_text = "VTX %s  •  %d m" % [["25mW", "200mW", "600mW"][clampi(cfg["vtx_power"], 0, 2)], int(sim.pos.distance_to(world.start_position()))]
 
 
@@ -785,6 +803,6 @@ func _update_hud(dt: float) -> void:
 			w.append({"text": "CURRENT LIMIT", "color": Hud.AMBER})
 		if not cfg["vtx_enabled"]:
 			w.append({"text": "NO VIDEO - VTX UART OFF", "color": Hud.RED})
-		elif _video_degrade() > 0.55:
+		elif _deg_cache > 0.55:
 			w.append({"text": "VIDEO SIGNAL WEAK", "color": Hud.AMBER, "blink": true})
 	hud.warnings = w

@@ -74,8 +74,11 @@ func set_music(on: bool) -> void:
 
 
 func _process(_dt: float) -> void:
-	_fill_music()
-	_fill_motor()
+	# synthesis runs in GDScript, so skip it entirely when it would be inaudible
+	if _music_enabled and Settings.music_vol > 0.001 and Settings.master_vol > 0.001:
+		_fill_music()
+	if (motor_level > 0.001 or _motor_smooth > 0.002) and Settings.sfx_vol > 0.001:
+		_fill_motor()
 
 
 # --- generators -------------------------------------------------------------

@@ -511,3 +511,56 @@ func click_mode() -> void:
 	# Esc cancels carry
 	await _key(KEY_ESCAPE)
 	print("CHECK Esc cancels carrying: ", bs.held == null)
+
+
+func _mon() -> String:
+	return "fps=%d proc=%.1fms phys=%.1fms draws=%d objs=%d prims=%d nodes=%d mem=%.0fMB" % [
+		Performance.get_monitor(Performance.TIME_FPS), Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0]
+
+
+func perf() -> void:
+	var t0 := Time.get_ticks_msec()
+	Game.goto("menu")
+	await _frames(30)
+	print("PERF menu ", _mon())
+	Game.placed = full_build()
+	Game.broken = {}
+	Game.wires = all_wires()
+	t0 = Time.get_ticks_msec()
+	Game.goto("workshop", {"stage": "build"})
+	await _frames(2)
+	print("PERF workshop load ms=", Time.get_ticks_msec() - t0)
+	await _frames(60)
+	print("PERF build ", _mon())
+	_ws().switch_stage("wire")
+	await _frames(60)
+	print("PERF wire ", _mon())
+	_ws().switch_stage("setup")
+	await _frames(60)
+	print("PERF setup ", _mon())
+	Game.mission = "free_flight"
+	t0 = Time.get_ticks_msec()
+	Game.goto("fly")
+	while _fly_node() == null or _fly_node().state == FlyStage.S.LOADING:
+		await get_tree().process_frame
+	print("PERF fly load ms=", Time.get_ticks_msec() - t0, " trees=", _fly_node().world.tree_count)
+	await _frames(90)
+	print("PERF fly ", _mon())
+
+
+func fly_preset(n: int) -> void:
+	Settings.graphics_preset = n
+	await fly()
+	print("PERF preset ", n, " ", _mon())
+
+
+func fly_low() -> void:
+	await fly_preset(0)
+
+
+func fly_medium() -> void:
+	await fly_preset(1)

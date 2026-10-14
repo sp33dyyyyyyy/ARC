@@ -81,7 +81,7 @@ func _build_world() -> void:
 	lamp.omni_range = 140.0
 	world.add_child(lamp)
 
-	var wood := MeshFactory.wood_texture()
+	var wood := MeshFactory.wood_texture(128, 128)
 	var wood_mat := StandardMaterial3D.new()
 	wood_mat.albedo_texture = wood
 	wood_mat.roughness = 0.75
@@ -125,6 +125,7 @@ func _build_world() -> void:
 func _apply_quality() -> void:
 	var q := Settings.quality()
 	_sun.shadow_enabled = q["shadows"]
+	_sun.directional_shadow_max_distance = 120.0
 	Settings.apply_to_viewport(get_viewport())
 
 
