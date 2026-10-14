@@ -26,7 +26,7 @@ void fragment() {
 	// horizontal tearing: bands of rows displaced sideways, more and wider as d rises
 	float bands = mix(36.0, 150.0, d);
 	float band = floor(uv.y * bands);
-	float torn = step(1.0 - (0.04 + 0.6 * d * d), hash21(vec2(band, floor(t * 14.0))));
+	float torn = step(1.0 - (0.04 + 0.6 * d * d), hash21(vec2(band, floor(t * 14.0)))) * step(0.04, d);
 	float shift = (hash21(vec2(band + 11.0, floor(t * 30.0))) - 0.5) * (0.04 + 0.34 * d) * torn;
 	// occasional full-frame sync slip
 	float slip = step(0.97 - 0.12 * d, hash21(vec2(floor(t * 4.0), 3.7)));

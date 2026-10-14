@@ -1,6 +1,6 @@
 # Propwash Workshop
 
-A first-person FPV drone game for Windows, made with **Godot 4.3 (GDScript, Forward+ 3D renderer)**.
+A first-person FPV drone game for Windows, made with **Godot 4.3 (GDScript, Compatibility/OpenGL 3D renderer)**.
 You build a quadcopter on a workbench, wire it, configure the flight controller in a Betaflight-style
 menu and then fly it with a live power budget. Crash or run the battery flat and you are back at the
 bench with the same drone.
@@ -45,15 +45,15 @@ If you want a custom exe icon/metadata on Windows, install `rcedit`, set it unde
 
 ## Requirements / performance
 
-* Windows 10/11 64-bit, Vulkan 1.1 capable GPU (target: GTX 1060 / RX 580 class at 60 fps).
+* Windows 10/11 64-bit, any GPU with OpenGL 3.3 (the Compatibility renderer is used so the exe starts on every machine; target: GTX 1060 / RX 580 class at 60 fps).
 * Default window 1920x1080 (UI scales with the window; smaller screens get a 90 % window). **F11** toggles fullscreen.
 * **Options > Game > Graphics preset** — *Low / Medium / High*:
 
-| Preset | Shadows | MSAA | 3D render scale | Trees | Terrain mesh | Draw distance | Glow / SSAO |
+| Preset | Shadows | MSAA | 3D render scale | Trees | Terrain mesh | Draw distance | Glow |
 |---|---|---|---|---|---|---|---|
-| Low    | off | off | 75 % (FSR 1.0) | 140 | 6 m grid | 420 m | off |
+| Low    | off | off | 75 % (bilinear) | 140 | 6 m grid | 420 m | off |
 | Medium | 2048 PSSM | 2x | 100 % | 320 | 5 m grid | 650 m | off |
-| High   | 4096 PSSM | 4x | 100 % | 520 | 3 m grid | 900 m | on |
+| High   | 4096 PSSM | 4x | 100 % | 520 | 3 m grid | 900 m | glow |
 
 Terrain is chunked (frustum-culled), trees are two `MultiMesh`es, the flight model costs ~25 µs per 240 Hz step.
 The terrain is generated when a flight starts (about a second on Medium).

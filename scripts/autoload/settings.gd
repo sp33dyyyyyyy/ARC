@@ -10,7 +10,7 @@ const PRESET_NAMES := ["Low", "Medium", "High"]
 const PRESETS := [
 	{"shadows": false, "shadow_size": 1024, "msaa": 0, "scale3d": 0.75, "trees": 140, "view": 420.0, "glow": false, "ssao": false, "terrain_step": 6.0},
 	{"shadows": true, "shadow_size": 2048, "msaa": 1, "scale3d": 1.0, "trees": 320, "view": 650.0, "glow": false, "ssao": false, "terrain_step": 5.0},
-	{"shadows": true, "shadow_size": 4096, "msaa": 2, "scale3d": 1.0, "trees": 520, "view": 900.0, "glow": true, "ssao": true, "terrain_step": 3.0},
+	{"shadows": true, "shadow_size": 4096, "msaa": 2, "scale3d": 1.0, "trees": 520, "view": 900.0, "glow": true, "ssao": false, "terrain_step": 3.0},
 ]
 
 # --- values -----------------------------------------------------------------
@@ -93,12 +93,9 @@ func apply_to_viewport(vp: Viewport) -> void:
 	var msaa: int = q["msaa"]
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][msaa]
 	var s: float = q["scale3d"]
-	if s < 0.99:
-		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
-		vp.scaling_3d_scale = s
-	else:
-		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-		vp.scaling_3d_scale = 1.0
+	# The Compatibility (OpenGL) renderer only supports bilinear 3D scaling.
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = s
 
 
 # --- bindings ---------------------------------------------------------------
