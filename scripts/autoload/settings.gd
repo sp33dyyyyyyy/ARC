@@ -302,17 +302,24 @@ func apply_all() -> void:
 func apply_display() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
+	var vs := DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
+	if DisplayServer.window_get_vsync_mode() != vs:
+		DisplayServer.window_set_vsync_mode(vs)
+	var mode := DisplayServer.window_get_mode()
 	if fullscreen:
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		if mode != DisplayServer.WINDOW_MODE_FULLSCREEN:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	else:
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		if mode != DisplayServer.WINDOW_MODE_WINDOWED:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 		var screen := DisplayServer.screen_get_size()
 		var want := Vector2i(1920, 1080)
-		if screen.x < want.x or screen.y < want.y:
+		if screen.x < want.x + 40 or screen.y < want.y + 80:
 			want = Vector2i(int(screen.x * 0.9), int(screen.y * 0.9))
-		DisplayServer.window_set_size(want)
-		DisplayServer.window_set_position((screen - want) / 2)
+		# only touch the window when it is not already the right size (avoids a needless resize at start-up)
+		if DisplayServer.window_get_size() != want:
+			DisplayServer.window_set_size(want)
+			DisplayServer.window_set_position((screen - want) / 2)
 
 
 func _ensure_bus(bus_name: String) -> int:

@@ -34,7 +34,8 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_rng.randomize()
 	Settings.apply_audio()
-	_build_sfx()
+	# synthesise the UI/event sounds on a worker thread so startup never stalls on it
+	_sfx_task = WorkerThreadPool.add_task(_build_sfx_threaded, false, "sfx synth")
 	for i in 6:
 		var p := AudioStreamPlayer.new()
 		p.bus = "SFX"
@@ -42,10 +43,12 @@ func _ready() -> void:
 		_sfx_players.append(p)
 	_music = _make_generator("Music", 0.25)
 	_motor = _make_generator("SFX", 0.12)
-	_music.play()
 	_motor.play()
-	_music_pb = _music.get_stream_playback()
 	_motor_pb = _motor.get_stream_playback()
+	# start the music a moment after the window is up (keeps the first frames free)
+	get_tree().create_timer(1.5).timeout.connect(func():
+		_music.play()
+		_music_pb = _music.get_stream_playback())
 
 
 func _make_generator(bus: String, buffer_len: float) -> AudioStreamPlayer:
@@ -134,21 +137,47 @@ func _fill_motor() -> void:
 
 
 # --- SFX synthesis -----------------------------------------------------------
+var _pcm: Dictionary = {}
+var _sfx_task := -1
+
+
+func _exit_tree() -> void:
+	if _sfx_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_sfx_task)
+
+
+func _build_sfx_threaded() -> void:
+	_build_sfx()
+	call_deferred("_finish_sfx")
+
+
+## Wrap the synthesised PCM in streams on the main thread.
+func _finish_sfx() -> void:
+	for k in _pcm:
+		var w := AudioStreamWAV.new()
+		w.format = AudioStreamWAV.FORMAT_16_BITS
+		w.mix_rate = RATE
+		w.stereo = false
+		w.data = _pcm[k]
+		_sfx[k] = w
+	print("audio: sfx ready")
+
+
 func _build_sfx() -> void:
-	_sfx["click"] = _tone([[900.0, 1.0]], 0.05, 40.0, 0)
-	_sfx["snap"] = _tone([[240.0, 1.0], [480.0, 0.5]], 0.11, 28.0, 2)
-	_sfx["error"] = _tone([[150.0, 1.0], [157.0, 1.0]], 0.28, 7.0, 1)
-	_sfx["wire"] = _tone([[760.0, 1.0], [1140.0, 0.4]], 0.12, 22.0, 0)
-	_sfx["gate"] = _tone([[660.0, 1.0], [990.0, 0.8]], 0.3, 9.0, 0)
-	_sfx["warn"] = _tone([[1250.0, 1.0]], 0.16, 12.0, 1)
-	_sfx["crash"] = _tone([[70.0, 1.0]], 0.8, 4.5, 3)
-	_sfx["arm"] = _tone([[500.0, 1.0], [750.0, 0.8], [1000.0, 0.6]], 0.3, 6.0, 0)
-	_sfx["success"] = _tone([[523.0, 1.0], [659.0, 0.9], [784.0, 0.9], [1047.0, 0.8]], 0.7, 3.0, 0)
-	_sfx["beep"] = _tone([[880.0, 1.0]], 0.12, 10.0, 0)
+	_pcm["click"] = _tone([[900.0, 1.0]], 0.05, 40.0, 0)
+	_pcm["snap"] = _tone([[240.0, 1.0], [480.0, 0.5]], 0.11, 28.0, 2)
+	_pcm["error"] = _tone([[150.0, 1.0], [157.0, 1.0]], 0.28, 7.0, 1)
+	_pcm["wire"] = _tone([[760.0, 1.0], [1140.0, 0.4]], 0.12, 22.0, 0)
+	_pcm["gate"] = _tone([[660.0, 1.0], [990.0, 0.8]], 0.3, 9.0, 0)
+	_pcm["warn"] = _tone([[1250.0, 1.0]], 0.16, 12.0, 1)
+	_pcm["crash"] = _tone([[70.0, 1.0]], 0.8, 4.5, 3)
+	_pcm["arm"] = _tone([[500.0, 1.0], [750.0, 0.8], [1000.0, 0.6]], 0.3, 6.0, 0)
+	_pcm["success"] = _tone([[523.0, 1.0], [659.0, 0.9], [784.0, 0.9], [1047.0, 0.8]], 0.7, 3.0, 0)
+	_pcm["beep"] = _tone([[880.0, 1.0]], 0.12, 10.0, 0)
 
 
 ## shape: 0 sine, 1 square, 2 sine + noise click, 3 noise burst
-func _tone(partials: Array, dur: float, decay: float, shape: int) -> AudioStreamWAV:
+func _tone(partials: Array, dur: float, decay: float, shape: int) -> PackedByteArray:
 	var n := int(RATE * dur)
 	var bytes := PackedByteArray()
 	bytes.resize(n * 2)
@@ -172,9 +201,4 @@ func _tone(partials: Array, dur: float, decay: float, shape: int) -> AudioStream
 			lp = lerpf(lp, rng.randf_range(-1.0, 1.0), 0.15)
 			v = lp * 1.6 + sin(TAU * partials[0][0] * t) * 0.4
 		bytes.encode_s16(i * 2, int(clampf(v * env * 0.6, -1.0, 1.0) * 32767.0))
-	var w := AudioStreamWAV.new()
-	w.format = AudioStreamWAV.FORMAT_16_BITS
-	w.mix_rate = RATE
-	w.stereo = false
-	w.data = bytes
-	return w
+	return bytes

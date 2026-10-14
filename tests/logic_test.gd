@@ -58,11 +58,13 @@ func _main_phase() -> void:   # async (waits a frame for buffered input)
 	ev.axis_value = -1.0       # left stick pushed up
 	Input.parse_input_event(ev)
 	await get_tree().process_frame
+	await get_tree().process_frame
 	check(Input.get_action_strength("throttle_up") > 0.9 and Input.get_action_strength("throttle_down") < 0.01, "left stick up raises throttle")
 	ev = InputEventJoypadMotion.new()
 	ev.axis = JOY_AXIS_RIGHT_X
 	ev.axis_value = 1.0
 	Input.parse_input_event(ev)
+	await get_tree().process_frame
 	await get_tree().process_frame
 	check(Input.get_action_strength("roll_right") > 0.9, "right stick right rolls right")
 	ev = InputEventJoypadMotion.new()
@@ -70,11 +72,13 @@ func _main_phase() -> void:   # async (waits a frame for buffered input)
 	ev.axis_value = 0.1        # inside the dead zone
 	Input.parse_input_event(ev)
 	await get_tree().process_frame
+	await get_tree().process_frame
 	check(Input.get_action_strength("roll_right") < 0.01, "stick dead zone ignores small deflections")
 	var pe := InputEventJoypadButton.new()
 	pe.button_index = JOY_BUTTON_A
 	pe.pressed = true
 	Input.parse_input_event(pe)
+	await get_tree().process_frame
 	await get_tree().process_frame
 	check(Input.is_action_pressed("arm"), "gamepad A arms")
 	pe = InputEventJoypadButton.new()
