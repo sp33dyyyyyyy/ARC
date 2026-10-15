@@ -1,0 +1,395 @@
+/* Clinical conditions. Every case the ER can throw at you.
+   vit = change in vital signs at severity 100 (scaled by current severity).
+   need = treatment tags that must be given to stabilise. dispo = the correct disposition.
+   grow = severity points / hour if untreated. */
+(function (G) {
+  const HS = G.HS;
+  const f = (a, b, d = 1) => HS.rf(a, b, d);
+  const C = (HS.CONDS = {});
+  const def = (id, o) => { C[id] = Object.assign({ id, w: 3, age: [18, 85], sex: 'any', arr: 'walk', sev: [20, 45], grow: 10, vit: {}, exam: {}, tests: {}, need: [], dispo: 'home', hx: [], cc: [], pain: 3, floor: 0, ecg: 'nsr' }, o); };
+
+  // =============================================================== CARDIAC
+  def('mi', { name: 'Heart attack (STEMI)', cat: 'Cardiac', w: 6, age: [42, 90], arr: 'both', sev: [40, 65], grow: 45, pain: 9, ecg: 'stemi',
+    cc: ['Crushing chest pain spreading to my left arm', 'Chest pressure and sweating, feel like I am going to die'],
+    hx: ['Pain started ~40 min ago while climbing stairs. 9/10 pressure, nauseated, sweating.', 'High blood pressure, smoker, high cholesterol. Father died of a heart attack at 52.'],
+    vit: { hr: 28, sbp: -30, spo2: -6, rr: 8 },
+    exam: { general: 'Pale, clammy and diaphoretic, clutching chest.', heart: 'Tachycardic, S4 gallop.', chest: 'Clear.' },
+    tests: { ecg: ['ST elevation V1–V4 with reciprocal inferior changes — anterior STEMI', 1], troponin: [() => `${f(1.5, 15)} ng/mL (HIGH)`, 1], xr_chest: ['Normal heart size, clear lungs', 0] },
+    need: ['antiplatelet', 'analgesia', 'o2'], dispo: 'surg:pci', floor: 35, pay: 9000 });
+  def('chestwall', { name: 'Costochondritis (chest wall pain)', cat: 'Cardiac', w: 7, age: [18, 60], sev: [5, 15], grow: 0, pain: 4,
+    cc: ['Sharp chest pain when I breathe in or press on it', 'Chest pain after a heavy workout, worried about my heart'],
+    hx: ['Pain for 2 days, worse with movement and deep breath. No sweating, no leg swelling.', 'Healthy. Occasional gym user. Takes no regular medication.'],
+    exam: { chest: 'Reproducible tenderness over left costochondral junctions. Lungs clear.' },
+    tests: { ecg: ['Normal sinus rhythm', 0], troponin: ['<0.01 ng/mL (normal)', 0] },
+    need: ['analgesia_mild'], dispo: 'home', pay: 250 });
+  def('svt', { name: 'Supraventricular tachycardia (SVT)', cat: 'Cardiac', w: 3, age: [18, 70], sev: [30, 55], grow: 12, ecg: 'svt', pain: 2,
+    cc: ['My heart is racing out of control, suddenly started', 'Palpitations and dizziness, heart feels like it will jump out'],
+    hx: ['Sudden onset 30 min ago while resting. Light-headed, no chest pain. Happened once before.', 'Anxiety history. Drinks coffee and energy drinks.'],
+    vit: { hr: 110, sbp: -22, rr: 6 },
+    exam: { heart: 'Very fast regular narrow-complex tachycardia, no murmur.', general: 'Anxious, pale.' },
+    tests: { ecg: ['Regular narrow-complex tachycardia ~190 bpm, no P waves — SVT', 1], troponin: ['<0.01 ng/mL (normal)', 0], bmp: ['Normal electrolytes', 0] },
+    need: ['svt_fix'], dispo: 'home', pay: 600 });
+  def('chf', { name: 'Acute heart failure (pulmonary edema)', cat: 'Cardiac', w: 4, age: [60, 92], arr: 'both', sev: [45, 70], grow: 30, ecg: 'af', pain: 2,
+    cc: ["Can't breathe lying down, legs are swollen", 'Short of breath, woke up gasping at night'],
+    hx: ['Worsening breathlessness for 3 days, 3 pillows to sleep, ankle swelling.', 'Known heart failure and AF. Missed water pills for a week. On warfarin.'],
+    vit: { hr: 25, sbp: 20, spo2: -16, rr: 20 },
+    exam: { general: 'Sitting bolt upright, struggling to speak in full sentences.', chest: 'Bilateral crackles to mid-zones, wheeze.', heart: 'Irregular tachycardia, S3, raised JVP.', extremities: 'Pitting edema to knees.' },
+    tests: { xr_chest: ['Cardiomegaly, bilateral pulmonary edema, small effusions', 1], bmp: ['Cr 1.6, K 4.8, BNP 2400 (HIGH)', 1], troponin: ['0.05 ng/mL (mildly raised)', 1], ecg: ['Atrial fibrillation 112 bpm, LVH', 1] },
+    need: ['o2', 'diuretic', 'nitrate'], dispo: 'ward', stay: 600, pay: 3500 });
+  def('arrest_vf', { name: 'Cardiac arrest — found down (VF)', cat: 'Cardiac', w: 1.2, age: [40, 85], arr: 'amb', sev: [92, 96], grow: 0, pain: 0, ecg: 'vf', unconscious: true, arrestOnArrival: 'VF',
+    cc: ['Collapsed in a shopping mall. Bystander CPR in progress.', 'Found unresponsive at home. Wife started CPR.'],
+    hx: ['Bystander witnessed collapse 8 minutes ago. Bystander CPR given. AED shocked once at scene.', 'Unknown. Wife says heart disease and bypass surgery 10 years ago.'],
+    exam: { general: 'Unresponsive, no pulse, agonal breathing.' },
+    tests: { ecg: ['Ventricular fibrillation', 1] },
+    need: ['rosc'], dispo: 'icu', stay: 1440, pay: 6000 });
+
+  // =============================================================== RESPIRATORY
+  def('pneumonia', { name: 'Pneumonia', cat: 'Respiratory', w: 7, age: [20, 92], sev: [20, 55], grow: 14, pain: 3,
+    cc: ['Fever, cough with green phlegm and chest pain', 'Shaking chills, cough and breathlessness for 4 days'],
+    hx: ['Cough productive of yellow-green sputum, fevers and rigors, pleuritic right-sided pain.', 'Type 2 diabetes. Smoker.'],
+    vit: { hr: 35, sbp: -18, spo2: -14, rr: 14, temp: 1.8 },
+    exam: { general: 'Febrile, flushed, coughing.', chest: 'Right lower zone crackles with bronchial breathing and dullness.' },
+    tests: { xr_chest: ['Right lower lobe consolidation', 1], cbc: ['WBC 18.2 (HIGH), Hb 13.6', 1], lactate: [() => `${f(1.5, 3.2)} mmol/L`, 1], bcx: ['Pending', 1] },
+    need: ['abx', 'abx_atyp', 'o2', 'fluids'], dispo: 'ward', homeIfSev: 32, stay: 720, pay: 2800 });
+  def('asthma', { name: 'Severe asthma attack', cat: 'Respiratory', w: 6, age: [8, 55], arr: 'both', sev: [35, 70], grow: 30, pain: 2,
+    cc: ["Can't breathe, wheezing, inhaler is not helping", 'Tight chest and wheeze after exposure to cats'],
+    hx: ['Wheeze and chest tightness for 2 h, inhaler used 8 times without relief.', 'Asthma since childhood. Previous ICU admission. Allergic to dust.'],
+    vit: { hr: 38, sbp: 6, spo2: -18, rr: 24 },
+    exam: { general: 'Using accessory muscles, can only say single words.', chest: 'Diffuse high-pitched wheeze, poor air entry at the bases.' },
+    tests: { abg: ['pH 7.36, pCO2 46 (rising!), pO2 62', 1], xr_chest: ['Hyperinflated lungs, no pneumothorax', 0] },
+    need: ['bronchodilator', 'bronchodilator2', 'steroid', 'o2'], dispo: 'ward', homeIfSev: 30, stay: 480, pay: 2200 });
+  def('copd', { name: 'COPD exacerbation', cat: 'Respiratory', w: 5, age: [55, 90], sev: [35, 65], grow: 20, pain: 1,
+    cc: ['More breathless than usual, coughing up more phlegm', "My emphysema is flaring up, can't catch my breath"],
+    hx: ['Increased cough, sputum purulent, breathless on minimal exertion for 3 days.', 'COPD on home oxygen. 40 pack-year smoker. Allergic to penicillin.'],
+    vit: { hr: 28, sbp: 4, spo2: -16, rr: 16, temp: 0.8 },
+    exam: { chest: 'Prolonged expiration, diffuse wheeze, barrel chest.', general: 'Pursed-lip breathing, tripod posture.' },
+    tests: { xr_chest: ['Hyperinflation, no consolidation', 0], abg: ['pH 7.33, pCO2 58 (HIGH), pO2 58', 1] },
+    need: ['bronchodilator', 'steroid', 'abx', 'o2'], dispo: 'ward', stay: 720, pay: 2600 });
+  def('pe', { name: 'Pulmonary embolism', cat: 'Respiratory', w: 3.5, age: [25, 85], sev: [35, 70], grow: 28, pain: 6, ecg: 'sinus_tach',
+    cc: ['Sudden sharp chest pain and shortness of breath', 'Coughed up blood and my calf is swollen'],
+    hx: ['Sudden pleuritic chest pain and breathlessness after a 12 hour flight. Right calf pain.', 'On oral contraceptive pill. Recent knee surgery.'],
+    vit: { hr: 42, sbp: -28, spo2: -18, rr: 14 },
+    exam: { extremities: 'Right calf swollen, warm and tender.', chest: 'Clear lungs, tachypnoeic.', heart: 'Tachycardic, loud P2.' },
+    tests: { ddimer: ['4.8 ug/mL (HIGH)', 1], ct_cta: ['Large saddle embolus in the main pulmonary arteries', 1], ecg: ['Sinus tachycardia, S1Q3T3', 1], troponin: ['0.06 ng/mL (mild rise)', 1], xr_chest: ['Clear', 0] },
+    need: ['anticoag', 'o2', 'analgesia_mild'], dispo: 'icu', stay: 1440, pay: 5000 });
+  def('ptx', { name: 'Spontaneous pneumothorax', cat: 'Respiratory', w: 3, age: [16, 40], sex: 'M', sev: [30, 55], grow: 12, pain: 6,
+    cc: ['Sudden stabbing chest pain and short of breath, tall and thin guy'],
+    hx: ['Sudden left chest pain at rest, breathless. Smokes cannabis.', 'Otherwise healthy. Tall and slim.'],
+    vit: { hr: 28, sbp: -12, spo2: -14, rr: 10 },
+    exam: { chest: 'Reduced air entry and hyper-resonant percussion on the left.' },
+    tests: { xr_chest: ['Large left pneumothorax (>40%), no tension', 1], fast: ['Absent lung sliding on the left', 1] },
+    need: ['chesttube', 'o2'], dispo: 'ward', stay: 720, pay: 3200 });
+  def('choking', { name: 'Airway obstruction (foreign body)', cat: 'Respiratory', w: 1.8, age: [2, 80], arr: 'amb', sev: [60, 80], grow: 120, pain: 3, crit: true,
+    cc: ['Choked on food at a restaurant, turning blue', 'Child swallowed a toy, silent cough, cannot speak'],
+    hx: ['Was eating when he suddenly grabbed his throat. Cannot speak or cough. Bystander tried abdominal thrusts.', 'No known medical history.'],
+    vit: { hr: 50, sbp: -10, spo2: -40, rr: -4, gcs: -8 },
+    exam: { general: 'Cyanotic, hands at throat, silent.', chest: 'No air entry, stridor.' },
+    tests: { xr_chest: ['Foreign body at the upper airway', 1] },
+    need: ['clear_airway'], dispo: 'ward', stay: 240, pay: 2500 });
+
+  // =============================================================== NEURO
+  def('stroke', { name: 'Ischaemic stroke', cat: 'Neuro', w: 5, age: [55, 92], arr: 'both', sev: [35, 60], grow: 18, pain: 1, ecg: 'af', onset: 90,
+    cc: ['Face drooping, slurred speech and weak right arm', "Can't move my right side and can't find my words"],
+    hx: ['Sudden onset of right arm weakness and speech difficulty. Last seen normal 90 minutes ago.', 'Atrial fibrillation (not on blood thinners), hypertension.'],
+    vit: { hr: 6, sbp: 38, rr: 2, gcs: -3 },
+    exam: { neuro: 'Right facial droop, right arm drift and weakness (3/5), expressive aphasia. NIHSS 11.', general: 'Awake but frightened, speech slurred.' },
+    tests: { ct_head: ['No hemorrhage. Early left MCA hyperdense sign. — ischaemic stroke, thrombolysis not contraindicated', 1], ecg: ['Atrial fibrillation 96 bpm', 1], glucose: ['110 mg/dL', 0], bmp: ['Normal', 0] },
+    need: ['thrombolytic'], dispo: 'icu', stay: 2880, pay: 6500 });
+  def('hem_stroke', { name: 'Hemorrhagic stroke (brain bleed)', cat: 'Neuro', w: 3, age: [45, 90], arr: 'both', sev: [45, 70], grow: 30, pain: 7, onset: 60,
+    cc: ['Worst headache of my life then collapsed', 'Sudden severe headache, vomiting, confused'],
+    hx: ['Thunderclap headache while lifting, then vomiting and drowsy.', 'Severe hypertension, non-compliant. On aspirin.'],
+    vit: { hr: -14, sbp: 55, rr: -6, gcs: -7 },
+    exam: { neuro: 'Drowsy GCS 11, right pupil sluggish, neck stiffness.', general: 'Vomiting, holding head.' },
+    tests: { ct_head: ['Large right basal ganglia hemorrhage with mass effect. NO thrombolysis!', 1], bmp: ['Normal', 0] },
+    need: ['antihypertensive', 'analgesia_mild'], dispo: 'icu', stay: 2880, pay: 7000 });
+  def('seizure', { name: 'Seizure / post-ictal', cat: 'Neuro', w: 4, age: [10, 80], arr: 'both', sev: [30, 55], grow: 25, pain: 2,
+    cc: ['Had a fit in the supermarket, still confused', 'Friend says I was shaking all over for a few minutes'],
+    hx: ['Witnessed generalised tonic-clonic seizure lasting 3 minutes. Tongue bitten, incontinent. Still drowsy.', 'Epilepsy — missed levetiracetam for a few days. Drank alcohol last night.'],
+    vit: { hr: 25, spo2: -6, gcs: -4 },
+    exam: { neuro: 'Post-ictal, drowsy GCS 13, no focal deficit. Tongue laceration.', general: 'Confused, tired.' },
+    tests: { glucose: ['84 mg/dL', 0], ct_head: ['No acute abnormality', 0], bmp: ['Normal', 0] },
+    need: ['anticonvulsant'], dispo: 'home', stay: 0, pay: 700 });
+  def('migraine', { name: 'Migraine', cat: 'Neuro', w: 6, age: [15, 55], sev: [5, 15], grow: 0, pain: 7,
+    cc: ['Pounding headache with flashing lights and vomiting', 'Throbbing one-sided headache, light hurts my eyes'],
+    hx: ['One-sided throbbing headache, aura beforehand, nausea. Similar episodes in the past.', 'Migraines since teens. No trauma.'],
+    exam: { neuro: 'No focal deficit, photophobia, neck supple.' },
+    tests: { ct_head: ['No acute abnormality', 0] },
+    need: ['analgesia_mild', 'antiemetic'], dispo: 'home', pay: 300 });
+  def('epidural', { name: 'Epidural hematoma (head injury)', cat: 'Trauma', w: 2.2, age: [10, 55], arr: 'amb', sev: [35, 55], grow: 40, pain: 6, mech: 'head',
+    cc: ['Hit on the head in a fight, was fine, now drowsy and vomiting', 'Fell off a bike without a helmet, lucid then collapsed'],
+    hx: ['Struck on the temple with a bottle, knocked out briefly, then seemed OK for an hour. Now headache and vomiting.', 'No medical history.'],
+    vit: { hr: -18, sbp: 45, rr: -6, gcs: -9 },
+    exam: { neuro: 'GCS 11, left pupil blown (dilated, non-reactive), right hemiparesis.', general: 'Left temporal scalp hematoma.' },
+    tests: { ct_head: ['Left temporal lentiform epidural hematoma with midline shift — needs emergent evacuation', 1], xr_limb: ['n/a', 0] },
+    need: ['analgesia_mild'], dispo: 'surg:craniotomy', floor: 40, pay: 11000, scene: { collar: 0.7, o2: 0.4 } });
+
+  // =============================================================== ABDOMEN
+  def('appendicitis', { name: 'Appendicitis', cat: 'Abdomen', w: 6, age: [10, 45], sev: [25, 50], grow: 14, pain: 7,
+    cc: ['Pain around my belly button that moved to the right lower side', 'Right lower abdominal pain, fever and nausea, no appetite'],
+    hx: ['Periumbilical pain 18 h ago migrated to right iliac fossa. Vomited twice, no appetite.', 'Fit and well. Last ate 6 hours ago.'],
+    vit: { hr: 30, sbp: -10, temp: 1.4 },
+    exam: { abdomen: 'Marked tenderness and guarding at McBurney point, positive Rovsing sign, rebound tenderness.', general: 'Lying still, flushed.' },
+    tests: { cbc: ['WBC 16.8 (HIGH), neutrophilia', 1], us_abd: ['Non-compressible appendix 11 mm with periappendiceal fluid', 1], ct_abd: ['Dilated inflamed appendix with fat stranding — acute appendicitis', 1], hcg: ['Negative', 0], ua: ['Trace leukocytes only', 0] },
+    need: ['abx', 'analgesia', 'fluids'], dispo: 'surg:appy', floor: 25, pay: 6500 });
+  def('cholecystitis', { name: 'Acute cholecystitis (gallbladder)', cat: 'Abdomen', w: 4, age: [30, 80], sev: [25, 50], grow: 12, pain: 7,
+    cc: ['Severe right upper belly pain after a fatty meal', 'Right upper quadrant pain going to my shoulder, with fever'],
+    hx: ['Constant RUQ pain after fried food for 12 h, nausea, fever.', 'Overweight, 40s. Previous gallstones on scan.'],
+    vit: { hr: 25, temp: 1.5, sbp: -8 },
+    exam: { abdomen: 'RUQ tenderness with Murphy sign positive, guarding.' },
+    tests: { us_abd: ['Gallstones, thick-walled gallbladder with pericholecystic fluid — acute cholecystitis', 1], lipase: ['Lipase normal, ALP mildly raised', 1], cbc: ['WBC 15.1 (HIGH)', 1] },
+    need: ['abx', 'analgesia', 'fluids'], dispo: 'surg:chole', floor: 25, pay: 7000 });
+  def('sbo', { name: 'Small bowel obstruction', cat: 'Abdomen', w: 3, age: [35, 90], sev: [30, 55], grow: 16, pain: 6,
+    cc: ['Crampy belly pain, vomiting, bloated, no gas passed for 2 days'],
+    hx: ['Colicky abdominal pain, repeated vomiting (bilious), no stool or flatus 2 days.', 'Previous appendix and bowel surgery 10 years ago.'],
+    vit: { hr: 28, sbp: -18 },
+    exam: { abdomen: 'Distended, tinkling bowel sounds, tender, healed midline scar.' },
+    tests: { xr_limb: ['n/a', 0], ct_abd: ['Dilated small bowel with transition point — adhesive small bowel obstruction', 1], bmp: ['K 3.1 (LOW), Cr 1.4, dehydrated', 1], lactate: [() => `${f(2.1, 3.6)} mmol/L (HIGH)`, 1] },
+    need: ['fluids', 'analgesia', 'antiemetic', 'ngt'], dispo: 'surg:bowel', floor: 30, pay: 8000 });
+  def('perf_ulcer', { name: 'Perforated ulcer (peritonitis)', cat: 'Abdomen', w: 2, age: [40, 85], sev: [45, 70], grow: 30, pain: 10,
+    cc: ['Sudden, excruciating stomach pain, board-hard belly'],
+    hx: ['Sudden severe epigastric pain 3 h ago spreading across abdomen. Chronic NSAID use for arthritis.', 'Ulcer history, drinks alcohol heavily.'],
+    vit: { hr: 38, sbp: -35, temp: 1.2 },
+    exam: { abdomen: 'Rigid board-like abdomen, rebound and guarding everywhere, absent bowel sounds.', general: 'Lying motionless, sweaty.' },
+    tests: { xr_chest: ['Free air under the diaphragm (pneumoperitoneum)', 1], ct_abd: ['Perforated gastric ulcer with free air and fluid', 1], lactate: [() => `${f(3, 5.5)} mmol/L (HIGH)`, 1], cbc: ['WBC 19.0 (HIGH)', 1] },
+    need: ['abx', 'abx_anaer', 'fluids', 'analgesia'], dispo: 'surg:lap_repair', floor: 40, pay: 10000 });
+  def('hernia', { name: 'Strangulated hernia', cat: 'Abdomen', w: 2, age: [35, 85], sex: 'M', sev: [30, 55], grow: 18, pain: 8,
+    cc: ['A painful lump in my groin that will not go back in'],
+    hx: ['Known groin lump for years, now irreducible and very painful for 6 h. Vomiting.', 'Heavy lifting job.'],
+    vit: { hr: 20, temp: 0.8, sbp: -8 },
+    exam: { abdomen: 'Tender firm irreducible lump in the right groin, overlying skin red. Distended abdomen.' },
+    tests: { ct_abd: ['Incarcerated right inguinal hernia containing ischaemic bowel loop', 1], lactate: [() => `${f(2.4, 4)} mmol/L (HIGH)`, 1], cbc: ['WBC 14.5', 1] },
+    need: ['analgesia', 'fluids', 'abx'], dispo: 'surg:hernia', floor: 25, pay: 6000 });
+  def('gastro', { name: 'Gastroenteritis with dehydration', cat: 'Abdomen', w: 8, age: [5, 85], sev: [10, 30], grow: 3, pain: 3,
+    cc: ['Vomiting and diarrhoea since last night', 'Stomach bug, can not keep anything down'],
+    hx: ['Watery diarrhoea and vomiting for 24 h after takeaway food; others at home sick too.', 'Healthy.'],
+    vit: { hr: 22, sbp: -14, temp: 0.6 },
+    exam: { abdomen: 'Diffuse mild tenderness, hyperactive bowel sounds, no peritonism. Dry mucous membranes.' },
+    tests: { bmp: ['K 3.2 (low), Cr 1.3 (dehydrated)', 1], ua: ['Concentrated urine, ketones 2+', 1] },
+    need: ['fluids', 'antiemetic'], dispo: 'home', pay: 350 });
+  def('aaa', { name: 'Ruptured abdominal aortic aneurysm', cat: 'Abdomen', w: 1.2, age: [62, 92], sex: 'M', arr: 'amb', sev: [65, 85], grow: 95, pain: 9, crit: true,
+    bleed: { kind: 'torso', rate: [60, 100] },
+    cc: ['Sudden severe back and belly pain then collapsed', 'Tearing pain in my back, feel faint'],
+    hx: ['Sudden severe abdominal and back pain. Known AAA 5.8 cm being watched.', 'Hypertension, heavy smoker.'],
+    vit: { hr: 55, sbp: -70, rr: 14 },
+    exam: { abdomen: 'Pulsatile tender abdominal mass.', general: 'Grey, clammy, near-collapse.' },
+    tests: { fast: ['Free fluid in the abdomen and retroperitoneum', 1], ct_abd: ['Ruptured infrarenal AAA with large retroperitoneal hematoma', 1], cbc: ['Hb 8.8 g/dL (dropping)', 1], typecross: ['Crossmatched, 6 units available', 0] },
+    need: ['blood', 'iv_access'], dispo: 'surg:aaa', floor: 60, pay: 15000, scene: { iv: 0.5, o2: 0.5 } });
+  def('stone', { name: 'Renal colic (kidney stone)', cat: 'Abdomen', w: 5, age: [20, 65], sev: [10, 30], grow: 2, pain: 9,
+    cc: ['Agonising pain in my side going to my groin, cannot sit still'],
+    hx: ['Sudden severe right flank pain radiating to the groin, nausea, blood in urine.', 'Previous kidney stone.'],
+    vit: { hr: 18, temp: 0.2 },
+    exam: { abdomen: 'Right flank tenderness, soft abdomen. Writhing around.' },
+    tests: { ua: ['Hematuria 3+, no nitrite', 1], ct_abd: ['5 mm obstructing right ureteric stone, mild hydronephrosis', 1], bmp: ['Cr 1.2', 0] },
+    need: ['analgesia', 'antiemetic'], dispo: 'home', pay: 700 });
+  def('ectopic', { name: 'Ruptured ectopic pregnancy', cat: 'OB/GYN', w: 2, age: [18, 42], sex: 'F', sev: [45, 70], grow: 45, pain: 8, bleed: { kind: 'torso', rate: [25, 45] },
+    cc: ['Severe lower belly pain and faint, missed my period'],
+    hx: ['Sharp lower abdominal pain, light-headed, 7 weeks since last period, spotting.', 'Previous pelvic infection. Not on contraception.'],
+    vit: { hr: 42, sbp: -48 },
+    exam: { abdomen: 'Lower abdominal tenderness with guarding and cervical excitation.', general: 'Pale and faint.' },
+    tests: { hcg: ['POSITIVE', 1], fast: ['Large amount of free fluid in Morison pouch and pelvis', 1], us_pelvic: ['Empty uterus, adnexal mass, free fluid — ruptured ectopic', 1], cbc: ['Hb 9.5 g/dL', 1] },
+    need: ['blood', 'iv_access'], dispo: 'surg:ectopic', floor: 45, pay: 9000 });
+  def('torsion', { name: 'Testicular torsion', cat: 'Abdomen', w: 2, age: [10, 28], sex: 'M', sev: [25, 45], grow: 20, pain: 9,
+    cc: ['Sudden severe pain in my testicle, woke me up from sleep'],
+    hx: ['Woke 3 h ago with excruciating left scrotal pain and vomiting. No trauma.', 'Healthy teenager.'],
+    exam: { abdomen: 'Left testis high-riding, horizontal lie, very tender; absent cremasteric reflex.' },
+    tests: { us_scrotal: ['No flow to the left testis — torsion', 1], ua: ['Normal', 0] },
+    need: ['analgesia'], dispo: 'surg:torsion', floor: 25, pay: 5500 });
+
+  // =============================================================== TRAUMA
+  def('limb_bleed', { name: 'Arterial limb hemorrhage', cat: 'Trauma', w: 3, age: [16, 70], arr: 'amb', sev: [50, 70], grow: 15, pain: 8, crit: true,
+    bleed: { kind: 'limb', rate: [90, 160] },
+    cc: ['Machete / saw cut to the thigh, blood spraying', 'Glass through the arm, bleeding heavily'],
+    hx: ['Deep laceration with pulsatile bleeding from the limb. Bystander applied a towel.', 'No known history.'],
+    vit: { hr: 30, sbp: -30, gcs: -2 },
+    exam: { general: 'Pale, frightened, soaked in blood.', extremities: '__BLEED__' },
+    tests: { cbc: ['Hb 9.1 g/dL', 1], typecross: ['Crossmatched, 4 units available', 0], xr_limb: ['No fracture. Soft-tissue gas.', 0] },
+    need: ['bleed_control', 'blood', 'txa'], dispo: 'surg:vascular', floor: 40, pay: 9500, scene: { tourniquet: 0.4, iv: 0.5, o2: 0.4 } });
+  def('mangled', { name: 'Mangled limb (crush / amputation)', cat: 'Trauma', w: 1.5, age: [20, 65], arr: 'amb', sev: [55, 75], grow: 25, pain: 10, crit: true,
+    bleed: { kind: 'limb', rate: [70, 130] },
+    cc: ['Arm caught in farm machinery, hand crushed', 'Leg crushed under a forklift'],
+    hx: ['Limb pinned in machinery for 20 minutes. Severe bleeding, nearly severed.', 'Healthy worker.'],
+    vit: { hr: 34, sbp: -34, gcs: -3 },
+    exam: { general: 'In severe pain, pale.', extremities: '__BLEED__ Limb is mangled and non-salvageable.' },
+    tests: { xr_limb: ['Comminuted open fractures with segmental bone loss', 1], cbc: ['Hb 9.4 g/dL', 1] },
+    need: ['bleed_control', 'blood', 'analgesia', 'abx'], dispo: 'surg:amput', floor: 40, pay: 11000, scene: { tourniquet: 0.5, iv: 0.5 } });
+  def('gsw_chest', { name: 'Penetrating chest trauma (tension pneumothorax / hemothorax)', cat: 'Trauma', w: 2, age: [16, 60], arr: 'amb', sev: [55, 75], grow: 55, pain: 9, crit: true,
+    bleed: { kind: 'torso', rate: [30, 60] }, tensionPtx: true,
+    cc: ['Stabbed in the left chest, struggling to breathe', 'Gunshot wound to the chest'],
+    hx: ['Single stab wound left 5th intercostal space 15 minutes ago. Increasing breathlessness.', 'Unknown medical history.'],
+    vit: { hr: 45, sbp: -55, spo2: -28, rr: 18 },
+    exam: { general: 'Anxious, cyanotic, distended neck veins.', chest: 'Absent breath sounds on left, hyper-resonant, trachea deviated to the right. Wound with bubbling.', heart: 'Tachycardic, muffled.' },
+    tests: { fast: ['Absent lung sliding left, hemothorax, no pericardial fluid', 1], xr_chest: ['Large left hemopneumothorax with mediastinal shift', 1], cbc: ['Hb 10.1 g/dL', 1] },
+    need: ['decompress', 'blood', 'o2', 'iv_access'], dispo: 'surg:thoracotomy', floor: 45, pay: 13000, scene: { o2: 0.6, iv: 0.5, chestseal: 0.4 } });
+  def('open_chest', { name: 'Open (sucking) chest wound', cat: 'Trauma', w: 1.5, age: [16, 60], arr: 'amb', sev: [45, 65], grow: 40, pain: 8, crit: true,
+    cc: ['Shot in the chest, hear air sucking through the hole'],
+    hx: ['Gunshot wound to the right chest, bubbling hole, increasing dyspnoea.', 'Unknown.'],
+    vit: { hr: 35, sbp: -30, spo2: -24, rr: 18 },
+    exam: { chest: 'Open right chest wound, air bubbling with each breath, reduced air entry right.', general: 'Pale, short of breath.' },
+    tests: { xr_chest: ['Right pneumothorax with rib fractures', 1], fast: ['Absent lung sliding right', 1] },
+    need: ['chestseal', 'chesttube', 'o2'], dispo: 'ward', stay: 1440, pay: 6500, scene: { o2: 0.5 } });
+  def('splenic', { name: 'Ruptured spleen (blunt abdominal trauma)', cat: 'Trauma', w: 3, age: [14, 70], arr: 'amb', sev: [50, 72], grow: 50, pain: 8, crit: true, bleed: { kind: 'torso', rate: [40, 80] },
+    cc: ['Car crash into a wall, belly pain and dizzy', 'Fell from a bike handlebars into my belly'],
+    hx: ['Restrained driver, airbag deployed. Left upper abdominal pain, shoulder-tip pain.', 'No known medical problems.'],
+    vit: { hr: 48, sbp: -55, rr: 12, gcs: -2 },
+    exam: { abdomen: 'Left upper quadrant tenderness with seat-belt bruise and guarding, distended.', general: 'Pale, cold hands.' },
+    tests: { fast: ['Free fluid in left upper quadrant (Morison / splenorenal)', 1], cbc: ['Hb 8.7 g/dL (falling)', 1], ct_abd: ['Grade IV splenic laceration with hemoperitoneum', 1], typecross: ['Crossmatched, 4 units available', 0] },
+    need: ['blood', 'iv_access', 'txa'], dispo: 'surg:trauma_lap', floor: 45, pay: 14000, scene: { collar: 0.8, iv: 0.5, o2: 0.5 } });
+  def('polytrauma', { name: 'Major polytrauma (pelvic fracture, MVC)', cat: 'Trauma', w: 2, age: [16, 65], arr: 'amb', sev: [60, 80], grow: 60, pain: 9, crit: true, bleed: { kind: 'pelvis', rate: [50, 90] },
+    cc: ['High-speed motorbike crash, pelvic pain, confused', 'Thrown from a car in a rollover'],
+    hx: ['Motorbike v car at 60 mph, helmeted, thrown 20 m. Pelvic pain, confused.', 'Unknown.'],
+    vit: { hr: 52, sbp: -58, spo2: -10, rr: 14, gcs: -5 },
+    exam: { general: 'Confused, pale. Pelvis unstable on gentle compression, leg shortened and externally rotated.', abdomen: 'Bruising over the flanks, tender.' },
+    tests: { xr_pelvis: ['Open-book pelvic fracture with symphysis diastasis', 1], fast: ['Free fluid in the pelvis', 1], cbc: ['Hb 8.4 g/dL', 1], ct_abd: ['Pelvic hematoma, active extravasation, liver contusion', 1] },
+    need: ['binder', 'blood', 'collar', 'txa'], dispo: 'surg:trauma_lap', floor: 50, pay: 16000, scene: { collar: 0.9, iv: 0.6, o2: 0.7 } });
+  def('femur_fx', { name: 'Femur fracture', cat: 'Trauma', w: 3, age: [16, 85], arr: 'both', sev: [30, 50], grow: 8, pain: 9, bleed: { kind: 'internal_thigh', rate: [6, 12] },
+    cc: ['Fell off a ladder, thigh deformed and agonising', 'Cannot move my leg after a crash, thigh looks bent'],
+    hx: ['Fell 3 m from a ladder onto the right leg. Thigh deformed and swollen.', 'On no blood thinners. NKDA.'],
+    vit: { hr: 28, sbp: -18 },
+    exam: { extremities: 'Right thigh deformed, shortened and externally rotated with swelling; distal pulses present.' },
+    tests: { xr_limb: ['Displaced mid-shaft right femur fracture', 1], cbc: ['Hb 11.2 g/dL', 1] },
+    need: ['splint', 'analgesia', 'fluids'], dispo: 'surg:orif', floor: 15, pay: 8500 });
+  def('hip_fx', { name: 'Hip fracture (fall)', cat: 'Trauma', w: 4, age: [70, 98], arr: 'amb', sev: [20, 40], grow: 5, pain: 8,
+    cc: ['Elderly woman fell at home, can not stand, leg looks short'],
+    hx: ['Tripped on a rug, landed on the left hip. Unable to weight-bear. Lay on the floor 2 h.', 'Osteoporosis, on apixaban, mild dementia.'],
+    vit: { hr: 14, sbp: -10 },
+    exam: { extremities: 'Left leg shortened and externally rotated; groin tenderness.' },
+    tests: { xr_limb: ['Displaced left femoral neck fracture', 1], cbc: ['Hb 10.4, Plt 220', 1], bmp: ['Cr 1.3, K 4.5', 0] },
+    need: ['analgesia', 'fluids'], dispo: 'surg:hip', pay: 8000 });
+  def('wrist_fx', { name: 'Wrist fracture (Colles)', cat: 'Trauma', w: 6, age: [10, 80], sev: [5, 15], grow: 0, pain: 6,
+    cc: ['Fell on my outstretched hand, wrist looks bent'],
+    hx: ['Slipped on ice, fell on the right hand. Wrist deformed and painful.', 'Healthy.'],
+    exam: { extremities: 'Dinner-fork deformity of the right wrist, swelling, radial pulse intact.' },
+    tests: { xr_limb: ['Distal radius fracture with dorsal angulation — Colles fracture', 1] },
+    need: ['splint', 'analgesia'], dispo: 'home', pay: 600 });
+  def('dislocation', { name: 'Shoulder dislocation', cat: 'Trauma', w: 4, age: [16, 60], sev: [5, 15], grow: 0, pain: 8,
+    cc: ['Fell snowboarding, shoulder popped out'],
+    hx: ['Fell on an outstretched arm. Cannot move the left shoulder, squared-off appearance.', 'Previous dislocations.'],
+    exam: { extremities: 'Left shoulder squared-off with empty glenoid; axillary nerve sensation intact.' },
+    tests: { xr_limb: ['Anterior shoulder dislocation, no fracture', 1] },
+    need: ['reduced', 'analgesia'], dispo: 'home', pay: 750 });
+  def('lac', { name: 'Deep laceration', cat: 'Trauma', w: 6, age: [5, 70], sev: [5, 15], grow: 0, pain: 4, bleed: { kind: 'scalp', rate: [3, 8], minor: true },
+    cc: ['Cut my hand on broken glass, will not stop bleeding'],
+    hx: ['Sliced palm on glass 1 h ago. Bleeding controlled with pressure but gaping.', 'Tetanus up to date.'],
+    exam: { extremities: '4 cm gaping laceration of the palm, tendon intact, sensation normal.' },
+    tests: { xr_limb: ['No foreign body or fracture', 0] },
+    need: ['pressure', 'sutured'], dispo: 'home', pay: 450 });
+  def('compartment', { name: 'Compartment syndrome', cat: 'Trauma', w: 1.5, age: [14, 60], sev: [35, 55], grow: 20, pain: 10,
+    cc: ['Leg pain getting worse after cast, the pain is unbearable'],
+    hx: ['Tibia fracture treated 6 h ago in a cast. Pain increasing despite analgesics, pins and needles.', 'Healthy.'],
+    vit: { hr: 20, sbp: 12 },
+    exam: { extremities: 'Tense, swollen calf; pain on passive stretch of the toes; pulses still present (late sign). Pale and paraesthetic.' },
+    tests: { xr_limb: ['Healing tibial fracture in cast', 0], cbc: ['CK 12000 (HIGH)', 1], bmp: ['K 5.2', 1] },
+    need: ['analgesia'], dispo: 'surg:fasciotomy', floor: 30, pay: 8000 });
+  def('art_occlusion', { name: 'Acute limb ischaemia (arterial clot)', cat: 'Vascular', w: 1.8, age: [55, 90], sev: [35, 55], grow: 22, pain: 9, ecg: 'af',
+    cc: ['My leg went cold, white and numb all of a sudden'],
+    hx: ['Sudden severe left leg pain and numbness 3 h ago. Atrial fibrillation, not anticoagulated.', 'Smoker.'],
+    exam: { extremities: 'Left leg cold, pale and mottled; no popliteal or pedal pulses; reduced sensation.', heart: 'Irregularly irregular.' },
+    tests: { ecg: ['Atrial fibrillation', 1], ct_cta: ['Occlusive embolus in the left superficial femoral artery', 1], bmp: ['K 5.0, Cr 1.2', 0] },
+    need: ['anticoag', 'analgesia'], dispo: 'surg:embolectomy', floor: 25, pay: 9000 });
+  def('burn', { name: 'Major burns', cat: 'Trauma', w: 1.8, age: [5, 70], arr: 'amb', sev: [40, 65], grow: 25, pain: 10,
+    cc: ['House fire, burns to arms and chest'],
+    hx: ['Pulled from a house fire, burns to both arms and anterior chest (~25% TBSA). Smoke inhalation.', 'Unknown.'],
+    vit: { hr: 38, sbp: -25, spo2: -14, rr: 12 },
+    exam: { general: 'Soot in the mouth, hoarse voice.', extremities: 'Partial and full-thickness burns to both arms and chest, blistering.' },
+    tests: { abg: ['COHb 18% (HIGH), pO2 70, lactate raised', 1], xr_chest: ['Clear', 0] },
+    need: ['fluids', 'analgesia', 'o2', 'cool'], dispo: 'icu', stay: 4320, pay: 12000, scene: { o2: 0.6, iv: 0.4 } });
+
+  // =============================================================== OB/GYN
+  def('labor', { name: 'Obstructed labor with fetal distress', cat: 'OB/GYN', w: 2, age: [18, 40], sex: 'F', arr: 'both', sev: [30, 50], grow: 30, pain: 8,
+    cc: ['In labour for 18 hours, baby heart rate dropping'],
+    hx: ['39 weeks pregnant, contractions 18 h, membranes ruptured with green fluid. Baby not descending.', 'First pregnancy. No known problems.'],
+    vit: { hr: 22, sbp: 10 },
+    exam: { abdomen: 'Term uterus, strong contractions. Fetal heart rate 80–90 bpm with late decelerations on CTG.' },
+    tests: { us_pelvic: ['Cephalopelvic disproportion, fetal bradycardia', 1] },
+    need: ['o2', 'iv_access'], dispo: 'surg:csection', floor: 25, pay: 9000 });
+  def('eclampsia', { name: 'Pre-eclampsia / eclampsia', cat: 'OB/GYN', w: 1.5, age: [18, 42], sex: 'F', sev: [45, 70], grow: 35, pain: 4,
+    cc: ['36 weeks pregnant with bad headache and swelling, then had a fit'],
+    hx: ['36 weeks pregnant, severe headache, blurred vision, ankle and face swelling; one seizure at home.', 'First pregnancy.'],
+    vit: { hr: 14, sbp: 70, gcs: -4 },
+    exam: { general: 'Face and hands swollen, hyper-reflexic with clonus.', neuro: 'Drowsy, brisk reflexes.' },
+    tests: { ua: ['Protein 3+', 1], cbc: ['Platelets 82 (LOW), LFTs raised', 1], bmp: ['Cr 1.4', 1] },
+    need: ['mag', 'antihypertensive'], dispo: 'icu', stay: 1440, pay: 6000 });
+  def('pph', { name: 'Postpartum hemorrhage', cat: 'OB/GYN', w: 1.2, age: [18, 42], sex: 'F', arr: 'amb', sev: [55, 75], grow: 60, pain: 5, crit: true, bleed: { kind: 'torso', rate: [60, 110] },
+    cc: ['Gave birth at home 1 hour ago and still bleeding heavily'],
+    hx: ['Home birth, heavy ongoing vaginal bleeding after delivery of the placenta; fundus boggy.', 'Fourth baby. No known medical history.'],
+    vit: { hr: 52, sbp: -55, gcs: -2 },
+    exam: { abdomen: 'Boggy, atonic uterus above the umbilicus; heavy vaginal bleeding.', general: 'Pale and faint.' },
+    tests: { cbc: ['Hb 7.6 g/dL', 1], typecross: ['Crossmatched, 4 units available', 0] },
+    need: ['oxytocin', 'blood', 'txa', 'iv_access'], dispo: 'surg:hyst', floor: 40, pay: 12000, scene: { iv: 0.4 } });
+
+  // =============================================================== ENDOCRINE / TOX / ID
+  def('dka', { name: 'Diabetic ketoacidosis', cat: 'Metabolic', w: 3, age: [12, 60], sev: [40, 65], grow: 18, pain: 3,
+    cc: ['Vomiting, very thirsty, breathing fast, diabetic', 'Confused with fruity breath, type 1 diabetic'],
+    hx: ['Type 1 diabetic, ran out of insulin 3 days ago. Vomiting, abdominal pain, drowsy.', 'Allergic to sulfa drugs.'],
+    vit: { hr: 38, sbp: -28, rr: 18, gcs: -3 },
+    exam: { general: 'Dry, drowsy, deep sighing (Kussmaul) breathing, fruity breath.' },
+    tests: { glucose: ['HI (>600 mg/dL)', 1], abg: ['pH 7.08, HCO3 6, pCO2 18 — severe metabolic acidosis', 1], bmp: ['K 5.6, anion gap 30, ketones large', 1], ua: ['Glucose 4+, ketones 3+', 1] },
+    need: ['fluids', 'insulin'], dispo: 'icu', stay: 1440, pay: 5500 });
+  def('hypoglyc', { name: 'Severe hypoglycemia', cat: 'Metabolic', w: 4, age: [15, 85], arr: 'both', sev: [40, 65], grow: 35, pain: 0, unconscious: true,
+    cc: ['Diabetic found drowsy and sweaty, not making sense'],
+    hx: ['Took insulin but skipped dinner. Found confused and sweating by wife.', 'Type 1 diabetes.'],
+    vit: { hr: 25, gcs: -9 },
+    exam: { general: 'Drowsy, clammy, tremulous. GCS 10.', neuro: 'Confused, no focal deficit.' },
+    tests: { glucose: [() => `${f(18, 38, 0)} mg/dL (CRITICALLY LOW)`, 1] },
+    need: ['dextrose'], dispo: 'home', pay: 600 });
+  def('opioid_od', { name: 'Opioid overdose', cat: 'Tox', w: 4, age: [18, 60], arr: 'amb', sev: [55, 80], grow: 45, pain: 0, unconscious: true, crit: true,
+    cc: ['Found slumped in an alley, turning blue, tiny pupils', 'Collapsed after using drugs'],
+    hx: ['Found with a needle beside him, breathing 4 times a minute. No history available.', 'Unknown; track marks on arms.'],
+    vit: { hr: -22, sbp: -26, spo2: -34, rr: -14, gcs: -11 },
+    exam: { general: 'Unresponsive, blue lips.', neuro: 'Pinpoint pupils, GCS 6.', chest: 'Slow shallow respirations.' },
+    tests: { tox: ['Opiates POSITIVE, fentanyl POSITIVE', 1], glucose: ['112 mg/dL', 0], abg: ['pH 7.18, pCO2 78 (HIGH), pO2 44', 1] },
+    need: ['naloxone', 'bvm_or_o2'], dispo: 'ward', stay: 360, pay: 2200, scene: { o2: 0.4 } });
+  def('anaphylaxis', { name: 'Anaphylaxis', cat: 'Allergy', w: 3, age: [5, 70], arr: 'both', sev: [50, 75], grow: 90, pain: 2, crit: true,
+    cc: ['Ate a peanut and my lips and throat are swelling, hives all over', 'Bee sting and now I can not breathe'],
+    hx: ['Ate a cookie containing nuts 10 minutes ago. Hives, lip swelling, wheeze, dizzy.', 'Known nut allergy. EpiPen at home (not used).'],
+    vit: { hr: 50, sbp: -52, spo2: -16, rr: 12 },
+    exam: { general: 'Urticaria all over, swollen lips and tongue, anxious.', chest: 'Widespread wheeze, stridor.' },
+    tests: { abg: ['pO2 68, lactate 3.1', 1] },
+    need: ['epi', 'fluids', 'o2'], dispo: 'ward', stay: 360, pay: 3000 });
+  def('sepsis', { name: 'Septic shock (urosepsis)', cat: 'Infection', w: 4, age: [40, 92], arr: 'both', sev: [45, 70], grow: 35, pain: 3,
+    cc: ['Fever, confused and very weak, UTI symptoms', 'Rigors, low blood pressure, burning when I pee'],
+    hx: ['3 days of dysuria then fevers and rigors. Now confused and very weak.', 'Diabetes, recent catheter. Allergic to penicillin.'],
+    vit: { hr: 48, sbp: -50, rr: 14, temp: 2.4, gcs: -3 },
+    exam: { general: 'Febrile, mottled, confused.', abdomen: 'Suprapubic and right flank tenderness.' },
+    tests: { lactate: [() => `${f(3.5, 6.5)} mmol/L (HIGH)`, 1], cbc: ['WBC 22.0 (HIGH), bands present', 1], ua: ['Nitrites +, leukocytes 3+, bacteria', 1], bcx: ['Pending', 1], bmp: ['Cr 2.1 (AKI)', 1] },
+    need: ['abx', 'fluids', 'pressor_if_low'], dispo: 'icu', stay: 2880, pay: 6500 });
+  def('pyelo', { name: 'UTI / uncomplicated pyelonephritis', cat: 'Infection', w: 6, age: [18, 70], sex: 'F', sev: [10, 25], grow: 4, pain: 4,
+    cc: ['Burning when I pee, back pain and fever'],
+    hx: ['Dysuria and frequency for 3 days, now loin pain and temp 38.5.', 'Healthy.'],
+    vit: { hr: 15, temp: 1.4 }, exam: { abdomen: 'Mild right loin tenderness.' },
+    tests: { ua: ['Nitrites +, leukocytes 3+, blood trace', 1], hcg: ['Negative', 0], cbc: ['WBC 12.3', 1] },
+    need: ['abx', 'analgesia_mild'], dispo: 'home', pay: 400 });
+  def('abscess', { name: 'Skin abscess', cat: 'Infection', w: 5, age: [18, 70], sev: [8, 20], grow: 2, pain: 6,
+    cc: ['Painful red lump on my buttock that keeps growing'],
+    hx: ['5 days of a growing painful lump, now hot and fluctuant. Low-grade fever.', 'IV drug user in the past.'],
+    vit: { temp: 0.6 }, exam: { extremities: '5 cm tender fluctuant red mass, surrounding cellulitis.' },
+    tests: { cbc: ['WBC 13.2', 1], us_abd: ['Fluid collection 4 cm — abscess', 1] },
+    need: ['abx_mrsa', 'analgesia_mild'], dispo: 'surg:id', floor: 5, pay: 900 });
+  def('septic_joint', { name: 'Septic arthritis (knee)', cat: 'Infection', w: 2, age: [18, 85], sev: [30, 50], grow: 14, pain: 9,
+    cc: ['Hot, swollen, red knee and fever, cannot walk on it'],
+    hx: ['2 days of increasing knee pain and swelling, fevers. Had a recent knee injection.', 'Rheumatoid arthritis on immunosuppression.'],
+    vit: { hr: 24, temp: 1.7 }, exam: { extremities: 'Hot swollen right knee, unable to bear weight, any movement is agonising.' },
+    tests: { cbc: ['WBC 17.0 (HIGH), CRP 240', 1], xr_limb: ['Large effusion, no fracture', 1], bcx: ['Pending', 1] },
+    need: ['abx', 'abx_mrsa', 'analgesia'], dispo: 'surg:washout', floor: 20, pay: 7500 });
+  def('heatstroke', { name: 'Heat stroke', cat: 'Environmental', w: 1.5, age: [16, 70], arr: 'amb', sev: [50, 75], grow: 50, pain: 1, crit: true,
+    cc: ['Collapsed running a marathon in the heat, confused and burning hot'],
+    hx: ['Collapsed at mile 20 of a hot-day marathon, delirious, stopped sweating.', 'Healthy runner.'],
+    vit: { hr: 45, sbp: -22, rr: 12, temp: 3.5, gcs: -6 },
+    exam: { general: 'Hot dry skin, delirious, GCS 11.' },
+    tests: { bmp: ['Cr 1.9, K 5.4, CK 8000', 1], glucose: ['98 mg/dL', 0] },
+    need: ['cool', 'fluids'], dispo: 'icu', stay: 1440, pay: 5000 });
+  def('hypothermia', { name: 'Hypothermia', cat: 'Environmental', w: 1.2, age: [20, 85], arr: 'amb', sev: [45, 70], grow: 25, pain: 0, unconscious: true,
+    cc: ['Homeless man found outside in the snow, cold and unresponsive'],
+    hx: ['Found curled up in sub-zero temperatures, shivering stopped.', 'Unknown; alcohol smell.'],
+    vit: { hr: -34, sbp: -30, rr: -8, temp: -7, gcs: -8 },
+    exam: { general: 'Ice-cold skin, pale, slow movement, GCS 9.' },
+    tests: { glucose: ['72 mg/dL', 0], ethanol: ['180 mg/dL', 1] },
+    need: ['warm', 'fluids'], dispo: 'icu', stay: 1440, pay: 4500 });
+  def('agitation', { name: 'Acute agitation / drug-induced psychosis', cat: 'Psychiatric', w: 5, age: [18, 55], arr: 'both', sev: [30, 55], grow: 12, pain: 0, agit: 80,
+    cc: ['Screaming and threatening staff, brought by police', 'Violent and paranoid after using methamphetamine'],
+    hx: ['Brought in by police. Shouting that people are after him. Used methamphetamine today.', 'Known drug use. History unreliable.'],
+    vit: { hr: 38, sbp: 32, temp: 1.0, rr: 6 },
+    exam: { general: 'Agitated, sweating, pacing, aggressive.', neuro: 'Dilated pupils, paranoid, oriented to self only.' },
+    tests: { tox: ['Amphetamines POSITIVE', 1], glucose: ['120 mg/dL', 0], bmp: ['CK 900', 1] },
+    need: ['sedation', 'restraint'], dispo: 'home', stay: 0, pay: 800 });
+})(typeof globalThis !== 'undefined' ? globalThis : window);

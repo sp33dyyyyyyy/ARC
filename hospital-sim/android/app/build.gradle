@@ -1,0 +1,34 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mercygeneral.ersim'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.mercygeneral.ersim'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        release { minifyEnabled false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets {
+        main { assets.srcDirs = ["$buildDir/generated/www"] }
+    }
+}
+
+// The game is plain HTML/JS in ../../web — copy it into the APK assets (single source of truth).
+tasks.register('copyWeb', Copy) {
+    from "${rootDir}/../web"
+    into "$buildDir/generated/www/www"
+}
+preBuild.dependsOn 'copyWeb'
