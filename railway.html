@@ -100,8 +100,9 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
     <div class="grp">
       <button id="bSave">Save</button><button id="bLoad">Load</button>
       <button id="bExport">Export JSON</button><button id="bImport">Import</button>
-      <select id="selExample"><option value="">Examples…</option><option value="oval">Simple oval</option><option value="eight">Figure-eight with siding</option><option value="terminus">Branch-line terminus</option><option value="blank">Blank layout</option></select>
+      <select id="selExample"><option value="">Examples…</option><option value="oval">Simple oval</option><option value="eight">Figure-eight with siding</option><option value="terminus">Branch-line terminus</option><option value="twin">Twin loops (6 trains)</option><option value="blank">Blank layout</option></select>
       <button id="bBlocks">Blocks<kbd>L</kbd></button>
+      <button id="bNight">Night<kbd>K</kbd></button><button id="bSound">Sound<kbd>M</kbd></button>
       <button id="bHelp">Help<kbd>H</kbd></button>
     </div>
     <input type="file" id="fileIn" accept=".json,application/json" style="display:none">
@@ -141,7 +142,7 @@ const sim={            // UI / simulation flags
   sel:null,            // {type:'train'|'station', id}
   rot:0, mir:0, piece:'straight', tpiece:'turnoutR',   // placement state
   trainSpec:{loco:'diesel',coach:3,boxcar:0,tank:0,hopper:0,mode:'manual'}, trainFlip:false,
-  hover:null, ghost:null, acc:0
+  hover:null, ghost:null, acc:0, night:0, nightV:0
 };
 const W={               // the world / layout
   pieces:[],byId:new Map(),nextId:1,signals:[],joints:[],jointSet:new Set(),stations:[],trains:[],
@@ -168,10 +169,10 @@ const UNDO=[];
 // ends: [dx,dy,leavingDir]   paths: [endA,endB,tangentFactor,isLine]
 const TPL={
   straight:{name:'Straight',ends:[[0,0,4],[1,0,0]],paths:[[0,1,1/3,1]]},
-  curve:{name:'Curve 90°',ends:[[0,0,4],[1,1,2]],paths:[[0,1,0.3905]]},
-  bend:{name:'Bend 45°',ends:[[0,0,4],[2,1,1]],paths:[[0,1,0.4]]},
+  curve:{name:'Curve 90°',ends:[[0,0,4],[1,1,2]],paths:[[0,1,0.3905,0,2.2]]},
+  bend:{name:'Bend 45°',ends:[[0,0,4],[2,1,1]],paths:[[0,1,0.4,0,3.2]]},
   // end0 = toe, end1 = straight (through) leg, end2 = diverging leg
-  turnout:{name:'Turnout',ends:[[0,0,4],[2,0,0],[2,1,0]],paths:[[0,1,1/3,1],[0,2,0.4]],turnout:true},
+  turnout:{name:'Turnout',ends:[[0,0,4],[2,0,0],[2,1,0]],paths:[[0,1,1/3,1],[0,2,0.4,0,2.0]],turnout:true},
   crossing:{name:'Crossing',ends:[[0,0,4],[2,0,0],[1,-1,6],[1,1,2]],paths:[[0,1,1/3,1],[2,3,1/3,1]]}
 };
 
@@ -190,7 +191,7 @@ function makePiece(id,type,rot,mir,ox,oy,state){
     const r=xform(x,y,d,rot,mir);
     p.ends.push({x:r[0]+ox,y:r[1]+oy,d:r[2],link:null,piece:p,idx:i,sig:null,buffer:false});
   });
-  T.paths.forEach(([a,b,f,lin],i)=>p.paths.push(makePath(p,i,a,b,f,!!lin)));
+  T.paths.forEach(([a,b,f,lin,vl],i)=>p.paths.push(makePath(p,i,a,b,f,!!lin,vl)));
   for(const pa of p.paths)for(let i=0;i<=pa.n;i++){
     p.minx=Math.min(p.minx,pa.xs[i]);p.maxx=Math.max(p.maxx,pa.xs[i]);
     p.miny=Math.min(p.miny,pa.ys[i]);p.maxy=Math.max(p.maxy,pa.ys[i]);
@@ -198,7 +199,7 @@ function makePiece(id,type,rot,mir,ox,oy,state){
   return p;
 }
 
-function makePath(p,idx,a,b,f,lin){
+function makePath(p,idx,a,b,f,lin,vl){
   const A=p.ends[a],B=p.ends[b];
   const chord=Math.hypot(B.x-A.x,B.y-A.y),k=chord*f;
   const ta=DU[opp(A.d)],tb=DU[B.d];           // tangent entering at A, leaving at B
@@ -217,7 +218,7 @@ function makePath(p,idx,a,b,f,lin){
     let tx=xs[i1]-xs[i0],ty=ys[i1]-ys[i0];const l=Math.hypot(tx,ty)||1;
     nx[i]=-ty/l;ny[i]=tx/l;
   }
-  return{uid:_pathUid++,piece:p,idx,a,b,len:cum[n],n,xs,ys,cum,nx,ny,occ:[]};
+  return{uid:_pathUid++,piece:p,idx,a,b,len:cum[n],n,xs,ys,cum,nx,ny,occ:[],vmax:vl||Infinity};   // vmax = speed limit (cells/s)
 }
 
 // Position + heading (direction of increasing s) at arc length s.
@@ -440,7 +441,7 @@ function toggleBuffer(e){
 }
 function addStation(path,s){
   const letter=String.fromCharCode(65+(W.nextSt-1)%26);
-  const st={id:W.nextSt++,name:'Station '+letter,pid:path.piece.id,pi:path.idx,s,side:1,path};
+  const st={id:W.nextSt++,name:'Station '+letter,pid:path.piece.id,pi:path.idx,s,side:1,path,wait:5+Math.floor(Math.random()*20)};
   W.stations.push(st);return st;
 }
 function stationById(id){return W.stations.find(s=>s.id===id)||null;}
@@ -471,7 +472,7 @@ function deserialize(o,keepCam){
   rebuild();   // links must exist before buffers are validated
   for(const b of o.buffers||[]){const p=W.byId.get(b.p);if(p&&p.ends[b.e]&&!p.ends[b.e].link)p.ends[b.e].buffer=true;}
   for(const s of o.stations||[]){
-    W.stations.push({id:s.id,name:s.n,pid:s.p,pi:s.i,s:s.s,side:s.side||1,path:null});
+    W.stations.push({id:s.id,name:s.n,pid:s.p,pi:s.i,s:s.s,side:s.side||1,path:null,wait:5+Math.floor(Math.random()*20)});
     W.nextSt=Math.max(W.nextSt,s.id+1);
   }
   rebuild();
@@ -547,15 +548,17 @@ const KMH=25;   // 1 cell/s displayed as 25 km/h
 const flipEntry=e=>({path:e.path,dir:-e.dir,a:e.b,b:e.a});
 const cloneTrail=tr=>tr.map(e=>({path:e.path,dir:e.dir,a:e.a,b:e.b}));
 
-function newCar(k){
+const LIVERIES=['#2f7fc1','#b5412b','#2e8b57','#6b4a9e','#c9a227','#c4c9cf'];
+const FRT_COLS=['#8a5a3a','#7a3b2e','#4d6a4a','#5b5f66','#9a7b3c'];
+function newCar(k,col){
   const d=CARS[k];
   const load=d.cls==='pass'?Math.round(d.cap*(0.2+Math.random()*0.5)):d.cls==='frt'?Math.round(d.cap*(0.5+Math.random()*0.5)):0;
-  return{k,face:1,load};
+  return{k,face:1,load,col:d.cls==='pass'?col:d.cls==='frt'&&k==='boxcar'?FRT_COLS[Math.floor(Math.random()*FRT_COLS.length)]:null};
 }
 function newTrain(spec){
-  const cars=[];
+  const cars=[],liv=LIVERIES[Math.floor(Math.random()*LIVERIES.length)];
   if(spec.loco&&spec.loco!=='none')cars.push(newCar(spec.loco));
-  for(const k of['coach','boxcar','tank','hopper'])for(let i=0;i<(spec[k]|0);i++)cars.push(newCar(k));
+  for(const k of['coach','boxcar','tank','hopper'])for(let i=0;i<(spec[k]|0);i++)cars.push(newCar(k,liv));
   if(!cars.length)cars.push(newCar('coach'));
   const t={id:0,name:'',cars,trail:[],v:0,throttle:0,brake:0,estop:false,mode:spec.mode||'manual',atp:true,
     crashed:false,rev:false,tt:{stops:[],idx:0,state:'run',timer:0},plan:{},stopDist:Infinity,hz:'',follow:false,
@@ -720,7 +723,7 @@ function blockNamesOf(t){
 function scan(t,range){
   const e0=t.trail[0];
   let path=e0.path,dir=e0.dir,s=e0.b,dist=0;
-  let best=Infinity,kind='',chain=null;
+  let best=Infinity,kind='',chain=null,cap=Infinity;
   t._obs=null;
   const stn=(t.mode==='timetable'&&t.tt.stops.length)?stationById(t.tt.stops[t.tt.idx%t.tt.stops.length].st):null;
   if(stn&&t.tt.lockSt!==stn.id){        // head already past the station point: it lies within our own trail
@@ -736,6 +739,7 @@ function scan(t,range){
   }
   for(let g=0;g<60;g++){
     const limit=dir>0?path.len:0,seg=Math.abs(limit-s);
+    if(path.vmax<1e9){const c=Math.sqrt(path.vmax*path.vmax+2*t.bdec*0.85*dist);if(c<cap)cap=c;}  // curves/diverging routes: slow down in time
     for(const o of path.occ){                       // trains already on this path ahead of us
       if(o.t===t)continue;
       let gap;
@@ -786,7 +790,7 @@ function scan(t,range){
     const nx=pathFromEnd(end.link);
     path=nx.path;dir=nx.dir;s=dir>0?0:path.len;
   }
-  t.stopDist=best;t.hz=kind;
+  t.stopDist=best;t.hz=kind;t.speedCap=cap;
 }
 function routeTurnout(t,tp,stn){
   if(tp.occN>0)return;
@@ -823,18 +827,25 @@ function routeCost(path,dir,stn){
   return Infinity;
 }
 
-function exchangeLoads(t){
+// Passengers alight and board according to the crowd waiting on the platform.
+function exchangeLoads(t,st){
+  let out=0,inn=0;
   for(const c of t.cars){
     const d=CARS[c.k];
-    if(d.cls==='pass'){c.load=Math.min(d.cap,Math.round(c.load*(0.1+Math.random()*0.4)+d.cap*(0.2+Math.random()*0.6)));}
-    else if(d.cls==='frt'){c.load=c.load>d.cap*0.4?0:Math.round(d.cap*(0.6+Math.random()*0.4));}
+    if(d.cls==='pass'){
+      const alight=Math.round(c.load*(0.3+Math.random()*0.5));c.load-=alight;out+=alight;
+      const board=st?Math.min(st.wait,d.cap-c.load,Math.round(d.cap*(0.3+Math.random()*0.5))):0;
+      c.load+=board;inn+=board;if(st)st.wait-=board;
+    }else if(d.cls==='frt'){c.load=c.load>d.cap*0.4?0:Math.round(d.cap*(0.6+Math.random()*0.4));}
   }
   calcTrain(t);
+  t.lastStop=(st?st.name+': ':'')+out+' alighted, '+inn+' boarded';
+  if(sim.sel&&sim.sel.type==='train'&&sim.sel.id===t.id)toast(t.name+' at '+t.lastStop);
 }
 function crashTrain(t,msg,x,y){
   if(t.crashed)return;
   t.crashed=true;t.v=0;t.throttle=0;t.estop=false;t.mode='manual';
-  W.crashes.push({x,y,age:0});toast(msg);
+  W.crashes.push({x,y,age:0});toast(msg);if(typeof sndCrash==='function')sndCrash();
 }
 
 /* Per-train control step: decides acceleration from the driver/autopilot
@@ -854,9 +865,9 @@ function stepTrain(t,dt){
       const stop=tt.stops[tt.idx%tt.stops.length];
       if(tt.state==='dwell'){
         dwelling=true;vCmd=0;tt.timer-=dt;
-        if(tt.timer<=0&&(stop.depart==null||W.clock>=stop.depart)){tt.lockSt=stop.st;tt.idx=(tt.idx+1)%tt.stops.length;tt.state='run';}
+        if(tt.timer<=0&&(stop.depart==null||W.clock>=stop.depart)){tt.lockSt=stop.st;tt.idx=(tt.idx+1)%tt.stops.length;tt.state='run';if(typeof sndHorn==='function')sndHorn(t);}
       }else if(t.hz==='station'&&t.stopDist<0.18&&t.v<0.05){
-        tt.state='dwell';tt.timer=stop.dwell;exchangeLoads(t);dwelling=true;vCmd=0;
+        tt.state='dwell';tt.timer=stop.dwell;exchangeLoads(t,stationById(stop.st));dwelling=true;vCmd=0;
       }
     }
     // Autopilot at a buffer stop: wait, then reverse and run back.
@@ -871,13 +882,14 @@ function stepTrain(t,dt){
   else{
     let vt=vCmd,lim=Infinity;
     if(protect&&t.stopDist<Infinity){lim=Math.sqrt(2*bd*0.85*Math.max(0,t.stopDist));vt=Math.min(vt,lim*0.98);}
+    const cap=protect?t.speedCap:Infinity;vt=Math.min(vt,cap);
     if(!auto&&t.brake>0)a=-t.brake*bd;                    // driver's brake lever
     else if(t.v<vt-0.005)a=Math.min(t.accel,(vt-t.v)*3+0.04);
     else if(t.v>vt+0.005){
-      if(lim<vCmd){                                         // safety-limited: brake to stop at the hazard
+      if(lim*0.98<Math.min(vCmd,cap)){                                         // safety-limited: brake to stop at the hazard
         const need=t.stopDist>0.02?t.v*t.v/(2*t.stopDist):bd*1.3;
         a=-Math.min(bd*1.3,Math.max(need*1.05,bd*0.3));
-      }else a=-bd*0.35;                                     // driver backed off the throttle
+      }else a=-bd*(cap<vCmd?0.7:0.35);                       // speed limit ahead / driver backed off
     }
   }
   t.v=clamp(t.v+a*dt,0,t.vmax*1.02+0.01);
@@ -922,7 +934,7 @@ function checkCollisions(){
       const x=(pa.x+pb.x)/2,y=(pa.y+pb.y)/2;
       if(!a.crashed||!b.crashed)toast('CRASH: '+a.name+' and '+b.name+' collided!');
       for(const t of[a,b]){t.crashed=true;t.v=0;t.throttle=0;t.estop=false;t.mode='manual';}
-      W.crashes.push({x,y,age:0});
+      W.crashes.push({x,y,age:0});if(typeof sndCrash==='function')sndCrash();
     }
   }
 }
@@ -972,7 +984,7 @@ function addCarTo(t,kind){
   const len=CARS[kind].len,backup={trail:cloneTrail(t.trail),cars:t.cars.slice()};
   t.L+=len;
   if(!extendTail(t,len)){t.trail=backup.trail;calcTrain(t);toast('No track behind the train to couple onto');return;}
-  t.cars.push(newCar(kind));calcTrain(t);updateGeometry(t);
+  const pc=t.cars.find(c=>CARS[c.k].cls==='pass');t.cars.push(newCar(kind,pc?pc.col:undefined));calcTrain(t);updateGeometry(t);
   for(const o of W.trains)if(o!==t&&bbOverlap(t,o,0.2)&&minDist(t,o)<0.3){
     t.trail=backup.trail;t.cars=backup.cars;calcTrain(t);updateGeometry(t);toast('Another train is in the way');return;
   }
@@ -1007,7 +1019,7 @@ function trainFits(t){
 }
 function serTrain(t){
   return{id:t.id,n:t.name,mode:t.mode,atp:t.atp?1:0,thr:t.throttle,v:+t.v.toFixed(3),rev:t.rev?1:0,
-    cars:t.cars.map(c=>({k:c.k,f:c.face,l:c.load})),
+    cars:t.cars.map(c=>({k:c.k,f:c.face,l:c.load,c:c.col||undefined})),
     trail:t.trail.map(e=>({p:e.path.piece.id,i:e.path.idx,d:e.dir,a:+e.a.toFixed(4),b:+e.b.toFixed(4)})),
     tt:{idx:t.tt.idx,stops:t.tt.stops.map(s=>({st:s.st,dwell:s.dwell,dep:s.depart}))}};
 }
@@ -1019,7 +1031,7 @@ function deserTrain(o){
   }
   if(!trail.length||!o.cars||!o.cars.length)return null;
   const t=newTrain({loco:'none',coach:1});
-  t.cars=o.cars.filter(c=>CARS[c.k]).map(c=>({k:c.k,face:c.f||1,load:c.l|0}));
+  t.cars=o.cars.filter(c=>CARS[c.k]).map(c=>({k:c.k,face:c.f||1,load:c.l|0,col:c.c||null}));
   if(!t.cars.length)return null;
   t.id=o.id;W.nextTrain=Math.max(W.nextTrain,o.id+1);t.name=o.n||('Train '+o.id);
   t.mode=o.mode||'manual';t.atp=o.atp!==0;t.throttle=o.thr||0;t.v=o.v||0;t.rev=!!o.rev;
@@ -1042,6 +1054,7 @@ function simStep(dt){
   checkCollisions();
   for(const s of W.signals){s.red=sigRed(s,null)||s.redResv;s.redResv=false;}
   for(const c of W.crashes)c.age+=dt;
+  for(const st of W.stations)st.wait=Math.min(60,st.wait+dt*0.35*(0.5+Math.random()));   // passengers arrive
 }
 
 /* =====================================================================
@@ -1196,6 +1209,11 @@ function render(tms){
     ctx.fillStyle='#b9b2a3';ctx.fillRect(-1.3,-0.14,2.6,0.28);
     ctx.fillStyle='#e8e2d2';ctx.fillRect(-1.3,-0.14,2.6,0.05);
     ctx.fillStyle='#f2c14e';ctx.fillRect(-1.3,st.side>0?-0.14:0.1,2.6,0.04);
+    const fr=x=>{x=Math.sin(x)*43758.5453;return x-Math.floor(x);};
+    for(let i=0,n=Math.min(40,Math.floor(st.wait));i<n;i++){      // waiting passengers
+      ctx.fillStyle=['#e94f4f','#4f8fe9','#f2c14e','#ddd','#6fcf97'][i%5];
+      ctx.beginPath();ctx.arc((fr(i*12.9+st.id*7.1)-0.5)*2.4,(fr(i*3.7+st.id)-0.5)*0.16,0.034,0,7);ctx.fill();
+    }
     ctx.restore();
     const sel=sim.sel&&sim.sel.type==='station'&&sim.sel.id===st.id;
     label(st.name,_o.x+n[0]*0.72,_o.y+n[1]*0.72,Math.max(9,Math.min(14,cam.z*0.3)),'#fff',sel?'#c47a00cc':'#000a');
@@ -1212,6 +1230,14 @@ function render(tms){
   for(const s of W.signals)drawSignal(s);
   // trains
   for(const t of W.trains)drawTrain(t,1,sim.sel&&sim.sel.type==='train'&&sim.sel.id===t.id,T);
+  // exhaust particles
+  for(const q of PART){const k=q.age/q.life;ctx.fillStyle='rgba(70,70,74,'+(0.3*(1-k))+')';ctx.beginPath();ctx.arc(q.x,q.y,0.04+k*0.16,0,7);ctx.fill();}
+  // name tags
+  if(cam.z>=22)for(const t of W.trains){
+    const sel=sim.sel&&sim.sel.type==='train'&&sim.sel.id===t.id;
+    if((sel||cam.z>=36)&&t.poses.length){const p=t.poses[0];
+      label(t.name+(t.powered?' · '+Math.round(t.v*KMH)+' km/h':''),p.x,p.y-0.6,10,'#fff',sel?'#1a6fb0cc':'#000a');}
+  }
   // block labels
   if(sim.showBlocks)for(const b of W.blocks){
     let sx=0,sy=0,n=0;const p=b.pieces[0];
@@ -1219,6 +1245,7 @@ function render(tms){
     label(b.name+(b.occ.length?' ●':''),sx/n,sy/n-0.42,11,'#fff','hsl('+b.hue+',60%,32%)');
   }
   drawOverlays(T);
+  drawNight();
   // crash markers
   for(const c of W.crashes)drawCrash(c,T);
 }
@@ -1258,20 +1285,22 @@ function roundRect(x,y,w,h,r){
   if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h);
 }
 function drawCar(c,pose,len,moving,tint){
-  const d=CARS[c.k],hl=len/2*0.95,w=0.15;
+  const d=CARS[c.k],hl=len/2*0.95,w=0.15,col=c.col||d.color;
   ctx.save();ctx.translate(pose.x,pose.y);ctx.rotate(pose.a);
   if(c.face<0)ctx.scale(-1,1);
   ctx.fillStyle='rgba(0,0,0,.28)';roundRect(-hl+0.02,-w+0.03,hl*2,w*2,0.04);ctx.fill();   // shadow
   ctx.fillStyle='#777';ctx.fillRect(-hl-0.04,-0.015,0.05,0.03);ctx.fillRect(hl-0.01,-0.015,0.05,0.03); // couplers
+  ctx.fillStyle='#16191c';                                                                          // bogies / wheels
+  for(const bx of[-hl*0.6,hl*0.6]){ctx.fillRect(bx-0.11,-w-0.022,0.22,0.035);ctx.fillRect(bx-0.11,w-0.013,0.22,0.035);}
   if(d.cls==='loco'){
-    ctx.fillStyle=d.color;roundRect(-hl,-w,hl*2,w*2,0.05);ctx.fill();
+    ctx.fillStyle=col;roundRect(-hl,-w,hl*2,w*2,0.05);ctx.fill();
     ctx.fillStyle=d.color2;ctx.fillRect(-hl*0.15,-w,0.07,w*2);                               // stripe
     ctx.fillStyle='rgba(0,0,0,.35)';roundRect(-hl*0.95,-w*0.62,hl*0.55,w*1.24,0.03);ctx.fill();   // cab roof
     ctx.fillStyle='rgba(255,255,255,.18)';ctx.fillRect(hl*0.15,-w*0.7,hl*0.7,0.03);
     ctx.fillStyle=moving?'#fff7b0':'#c9c27a';ctx.beginPath();ctx.arc(hl-0.02,-0.08,0.03,0,7);ctx.arc(hl-0.02,0.08,0.03,0,7);ctx.fill();
     ctx.fillStyle='#ff3b30';ctx.beginPath();ctx.arc(-hl+0.02,0,0.025,0,7);ctx.fill();
   }else if(d.cls==='pass'){
-    ctx.fillStyle=d.color;roundRect(-hl,-w,hl*2,w*2,0.05);ctx.fill();
+    ctx.fillStyle=col;roundRect(-hl,-w,hl*2,w*2,0.05);ctx.fill();
     ctx.fillStyle=d.color2;roundRect(-hl*0.9,-w*0.55,hl*1.8,w*1.1,0.04);ctx.fill();
     ctx.fillStyle='rgba(30,50,70,.65)';
     for(let i=-3;i<=3;i++){ctx.fillRect(i*hl*0.26-0.04,-w*0.92,0.08,0.035);ctx.fillRect(i*hl*0.26-0.04,w*0.92-0.035,0.08,0.035);}
@@ -1284,7 +1313,7 @@ function drawCar(c,pose,len,moving,tint){
     ctx.fillStyle='#0b0b0b';const f=c.load/d.cap;ctx.fillRect(-hl*0.75,-w*0.7,hl*1.5,w*1.4*Math.max(0.15,f));
     ctx.strokeStyle='#666';ctx.lineWidth=0.02;ctx.strokeRect(-hl*0.75,-w*0.7,hl*1.5,w*1.4);
   }else{
-    ctx.fillStyle=d.color;roundRect(-hl,-w,hl*2,w*2,0.03);ctx.fill();
+    ctx.fillStyle=col;roundRect(-hl,-w,hl*2,w*2,0.03);ctx.fill();
     ctx.strokeStyle=d.color2;ctx.lineWidth=0.025;
     for(let i=-2;i<=2;i++){ctx.beginPath();ctx.moveTo(i*hl*0.3,-w);ctx.lineTo(i*hl*0.3,w);ctx.stroke();}
   }
@@ -1342,6 +1371,62 @@ function drawOverlays(T){
     ctx.lineCap='round';
     for(const pa of sim.markPiece.paths)strokePathLine(pa,0.4,sim.markCol||'#ff4d4d',0.45);
   }
+}
+
+/* ---- particles & night lighting ------------------------------------ */
+const PART=[];
+function updateParticles(dt){
+  for(let i=PART.length-1;i>=0;i--){const q=PART[i];q.age+=dt;q.x+=q.vx*dt;q.y+=q.vy*dt;if(q.age>q.life)PART.splice(i,1);}
+  if(sim.paused||PART.length>350)return;
+  for(const t of W.trains){
+    if(!t.powered||t.v<0.05||t.crashed)continue;
+    const li=t.cars.findIndex(c=>CARS[c.k].cls==='loco');if(li<0||!t.poses[li])continue;
+    const load=t.v<t.vmax*0.6?1:0.45;
+    if(Math.random()<dt*10*load*Math.min(sim.speed,2)){
+      const p=t.poses[li];
+      PART.push({x:p.x+(Math.random()-0.5)*0.1,y:p.y,vx:(Math.random()-0.5)*0.08+0.05,vy:-0.18-Math.random()*0.12,age:0,life:1+Math.random()*0.9});
+    }
+  }
+}
+function glow(x,y,r,rgb,a){
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,'rgba('+rgb+','+a+')');g.addColorStop(1,'rgba('+rgb+',0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();
+}
+// Night: darken the scene, then add light sources (headlamps, lit windows, signals, platform lamps).
+function drawNight(){
+  const n=sim.nightV;if(n<0.01)return;
+  ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='rgba(6,12,36,'+(0.68*n)+')';ctx.fillRect(0,0,vw,vh);ctx.restore();
+  ctx.save();ctx.globalCompositeOperation='lighter';ctx.globalAlpha=n;
+  for(const t of W.trains){
+    if(!t.poses.length)continue;
+    const fp=t.poses[0],hl=CARS[t.cars[0].k].len/2,dx=Math.cos(fp.a),dy=Math.sin(fp.a);
+    if(t.powered){                                   // headlamp cone
+      const sx=fp.x+dx*hl,sy=fp.y+dy*hl,ex=sx+dx*3.4,ey=sy+dy*3.4,nx=-dy*1.15,ny=dx*1.15;
+      const g=ctx.createLinearGradient(sx,sy,ex,ey);
+      g.addColorStop(0,'rgba(255,240,190,.6)');g.addColorStop(1,'rgba(255,240,190,0)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex+nx,ey+ny);ctx.lineTo(ex-nx,ey-ny);ctx.fill();
+      glow(sx,sy,0.35,'255,245,200',0.8);
+    }
+    const lp=t.poses[t.poses.length-1],lh=CARS[t.cars[t.cars.length-1].k].len/2;
+    glow(lp.x-Math.cos(lp.a)*lh,lp.y-Math.sin(lp.a)*lh,0.28,'255,40,30',0.8);   // tail lamp
+    for(let i=0;i<t.cars.length;i++){                 // lit coach windows
+      if(CARS[t.cars[i].k].cls!=='pass')continue;
+      const p=t.poses[i],c=Math.cos(p.a),s=Math.sin(p.a),hl2=CARS[t.cars[i].k].len*0.36;
+      ctx.fillStyle='rgba(255,215,120,.85)';
+      for(let k=-3;k<=3;k++)for(const sd of[-1,1]){
+        const lx=k*hl2/3,ly=sd*0.125;ctx.fillRect(p.x+lx*c-ly*s-0.03,p.y+lx*s+ly*c-0.03,0.06,0.06);
+      }
+    }
+  }
+  for(const s of W.signals){const m=signalPos(s);glow(m[0],m[1],0.5,s.lamp<0.5?'255,50,40':'60,255,120',0.7);}
+  for(const st of W.stations){
+    posAt(st.path,st.s,_o);
+    const nrm=[-Math.sin(_o.a)*st.side,Math.cos(_o.a)*st.side],c=Math.cos(_o.a),s=Math.sin(_o.a);
+    for(let k=-1;k<=1;k++){const lx=k*1.0,ly=0.36;glow(_o.x+lx*c+nrm[0]*ly,_o.y+lx*s+nrm[1]*ly,0.75,'255,220,140',0.45);}
+  }
+  ctx.restore();
 }
 
 /* =====================================================================
@@ -1665,6 +1750,9 @@ window.addEventListener('keydown',e=>{
     case'1':ui.setSpeed(1);break;case'2':ui.setSpeed(2);break;case'3':ui.setSpeed(5);break;
     case'0':resetSim();break;
     case'l':ui.toggleBlocks();break;
+    case'k':ui.toggleNight();break;
+    case'm':sndToggle();break;
+    case'o':if(t)sndHorn(t);break;
     case'h':case'?':ui.toggleHelp();break;
     case'x':if(t)emergencyStop(t);break;
     case'c':if(t)reverseTrain(t);break;
@@ -1714,6 +1802,7 @@ const ui={
   togglePause(){sim.paused=!sim.paused;$('bPause').firstChild.nodeValue=sim.paused?'Resume':'Pause';$('bPause').classList.toggle('on',sim.paused);},
   setSpeed(n){sim.speed=n;document.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('on',+b.dataset.speed===n));},
   toggleBlocks(){sim.showBlocks=!sim.showBlocks;$('bBlocks').classList.toggle('on',sim.showBlocks);},
+  toggleNight(){sim.night=sim.night?0:1;$('bNight').classList.toggle('on',!!sim.night);},
   toggleHelp(){$('help').classList.toggle('show');},
   refresh(){ui.buildPalette();ui.rebuildPanel=true;ui.dirty=true;},
 
@@ -1813,7 +1902,7 @@ function trainPanelHTML(t){
     '<div class="bar"><i id="pSpdBar"></i><b id="pMax"></b></div>'+
     '<div class="kv"><span>Speed</span><span id="pSpd"></span><span>Direction</span><span id="pDir"></span>'+
     '<span>Braking dist.</span><span id="pBd"></span><span>Block(s)</span><span id="pBlk"></span><span>Ahead</span><span id="pAhead"></span>'+
-    '<span>Passengers</span><span id="pPax"></span><span>Cargo</span><span id="pCargo"></span><span>Length · mass</span><span id="pLen"></span></div>'+
+    '<span>Passengers</span><span id="pPax"></span><span>Cargo</span><span id="pCargo"></span><span>Length · mass</span><span id="pLen"></span><span>Last stop</span><span id="pLast"></span></div>'+
     '<h5>Driver</h5>'+
     '<div class="ctl"><label>Throttle</label><input type="range" id="pThr" min="0" max="100"><span id="pThrV"></span></div>'+
     '<div class="ctl"><label>Brake</label><input type="range" id="pBrk" min="0" max="100"><span id="pBrkV"></span></div>'+
@@ -1843,6 +1932,7 @@ function liveTrain(t){
   setVal('pPax',st.paxCap?st.pax+' / '+st.paxCap:'–');
   setVal('pCargo',st.cargoCap?st.cargo+' / '+st.cargoCap+' t':'–');
   setVal('pLen',t.L.toFixed(1)+' cells · '+t.mass.toFixed(1)+' t');
+  setVal('pLast',t.lastStop||'–');
   setVal('ttClock',fmtClock(W.clock));
   const set=(id,fn)=>{const e=document.getElementById(id);if(e&&document.activeElement!==e)fn(e);};
   set('pThr',e=>e.value=Math.round(t.throttle*100));setVal('pThrV',Math.round(t.throttle*100)+'%');
@@ -1935,6 +2025,8 @@ $('fileIn').addEventListener('change',e=>{
   r.readAsText(f);e.target.value='';
 });
 $('bBlocks').addEventListener('click',ui.toggleBlocks);
+$('bNight').addEventListener('click',ui.toggleNight);
+$('bSound').addEventListener('click',sndToggle);
 $('bHelp').addEventListener('click',ui.toggleHelp);
 $('help').addEventListener('click',e=>{if(e.target.id==='help')ui.toggleHelp();});
 $('selExample').addEventListener('change',e=>{
@@ -1955,7 +2047,7 @@ function buildHelp(){
   $('helpBox').innerHTML='<h2>Controls</h2><div class="twocol"><div><h4>Tools</h4><table>'+rows([
     ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['S','Signals (red/green)'],['J','Insulated joints'],
     ['B','Buffer stops'],['N','Stations'],['A','Add train'],['D','Delete'],['R / Shift+R','Rotate ghost (or flip train facing)'],['F','Flip / mirror ghost'],['Esc','Cancel / deselect']])+
-    '</table><h4>View</h4><table>'+rows([['Drag','Pan (mouse, touch)'],['Wheel / pinch','Zoom'],['+ / −','Zoom'],['Shift+arrows','Pan'],['L','Show blocks overlay']])+
+    '</table><h4>View</h4><table>'+rows([['Drag','Pan (mouse, touch)'],['Wheel / pinch','Zoom'],['+ / −','Zoom'],['Shift+arrows','Pan'],['L','Show blocks overlay'],['K','Night / day'],['M','Sound on / off'],['O','Horn (selected train)']])+
     '</table></div><div><h4>Driving the selected train</h4><table>'+rows([['↑ / ↓','Throttle +10% / −10%'],['Space (hold)','Brake'],['X','Emergency stop'],['C','Reverse direction (when stopped)'],
     ['Tab','Next train'],['Delete','Remove train']])+'</table><h4>Simulation</h4><table>'+rows([['P','Pause / resume'],['1 / 2 / 3','Speed 1× / 2× / 5×'],['0','Reset to start of run'],['Ctrl+Z','Undo'],['Ctrl+S','Save to browser'],['H','This help']])+
     '</table></div></div><p style="color:var(--dim)">Signals: click one (Select tool) to hold it at red. Click a turnout to throw it; the active route is highlighted amber. Open track ends are flagged ⚠ – give them a buffer stop or join them up.</p><p style="text-align:right"><button onclick="ui.toggleHelp()">Close</button></p>';
@@ -2019,36 +2111,67 @@ function putTrain(m,spec,extra){
 }
 
 function exOval(){
-  clearWorld();const b=Builder();
+  clearWorld();const b=Builder(),M=[];
   b.at(3,2,0);
-  b.fwd(4);b.sig();const m1=b.mark();
-  b.fwd(2);const stC=b.station('Central');b.fwd(8);
-  b.R();b.fwd(3);b.sig();b.fwd(3);b.R();
-  b.fwd(8);const stS=b.station('South');const m2=b.mark();b.fwd(4);b.sig();b.fwd(2);
-  b.R();b.fwd(3);b.sig();b.fwd(3);b.R();
+  b.fwd(4);b.sig();M.push(b.mark());
+  b.fwd(2);const stC=b.station('Central');b.fwd(3);b.sig();M.push(b.mark());b.fwd(5);
+  b.R();b.fwd(3);b.sig();M.push(b.mark());b.fwd(3);b.R();
+  b.fwd(3);b.sig();M.push(b.mark());b.fwd(5);const stS=b.station('South');b.fwd(3);b.sig();M.push(b.mark());b.fwd(3);
+  b.R();b.fwd(3);b.sig();M.push(b.mark());b.fwd(3);b.R();
   b.flush();rebuild();
-  const t1=putTrain(m1,{loco:'express',coach:3},{mode:'timetable'});
+  const t1=putTrain(M[0],{loco:'express',coach:3},{mode:'timetable'});
   t1.tt.stops=[{st:stC.id,dwell:8,depart:null},{st:stS.id,dwell:8,depart:null}];t1.name='Express 1';
-  const t2=putTrain(m2,{loco:'diesel',boxcar:2,tank:1},{mode:'auto'});t2.name='Freight 2';
+  const t2=putTrain(M[3],{loco:'diesel',boxcar:2,tank:1},{mode:'auto'});t2.name='Freight 2';
+  const t3=putTrain(M[5],{loco:'diesel',coach:2},{mode:'timetable'});
+  t3.tt.stops=[{st:stS.id,dwell:6,depart:null},{st:stC.id,dwell:6,depart:null}];t3.name='Local 3';
   cam.x=10.5;cam.y=6;
 }
 function exEight(){
-  clearWorld();const b=Builder();
+  clearWorld();const b=Builder(),M={};
   addPiece('crossing',0,0,9,6);rebuild(true);
   // right lobe (anticlockwise): leaves the crossing eastwards, returns from the north
-  b.at(11,6,0);b.fwd(6);const mA=b.mark();b.L();b.fwd(5);b.L();b.fwd(3);b.sig();b.fwd(3);b.L();b.fwd(5);b.sig();
+  b.at(11,6,0);b.fwd(3);b.sig();b.fwd(3);b.L();b.fwd(2);b.sig();M.A=b.mark();b.fwd(3);b.L();
+  b.fwd(3);b.sig();M.C=b.mark();b.fwd(3);b.L();b.fwd(2);b.sig();b.fwd(3);b.sig();
   // left lobe (clockwise) with a passing siding on the bottom run
-  b.at(10,7,2);b.fwd(5);b.R();
-  const T1=b.turnout('L',1);b.fwd(5);b.merge(1,0);const mB=b.mark();
-  b.R();b.fwd(5);b.R();b.fwd(4);b.sig();b.fwd(5);b.sig();
+  b.at(10,7,2);b.fwd(4);b.sig();b.fwd(1);b.R();
+  const T1=b.turnout('L',1);b.fwd(2);b.sig();b.fwd(3);b.merge(1,0);M.B=b.mark();
+  b.R();b.fwd(2);b.sig();M.D=b.mark();b.fwd(3);b.R();b.fwd(4);b.sig();b.fwd(5);b.sig();
   let mS;
   b.branch(T1,2,()=>{b.fwd(5);mS=b.mark();b.sig();});
   b.sigAt(T1,2);
   b.flush();rebuild();
-  // parked rake on the siding (unpowered stock waiting to be coupled)
   putTrain(mS,{loco:'none',boxcar:2},{}).name='Rake (siding)';
-  putTrain(mA,{loco:'express',coach:3},{mode:'auto'}).name='Express A';
-  putTrain(mB,{loco:'diesel',boxcar:2,tank:1},{mode:'auto'}).name='Freight B';
+  putTrain(M.A,{loco:'express',coach:3},{mode:'auto'}).name='Express A';
+  putTrain(M.B,{loco:'diesel',boxcar:2,tank:1},{mode:'auto'}).name='Freight B';
+  putTrain(M.C,{loco:'diesel',coach:2},{mode:'auto'}).name='Local C';
+  putTrain(M.D,{loco:'diesel',hopper:3},{mode:'auto'}).name='Coal D';
+  cam.x=9;cam.y=7;
+}
+// Two concentric loops: outer runs clockwise (fast services), inner anticlockwise (locals and freight).
+function exTwin(){
+  clearWorld();const b=Builder(),O=[],I=[];
+  b.at(2,2,0);
+  b.fwd(5);b.sig();O.push(b.mark());b.fwd(3);const sGC=b.station('Grand Central');b.fwd(4);b.sig();O.push(b.mark());b.fwd(8);b.sig();O.push(b.mark());
+  b.R();b.fwd(3);b.sig();O.push(b.mark());b.fwd(3);b.R();
+  b.fwd(5);b.sig();O.push(b.mark());b.fwd(4);const sHB=b.station('Harbour');b.fwd(4);b.sig();O.push(b.mark());b.fwd(7);
+  b.R();b.fwd(3);b.sig();O.push(b.mark());b.fwd(3);b.R();
+  b.at(21,3,4);
+  b.fwd(5);b.sig();I.push(b.mark());b.fwd(4);const sMK=b.station('Market Hill');b.fwd(5);b.sig();I.push(b.mark());b.fwd(4);
+  b.L();b.fwd(2);b.sig();I.push(b.mark());b.fwd(2);b.L();
+  b.fwd(5);b.sig();I.push(b.mark());b.fwd(4);const sIN=b.station('Industrial Park');b.fwd(5);b.sig();I.push(b.mark());b.fwd(4);
+  b.L();b.fwd(2);b.sig();I.push(b.mark());b.fwd(2);b.L();
+  b.flush();rebuild();
+  const e1=putTrain(O[1],{loco:'express',coach:4},{mode:'timetable'});e1.name='Express 1';
+  e1.tt.stops=[{st:sGC.id,dwell:8,depart:null},{st:sHB.id,dwell:8,depart:null}];
+  const f1=putTrain(O[4],{loco:'diesel',boxcar:3,tank:2},{mode:'auto'});f1.name='Freight 21';
+  const e2=putTrain(O[6],{loco:'express',coach:3},{mode:'timetable'});e2.name='Express 2';
+  e2.tt.stops=[{st:sHB.id,dwell:6,depart:null},{st:sGC.id,dwell:6,depart:null}];
+  const l1=putTrain(I[1],{loco:'diesel',coach:2},{mode:'timetable'});l1.name='Local 31';
+  l1.tt.stops=[{st:sMK.id,dwell:5,depart:null},{st:sIN.id,dwell:5,depart:null},{st:sGC.id,dwell:5,depart:null}];
+  const c1=putTrain(I[3],{loco:'diesel',hopper:4},{mode:'auto'});c1.name='Coal 41';
+  const l2=putTrain(I[5],{loco:'shunter',coach:1},{mode:'timetable'});l2.name='Railcar 32';
+  l2.tt.stops=[{st:sIN.id,dwell:5,depart:null},{st:sMK.id,dwell:5,depart:null}];
+  cam.x=12;cam.y=6.2;
 }
 function exTerminus(){
   clearWorld();const b=Builder();
@@ -2075,7 +2198,7 @@ function exTerminus(){
   bt.tt.stops=[{st:stH.id,dwell:6,depart:null},{st:stP1.id,dwell:12,depart:null}];
   void stP2;
 }
-const EXAMPLES={oval:exOval,eight:exEight,terminus:exTerminus,blank:()=>{clearWorld();}};
+const EXAMPLES={oval:exOval,eight:exEight,terminus:exTerminus,twin:exTwin,blank:()=>{clearWorld();}};
 function loadExample(name){
   pushUndo();
   try{EXAMPLES[name]();}catch(err){console.error(err);toast('Example failed: '+err.message);return;}
@@ -2092,6 +2215,56 @@ function fitView(){
   const panelW=vw>760?330:0,availW=Math.max(200,vw-panelW),availH=vh*(vw>760?1:0.55);
   cam.z=clamp(Math.min(availW/(x1-x0+4),availH/(y1-y0+4)),14,60);
   cam.x=(x0+x1)/2+panelW/2/cam.z;cam.y=(y0+y1)/2+(vw>760?0:0.225*vh/cam.z);
+}
+
+
+/* =====================================================================
+   11b. SOUND (WebAudio, synthesised – no files): engine rumble, rail
+   clatter proportional to speed, horn, crash.  Off until enabled (M).
+   ===================================================================== */
+const SND={ac:null,on:false,noise:null,filt:null,eng:null,next:0};
+function sndInit(){
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return false;
+  const ac=SND.ac=new AC(),sr=ac.sampleRate,buf=ac.createBuffer(1,sr*2,sr),d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+  SND.noise=buf;
+  const src=ac.createBufferSource();src.buffer=buf;src.loop=true;
+  SND.filt=ac.createBiquadFilter();SND.filt.type='lowpass';SND.filt.frequency.value=120;
+  SND.eng=ac.createGain();SND.eng.gain.value=0;
+  src.connect(SND.filt);SND.filt.connect(SND.eng);SND.eng.connect(ac.destination);src.start();
+  return true;
+}
+function sndToggle(){
+  if(!SND.ac&&!sndInit()){toast('Audio is not available in this browser');return;}
+  SND.on=!SND.on;if(SND.ac.state==='suspended')SND.ac.resume();
+  $('bSound').classList.toggle('on',SND.on);if(!SND.on)SND.eng.gain.value=0;
+  toast(SND.on?'Sound on (follows the selected or nearest train)':'Sound off');
+}
+function sndBurst(freq,q,vol,dur){
+  const ac=SND.ac,s=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain(),t=ac.currentTime;
+  s.buffer=SND.noise;f.type='bandpass';f.frequency.value=freq;f.Q.value=q;
+  g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0005,t+dur);
+  s.connect(f);f.connect(g);g.connect(ac.destination);s.start(t,Math.random(),dur+0.02);
+}
+function sndHorn(){
+  if(!SND.on)return;
+  const ac=SND.ac,t=ac.currentTime,g=ac.createGain();
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.09,t+0.08);g.gain.setValueAtTime(0.09,t+0.9);g.gain.linearRampToValueAtTime(0,t+1.2);
+  g.connect(ac.destination);
+  for(const f of[311,392]){const o=ac.createOscillator();o.type='sawtooth';o.frequency.value=f;o.connect(g);o.start(t);o.stop(t+1.25);}
+}
+function sndCrash(){if(SND.on)sndBurst(500,0.5,0.6,1.3);}
+function sndUpdate(dt){
+  if(!SND.on||!SND.ac)return;
+  let t=selTrain();
+  if(!t){let bd=1e9;for(const x of W.trains){if(x.v<0.05)continue;const p=x.poses[0];if(!p)continue;const d=Math.hypot(p.x-cam.x,p.y-cam.y);if(d<bd){bd=d;t=x;}}}
+  const now=SND.ac.currentTime;
+  if(!t||sim.paused||t.v<0.03){SND.eng.gain.setTargetAtTime(0,now,0.15);return;}
+  const sp=t.v/(t.vmax||3);
+  SND.eng.gain.setTargetAtTime(Math.min(0.22,0.04+sp*0.16),now,0.1);
+  SND.filt.frequency.setTargetAtTime(90+sp*240,now,0.1);
+  SND.next-=dt*Math.min(sim.speed,2);
+  if(SND.next<=0&&t.v>0.12){sndBurst(1400+Math.random()*700,2,0.1+sp*0.12,0.07);SND.next=1/(t.v*1.7);}
 }
 
 /* =====================================================================
@@ -2111,6 +2284,8 @@ function frame(ts){
   }
   for(const p of W.pieces)if(p.turnout)p.blade+=(p.state-p.blade)*Math.min(1,fdt*9);
   W.crashes=W.crashes.filter(c=>c.age<600);
+  sim.nightV+=(sim.night-sim.nightV)*Math.min(1,fdt*2);
+  updateParticles(fdt*(sim.paused?0:1));sndUpdate(fdt);
   const ft=W.trains.find(t=>t.follow&&sim.sel&&sim.sel.type==='train'&&sim.sel.id===t.id);
   if(ft&&ft.poses.length){const k=Math.min(1,fdt*4),p=ft.poses[0];cam.x+=(p.x-cam.x)*k;cam.y+=(p.y-cam.y)*k;}
   render(ts);
