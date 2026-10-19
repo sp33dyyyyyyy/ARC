@@ -143,13 +143,66 @@ function ModelKit:stadium(name, length: number, height: number, width: number, o
 	end
 end
 
--- smooth bent tube through points, with ball joints
-function ModelKit:curve(name, pts: { Vector3 }, dia: number, color, material, opts)
-	for i = 1, #pts - 1 do
-		self:tube(name, pts[i], pts[i + 1], dia, color, material, opts)
+-- Catmull-Rom spline through the points (perSegment extra samples per span)
+function ModelKit.spline(pts: { Vector3 }, perSegment: number): { Vector3 }
+	if #pts < 3 then
+		return pts
 	end
-	for i = 2, #pts - 1 do
-		self:ball(name, dia * 1.02, CF(pts[i]), color, material, opts)
+	local out = {}
+	for i = 1, #pts - 1 do
+		local p0 = pts[math.max(i - 1, 1)]
+		local p1, p2 = pts[i], pts[i + 1]
+		local p3 = pts[math.min(i + 2, #pts)]
+		for k = 0, perSegment - 1 do
+			local t = k / perSegment
+			local t2, t3 = t * t, t * t * t
+			local a = p1 * 2
+			local b = (p2 - p0) * t
+			local c = (p0 * 2 - p1 * 5 + p2 * 4 - p3) * t2
+			local d = (p1 * 3 - p0 - p2 * 3 + p3) * t3
+			table.insert(out, (a + b + c + d) * 0.5)
+		end
+	end
+	table.insert(out, pts[#pts])
+	return out
+end
+
+-- smooth bent tube through points. The path is a spline (no sharp corners)
+-- and joints get a ball only where the pipe bends noticeably.
+function ModelKit:curve(name, pts: { Vector3 }, dia: number, color, material, opts)
+	local raw = ModelKit.spline(pts, 4)
+	local path = { raw[1] }
+	for i = 2, #raw do
+		if (raw[i] - path[#path]).Magnitude > 0.02 then
+			table.insert(path, raw[i])
+		end
+	end
+	for i = 1, #path - 1 do
+		self:tube(name, path[i], path[i + 1], dia, color, material, opts)
+	end
+	for i = 2, #path - 1 do
+		local d1 = (path[i] - path[i - 1]).Unit
+		local d2 = (path[i + 1] - path[i]).Unit
+		if d1:Dot(d2) < 0.985 then
+			self:ball(name, dia * 1.02, CF(path[i]), color, material, opts)
+		end
+	end
+end
+
+-- A rounded capsule along Z (tanks, seats, shrouds): an elliptical body with
+-- two tapering rings at each end, smooth from every side.
+function ModelKit:pod(name, length: number, height: number, width: number, offset: CFrame, color, material, opts)
+	local bodyLen = length * 0.6
+	local axis = CFrame.Angles(0, math.pi / 2, 0)
+	self:cyl(name, bodyLen, height, width, offset * axis, color, material, opts)
+	local rings = { { 0.13, 0.9 }, { 0.07, 0.66 } }
+	local z = bodyLen / 2
+	for _, r in ipairs(rings) do
+		local len = length * r[1]
+		for _, s in ipairs({ -1, 1 }) do
+			self:cyl(name, len, height * r[2], width * r[2], offset * CF(0, 0, s * (z + len / 2)) * axis, color, material, opts)
+		end
+		z += len
 	end
 end
 
