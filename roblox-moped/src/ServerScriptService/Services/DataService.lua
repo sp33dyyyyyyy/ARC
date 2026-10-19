@@ -31,7 +31,15 @@ local PROFILE_VERSION = 1
 
 local DataService = {}
 
-local store = DataStoreService:GetDataStore(CFG.StoreName)
+-- Created lazily and inside pcall: GetDataStore can throw in an unpublished
+-- place, and that must never stop the game from starting.
+local store: any = nil
+local function getStore()
+	if not store then
+		store = DataStoreService:GetDataStore(CFG.StoreName)
+	end
+	return store
+end
 local profiles: { [Player]: any } = {}
 local savingInFlight = 0
 
@@ -66,7 +74,10 @@ end
 ----------------------------------------------------------------------------
 local function withRetry(label: string, fn: () -> any): (boolean, any)
 	local lastErr
-	for attempt = 1, CFG.MaxAttempts do
+	-- In Studio the DataStore either works at once or never (API access off,
+	-- unpublished place), so don't make the tester wait through retries.
+	local attempts = RunService:IsStudio() and 1 or CFG.MaxAttempts
+	for attempt = 1, attempts do
 		local ok, result = pcall(fn)
 		if ok then
 			return true, result
@@ -78,8 +89,8 @@ local function withRetry(label: string, fn: () -> any): (boolean, any)
 			warn(("[DataService] %s: no API access (%s) - giving up"):format(label, msg))
 			return false, result
 		end
-		warn(("[DataService] %s failed (attempt %d/%d): %s"):format(label, attempt, CFG.MaxAttempts, msg))
-		if attempt < CFG.MaxAttempts then
+		warn(("[DataService] %s failed (attempt %d/%d): %s"):format(label, attempt, attempts, msg))
+		if attempt < attempts then
 			task.wait(2 ^ (attempt - 1)) -- 1, 2, 4, 8 s
 		end
 	end
@@ -115,7 +126,7 @@ end
 ----------------------------------------------------------------------------
 function DataService.load(player: Player)
 	local ok, data = withRetry("load " .. player.Name, function()
-		return store:GetAsync(keyFor(player))
+		return getStore():GetAsync(keyFor(player))
 	end)
 
 	local profile
@@ -143,7 +154,7 @@ function DataService.save(player: Player, final: boolean?)
 	savingInFlight += 1
 	local snapshot = table.clone(profile)
 	local ok = withRetry("save " .. player.Name, function()
-		store:UpdateAsync(keyFor(player), function()
+		getStore():UpdateAsync(keyFor(player), function()
 			return snapshot -- full overwrite; this server owns the profile
 		end)
 	end)

@@ -36,6 +36,8 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local BikePhysics = require(Shared:WaitForChild("BikePhysics"))
 local ClientState = require(Shared:WaitForChild("ClientState"))
 
+print("[MopedDays] client scripts running")
+
 local player = Players.LocalPlayer
 local PUSH = GameConfig.Push
 
