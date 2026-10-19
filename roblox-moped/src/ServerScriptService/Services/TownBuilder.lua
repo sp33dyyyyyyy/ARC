@@ -1,24 +1,30 @@
 --[[
 	TownBuilder  (ModuleScript, ServerScriptService/Services)
 
-	Builds a complete, ORIGINAL low-poly German country map at server start,
-	so the game is playable and good-looking with zero manual building.
-	Layout, names and look are made up for this project.
+	Builds the whole map at server start from the detailed pieces in
+	Buildings.lua and Props.lua. The CORE (ground, roads, spawn, mission
+	spots) is built before the game starts; the scenery is then built in the
+	background in small steps so the server never stalls.
 
-	Zones (x east, z south, 1 stud ~ 0.28 m; a moped does ~45 studs/s)
-	  Kleindorf     main street z=0, x -300..300: houses, bakery, general
-	                store, garage, Werkstatt, petrol station Sued, church
-	  Marktplatz    cobbled square (0,-150) with fountain, Gasthof, job board
-	  Schnellstrasse highway east along z=0 to x=2400, then north to z=-1900;
-	                petrol station Nord at x=1500
-	  Hofweg        farm lane south from the highway at x=1200 (barn, silos)
-	  Waldweg loop  narrow lanes west/north: (-1500,0) (-1500,-1200) (0,-1200),
-	                pine forest, used by the checkpoint run
-	  Huegeldorf    hill hamlet on a 36-stud plateau at the top of a ramp road
+	Zones (x east, z south; 1 stud ~ 0.28 m, a moped does ~45 studs/s)
+	  Kleindorf       main street z=0, x -300..300: Fachwerk and plaster
+	                  houses, bakery, general store, garage, Werkstatt,
+	                  petrol station Sued, bus stop, parked cars, lamps
+	  Marktplatz      cobbled square (0,-150): fountain, maypole, church,
+	                  Gasthof with beer garden, advertising column
+	  Schnellstrasse  highway east along z=0 to x=2400, then north to z=-1900:
+	                  power poles, reflector posts, petrol station Nord (x=1500)
+	  Hofweg          farm lane south from the highway at x=1200: barn, silos,
+	                  tractor, hay bales, fields, orchard
+	  Waldweg loop    narrow lanes west/north: (-1500,0) (-1500,-1200) (0,-1200)
+	                  through fir forest (the checkpoint run)
+	  Huegeldorf      hill hamlet on a 36-stud plateau up a ramp road
 
 	It only runs when GameConfig.GenerateTown is true AND Workspace has no
 	"Town" folder. To use your own map: put it in a Folder named "Town", tag
 	the props (see README) and add the MissionSpots.
+	Replace any building with your own model via ReplicatedStorage/TownModels
+	(see Buildings.lua).
 
 	Tags created: GarageDoor, Workshop, PetrolStation, MissionBoard
 	Spots created (Workspace/MissionSpots): everything MissionData asks for.
@@ -26,41 +32,39 @@
 
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
-local GameConfig = require(game.ReplicatedStorage.Shared.GameConfig)
+local Shared = game.ReplicatedStorage.Shared
+local GameConfig = require(Shared.GameConfig)
+local ModelKit = require(Shared.ModelKit)
+local Buildings = require(script.Parent.Buildings)
+local Props = require(script.Parent.Props)
 
 local TownBuilder = {}
 
+local V3, CF = Vector3.new, CFrame.new
+local rgb = Color3.fromRGB
+local M = Enum.Material
+
 local rng = Random.new(1204)
-local rects = {} -- obstacles for scattering trees/props: {x1, z1, x2, z2}
+local rects = {} -- obstacles for scattering: {x1, z1, x2, z2}
 local town: Folder
 local roads: Folder
 local scenery: Folder
+local houses: Folder
 
 local C = {
-	grass = Color3.fromRGB(104, 146, 74),
-	asphalt = Color3.fromRGB(64, 66, 72),
-	lane = Color3.fromRGB(86, 86, 88),
-	cobble = Color3.fromRGB(150, 138, 120),
-	marking = Color3.fromRGB(235, 235, 225),
-	timber = Color3.fromRGB(86, 58, 40),
-	brick = Color3.fromRGB(150, 84, 66),
-	glass = Color3.fromRGB(170, 205, 225),
-	door = Color3.fromRGB(94, 58, 40),
-	leaf = Color3.fromRGB(70, 120, 56),
-	pine = Color3.fromRGB(40, 86, 58),
-	trunk = Color3.fromRGB(96, 70, 48),
-	water = Color3.fromRGB(100, 160, 205),
+	grass = rgb(104, 146, 74),
+	asphalt = rgb(62, 64, 70),
+	lane = rgb(84, 84, 86),
+	cobble = rgb(150, 138, 120),
+	marking = rgb(236, 236, 228),
+	yellow = rgb(240, 200, 60),
 }
-local WALLS = {
-	Color3.fromRGB(236, 226, 202), Color3.fromRGB(224, 198, 152), Color3.fromRGB(202, 215, 198),
-	Color3.fromRGB(238, 208, 192), Color3.fromRGB(206, 216, 230), Color3.fromRGB(242, 240, 234),
-}
-local ROOFS = { Color3.fromRGB(150, 70, 55), Color3.fromRGB(112, 72, 62), Color3.fromRGB(82, 86, 94) }
 
 ----------------------------------------------------------------------------
--- Primitive helpers
+-- helpers
 ----------------------------------------------------------------------------
 local function mk(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?)
 	local p = Instance.new("Part")
@@ -69,7 +73,7 @@ local function mk(parent: Instance, name: string, size: Vector3, cf: CFrame, col
 	p.Size = size
 	p.CFrame = cf
 	p.Color = color
-	p.Material = material or Enum.Material.SmoothPlastic
+	p.Material = material or M.SmoothPlastic
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
 	if shape then
@@ -95,7 +99,7 @@ end
 local function label(part: BasePart, text: string, lift: number?)
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.fromOffset(200, 36)
-	gui.StudsOffset = Vector3.new(0, (lift or part.Size.Y / 2 + 3), 0)
+	gui.StudsOffset = V3(0, lift or (part.Size.Y / 2 + 3), 0)
 	gui.AlwaysOnTop = false
 	gui.MaxDistance = 350
 	gui.Parent = part
@@ -110,239 +114,98 @@ local function label(part: BasePart, text: string, lift: number?)
 	t.Parent = gui
 end
 
+local function tag(inst: Instance, name: string)
+	CollectionService:AddTag(inst, name)
+end
+
+local function yield()
+	task.wait()
+end
+
+local function step(name: string, fn: () -> ())
+	local ok, err = pcall(fn)
+	if ok then
+		print(("[TownBuilder] %s done"):format(name))
+	else
+		warn(("[TownBuilder] step '%s' FAILED: %s"):format(name, tostring(err)))
+	end
+	yield()
+end
+
 -- axis-aligned road. level = top surface height.
-local function road(x1: number, z1: number, x2: number, z2: number, width: number, level: number, dashed: boolean?, color: Color3?)
+local function road(x1: number, z1: number, x2: number, z2: number, width: number, level: number, o: { [string]: any }?)
+	o = o or {}
 	local horizontal = z1 == z2
 	local len = horizontal and math.abs(x2 - x1) or math.abs(z2 - z1)
 	local cx, cz = (x1 + x2) / 2, (z1 + z2) / 2
-	local size = horizontal and Vector3.new(len, 0.4, width) or Vector3.new(width, 0.4, len)
-	mk(roads, "Road", size, CFrame.new(cx, level - 0.2, cz), color or C.asphalt, Enum.Material.Asphalt)
+	local size = horizontal and V3(len, 0.4, width) or V3(width, 0.4, len)
+	mk(roads, "Road", size, CF(cx, level - 0.2, cz), o.color or C.asphalt, M.Asphalt)
 	addRect(cx - size.X / 2, cz - size.Z / 2, cx + size.X / 2, cz + size.Z / 2)
-	if dashed then
+	local function strip(offset: number, w: number, color: Color3)
+		local sz = horizontal and V3(len - 2, 0.1, w) or V3(w, 0.1, len - 2)
+		local at = horizontal and V3(cx, level + 0.03, cz + offset) or V3(cx + offset, level + 0.03, cz)
+		local p = mk(roads, "Line", sz, CF(at), color, M.SmoothPlastic)
+		p.CanCollide = false
+		p.CanQuery = false
+	end
+	if o.edge then
+		strip(width / 2 - 1.2, 0.45, C.marking)
+		strip(-(width / 2 - 1.2), 0.45, C.marking)
+	end
+	if o.dashed then
 		local period, dash = 26, 9
 		local start = (horizontal and math.min(x1, x2) or math.min(z1, z2)) + 6
 		local pos = start
 		local stop = start + len - 12
 		while pos < stop do
 			local mid = pos + dash / 2
-			local dsize = horizontal and Vector3.new(dash, 0.12, 0.6) or Vector3.new(0.6, 0.12, dash)
-			local at = horizontal and Vector3.new(mid, level + 0.03, cz) or Vector3.new(cx, level + 0.03, mid)
-			local p = mk(roads, "Dash", dsize, CFrame.new(at), C.marking, Enum.Material.SmoothPlastic)
+			local dsize = horizontal and V3(dash, 0.1, 0.6) or V3(0.6, 0.1, dash)
+			local at = horizontal and V3(mid, level + 0.03, cz) or V3(cx, level + 0.03, mid)
+			local p = mk(roads, "Dash", dsize, CF(at), C.marking, M.SmoothPlastic)
 			p.CanCollide = false
+			p.CanQuery = false
 			pos += period
 		end
 	end
 end
 
-----------------------------------------------------------------------------
--- Buildings
-----------------------------------------------------------------------------
--- Half-timbered house. Front faces local +Z; yaw rotates it.
-local function house(name: string, cx: number, cz: number, w: number, d: number, h: number, yaw: number, wall: Color3, roof: Color3, baseY: number?)
-	local base = CFrame.new(cx, baseY or 0, cz) * CFrame.Angles(0, yaw, 0)
-	local model = Instance.new("Model")
-	model.Name = name
-	model.Parent = scenery
-	local function box(n, size, offset, color, material)
-		return mk(model, n, size, base * offset, color, material)
-	end
-	local body = box("Walls", Vector3.new(w, h, d), CFrame.new(0, h / 2, 0), wall, Enum.Material.Plaster)
-	-- timber frame
-	for _, sx in ipairs({ -1, 1 }) do
-		for _, sz in ipairs({ -1, 1 }) do
-			local p = box("Post", Vector3.new(0.8, h, 0.8), CFrame.new(sx * w / 2, h / 2, sz * d / 2), C.timber, Enum.Material.Wood)
-			p.CanCollide = false
-		end
-	end
-	for _, sz in ipairs({ -1, 1 }) do
-		local beam = box("Beam", Vector3.new(w, 0.7, 0.5), CFrame.new(0, h * 0.52, sz * d / 2), C.timber, Enum.Material.Wood)
-		beam.CanCollide = false
-		local post = box("Post", Vector3.new(0.7, h * 0.5, 0.5), CFrame.new(0, h * 0.27, sz * d / 2), C.timber, Enum.Material.Wood)
-		post.CanCollide = false
-	end
-	-- stepped gable roof (ridge along X)
-	for i = 1, 4 do
-		local depth = (d + 3) * (1 - (i - 1) * 0.24)
-		local step = box("Roof", Vector3.new(w + 3, 1.5, depth), CFrame.new(0, h + (i - 0.5) * 1.5, 0), roof, Enum.Material.Slate)
-		step.CanCollide = i == 1
-	end
-	local chimney = box("Chimney", Vector3.new(2, 6, 2), CFrame.new(w * 0.28, h + 5, -d * 0.12), C.brick, Enum.Material.Brick)
-	chimney.CanCollide = false
-	-- door + windows on the front
-	local door = box("Door", Vector3.new(3.4, 6.4, 0.5), CFrame.new(0, 3.2, d / 2 + 0.15), C.door, Enum.Material.Wood)
-	door.CanCollide = false
-	for _, wx in ipairs({ -w * 0.3, w * 0.3 }) do
-		for _, wy in ipairs({ h * 0.28, h * 0.78 }) do
-			local win = box("Window", Vector3.new(3.4, 3.4, 0.4), CFrame.new(wx, wy, d / 2 + 0.15), C.glass, Enum.Material.Glass)
-			win.CanCollide = false
-		end
-	end
-	model.PrimaryPart = body
+local ROOF_STYLES = {
+	{ rgb(168, 72, 54), M.ClayRoofTiles },
+	{ rgb(146, 62, 48), M.ClayRoofTiles },
+	{ rgb(118, 76, 64), M.ClayRoofTiles },
+	{ rgb(92, 96, 104), M.Slate },
+}
 
-	local r = math.max(w, d) / 2 + 3
-	addRect(cx - r, cz - r, cx + r, cz + r)
-	return body
+-- a village house with its footprint registered so trees keep clear
+local function placeHouse(x: number, z: number, yaw: number, style: string, y: number?, extra: { [string]: any }?)
+	local o = { rng = rng, style = style }
+	for k, v in pairs(extra or {}) do
+		o[k] = v
+	end
+	local model, r, body = Buildings.house(houses, CF(x, y or 0, z) * CFrame.Angles(0, yaw, 0), o)
+	addRect(x - r, z - r, x + r, z + r)
+	return model, body
 end
 
-local function randomHouse(name: string, x: number, z: number, yaw: number, baseY: number?)
-	local w = rng:NextInteger(24, 38)
-	local d = rng:NextInteger(20, 28)
-	local h = rng:NextInteger(16, 22)
-	return house(name, x, z, w, d, h, yaw, WALLS[rng:NextInteger(1, #WALLS)], ROOFS[rng:NextInteger(1, #ROOFS)], baseY)
-end
-
-local function tree(x: number, z: number, y: number?, pine: boolean?)
-	local g = y or 0
-	local h = rng:NextNumber(7, 11)
-	local s = rng:NextNumber(10, 15)
-	local trunk = mk(scenery, "Trunk", Vector3.new(h, 1.5, 1.5), CFrame.new(x, g + h / 2, z) * CFrame.Angles(0, 0, math.pi / 2), C.trunk, Enum.Material.Wood, Enum.PartType.Cylinder)
-	trunk.CanCollide = true
-	local top = mk(scenery, "Crown", Vector3.new(s, s, s), CFrame.new(x, g + h + s * 0.25, z), pine and C.pine or C.leaf, Enum.Material.Grass, Enum.PartType.Ball)
-	top.CanCollide = false
-	top.CanQuery = false
-end
-
-local function scatterTrees(count: number, x1: number, z1: number, x2: number, z2: number, pine: boolean?, clearance: number?)
+local function scatterTrees(count: number, x1: number, z1: number, x2: number, z2: number, kinds: { string }, clearance: number)
 	local placed, tries = 0, 0
-	while placed < count and tries < count * 8 do
+	local n = math.floor(count * (GameConfig.TownDetail or 1))
+	while placed < n and tries < n * 6 do
 		tries += 1
 		local x, z = rng:NextNumber(x1, x2), rng:NextNumber(z1, z2)
-		if not blocked(x, z, clearance or 10) then
-			tree(x, z, 0, pine)
+		if not blocked(x, z, clearance) then
+			Props.tree(scenery, V3(x, 0, z), rng, kinds[rng:NextInteger(1, #kinds)])
 			placed += 1
+			if placed % 25 == 0 then
+				yield()
+			end
 		end
 	end
 end
 
-local function lamp(x: number, z: number, y: number?)
-	local g = y or 0
-	local pole = mk(scenery, "LampPole", Vector3.new(11, 0.7, 0.7), CFrame.new(x, g + 5.5, z) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(50, 52, 56), Enum.Material.Metal, Enum.PartType.Cylinder)
-	pole.CanCollide = false
-	local bulb = mk(scenery, "LampBulb", Vector3.new(1.6, 1.6, 1.6), CFrame.new(x, g + 11.4, z), Color3.fromRGB(255, 240, 190), Enum.Material.Neon, Enum.PartType.Ball)
-	bulb.CanCollide = false
-end
-
-local function fenceLine(x1: number, z1: number, x2: number, z2: number, y: number?)
-	local g = y or 0
-	local len = math.sqrt((x2 - x1) ^ 2 + (z2 - z1) ^ 2)
-	local n = math.floor(len / 9)
-	for i = 0, n do
-		local t = i / math.max(n, 1)
-		local p = mk(scenery, "FencePost", Vector3.new(0.8, 3.4, 0.8), CFrame.new(x1 + (x2 - x1) * t, g + 1.7, z1 + (z2 - z1) * t), C.timber, Enum.Material.Wood)
-		p.CanCollide = false
-	end
-	local mid = Vector3.new((x1 + x2) / 2, g + 2.4, (z1 + z2) / 2)
-	local rail = mk(scenery, "FenceRail", Vector3.new(0.4, 0.4, len), CFrame.lookAt(mid, mid + Vector3.new(x2 - x1, 0, z2 - z1)), C.timber, Enum.Material.Wood)
-	rail.CanCollide = false
-end
-
-local function progress(stage: string)
-	print(("[TownBuilder] %s done (%d descendants so far)"):format(stage, #town:GetDescendants()))
-end
-
-local function tag(part: Instance, name: string)
-	CollectionService:AddTag(part, name)
-end
-
-local function cylinderUpright(parent: Instance, name: string, radius: number, height: number, pos: Vector3, color: Color3, material: Enum.Material?)
-	return mk(parent, name, Vector3.new(height, radius * 2, radius * 2), CFrame.new(pos + Vector3.new(0, height / 2, 0)) * CFrame.Angles(0, 0, math.pi / 2), color, material, Enum.PartType.Cylinder)
-end
-
 ----------------------------------------------------------------------------
--- Special places
+-- BUILD
 ----------------------------------------------------------------------------
-local function shop(name: string, text: string, x: number, z: number, yaw: number, w: number, d: number, h: number, wall: Color3, roof: Color3)
-	local body = house(name, x, z, w, d, h, yaw, wall, roof)
-	label(body, text, h + 8)
-	return body
-end
-
-local function petrolStation(name: string, x: number, z: number, yaw: number)
-	local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
-	local model = Instance.new("Model")
-	model.Name = name
-	model.Parent = scenery
-	local function box(n, size, offset, color, material)
-		return mk(model, n, size, base * offset, color, material)
-	end
-	box("Island", Vector3.new(30, 0.8, 9), CFrame.new(0, 0.4, 0), Color3.fromRGB(150, 150, 152), Enum.Material.Concrete)
-	local canopy = box("Canopy", Vector3.new(38, 1.2, 24), CFrame.new(0, 16, 0), Color3.fromRGB(205, 60, 50), Enum.Material.SmoothPlastic)
-	canopy.CanCollide = false
-	for _, sx in ipairs({ -14, 14 }) do
-		box("Pillar", Vector3.new(1.4, 16, 1.4), CFrame.new(sx, 8, 0), Color3.fromRGB(235, 235, 235), Enum.Material.Metal).CanCollide = false
-	end
-	local middle
-	for i, px in ipairs({ -8, 0, 8 }) do
-		local pump = box("Pump", Vector3.new(2.6, 5.4, 1.8), CFrame.new(px, 3.5, 0), Color3.fromRGB(220, 220, 215), Enum.Material.SmoothPlastic)
-		box("PumpScreen", Vector3.new(1.6, 1.2, 0.3), CFrame.new(px, 4.8, 1.0), Color3.fromRGB(60, 200, 120), Enum.Material.Neon).CanCollide = false
-		if i == 2 then
-			middle = pump
-		end
-	end
-	tag(middle, "PetrolStation")
-	label(middle, "TANKSTELLE", 8)
-	addRect(x - 22, z - 16, x + 22, z + 16)
-end
-
-local function fountain(x: number, z: number)
-	local base = Vector3.new(x, 0.3, z)
-	cylinderUpright(scenery, "FountainBasin", 10, 1.8, base, Color3.fromRGB(170, 168, 160), Enum.Material.Concrete)
-	local water = cylinderUpright(scenery, "FountainWater", 8.6, 1.9, base + Vector3.new(0, 0.05, 0), C.water, Enum.Material.Glass)
-	water.Transparency = 0.35
-	water.CanCollide = false
-	cylinderUpright(scenery, "FountainColumn", 1.4, 8, base, Color3.fromRGB(175, 172, 165), Enum.Material.Concrete)
-	local top = mk(scenery, "FountainTop", Vector3.new(4, 4, 4), CFrame.new(x, 10.5, z), C.water, Enum.Material.Glass, Enum.PartType.Ball)
-	top.CanCollide = false
-	top.Transparency = 0.3
-	addRect(x - 12, z - 12, x + 12, z + 12)
-end
-
-local function church(x: number, z: number, yaw: number)
-	local base = CFrame.new(x, 0, z) * CFrame.Angles(0, yaw, 0)
-	local model = Instance.new("Model")
-	model.Name = "Kirche"
-	model.Parent = scenery
-	local function box(n, size, offset, color, material)
-		return mk(model, n, size, base * offset, color, material)
-	end
-	local nave = box("Nave", Vector3.new(26, 22, 44), CFrame.new(0, 11, 0), Color3.fromRGB(238, 232, 214), Enum.Material.Plaster)
-	for i = 1, 4 do
-		box("NaveRoof", Vector3.new(30, 1.5, 48 * (1 - (i - 1) * 0.0)), CFrame.new(0, 22 + (i - 0.5) * 1.5, 0), Color3.fromRGB(96, 80, 74), Enum.Material.Slate).Size = Vector3.new(30 - (i - 1) * 7, 1.5, 48)
-	end
-	box("Tower", Vector3.new(12, 46, 12), CFrame.new(0, 23, 28), Color3.fromRGB(232, 226, 208), Enum.Material.Plaster)
-	for i = 1, 6 do
-		box("Spire", Vector3.new(13 - (i - 1) * 2.2, 3, 13 - (i - 1) * 2.2), CFrame.new(0, 46 + (i - 0.5) * 3, 28), Color3.fromRGB(80, 100, 96), Enum.Material.Slate)
-	end
-	box("Clock", Vector3.new(5, 5, 0.5), CFrame.new(0, 38, 34.2), Color3.fromRGB(250, 248, 240), Enum.Material.SmoothPlastic).CanCollide = false
-	box("Door", Vector3.new(5, 9, 0.5), CFrame.new(0, 4.5, 34.2), C.door, Enum.Material.Wood).CanCollide = false
-	model.PrimaryPart = nave
-	addRect(x - 24, z - 36, x + 24, z + 50)
-	label(nave, "KIRCHE", 40)
-end
-
-local function barn(x: number, z: number, yaw: number)
-	local body = house("Scheune", x, z, 46, 32, 20, yaw, Color3.fromRGB(150, 62, 52), Color3.fromRGB(90, 80, 76))
-	label(body, "HOF", 36)
-	cylinderUpright(scenery, "Silo", 6.5, 36, Vector3.new(x + 40, 0, z - 6), Color3.fromRGB(180, 182, 186), Enum.Material.Metal)
-	cylinderUpright(scenery, "Silo", 6.5, 30, Vector3.new(x + 40, 0, z + 12), Color3.fromRGB(180, 182, 186), Enum.Material.Metal)
-	addRect(x + 32, z - 16, x + 50, z + 20)
-	for i = 1, 5 do
-		cylinderUpright(scenery, "Haystack", 4, 5, Vector3.new(x - 60 + i * 9, 0, z + 34), Color3.fromRGB(214, 190, 100), Enum.Material.Grass)
-	end
-end
-
-----------------------------------------------------------------------------
--- Build
-----------------------------------------------------------------------------
-local function step(name: string, fn: () -> ())
-	local ok, err = pcall(fn)
-	if ok then
-		progress(name)
-	else
-		warn(("[TownBuilder] step '%s' FAILED: %s"):format(name, tostring(err)))
-	end
-end
-
 function TownBuilder.build()
 	if not GameConfig.GenerateTown or Workspace:FindFirstChild("Town") then
 		return
@@ -357,183 +220,413 @@ function TownBuilder.build()
 	scenery = Instance.new("Folder")
 	scenery.Name = "Scenery"
 	scenery.Parent = town
+	houses = Instance.new("Folder")
+	houses.Name = "Buildings"
+	houses.Parent = town
 
-	-- sky / light
-	Lighting.ClockTime = 15
-	Lighting.Brightness = 2.4
-	Lighting.OutdoorAmbient = Color3.fromRGB(120, 124, 130)
-	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
-	atmosphere.Density = 0.28
-	atmosphere.Offset = 0.2
-	atmosphere.Color = Color3.fromRGB(200, 215, 235)
-	atmosphere.Parent = Lighting
+	local z0, z1, rise = -1900, -2200, 36 -- hill ramp: start z, end z, plateau height
 
+	----------------------------------------------------------------------
+	-- CORE (synchronous): light, ground, roads, ramp, spawn, mission spots
+	----------------------------------------------------------------------
+	step("light", function()
+		Lighting.ClockTime = 15.2
+		Lighting.Brightness = 2.6
+		Lighting.OutdoorAmbient = rgb(128, 132, 140)
+		Lighting.ColorShift_Top = rgb(255, 244, 224)
+		Lighting.EnvironmentDiffuseScale = 0.6
+		Lighting.EnvironmentSpecularScale = 0.5
+		local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+		atmosphere.Density = 0.3
+		atmosphere.Offset = 0.25
+		atmosphere.Color = rgb(196, 214, 236)
+		atmosphere.Decay = rgb(240, 214, 190)
+		atmosphere.Glare = 0.2
+		atmosphere.Haze = 1.4
+		atmosphere.Parent = Lighting
+		local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect") or Instance.new("ColorCorrectionEffect")
+		cc.Saturation = 0.12
+		cc.Contrast = 0.06
+		cc.Parent = Lighting
+		local bloom = Lighting:FindFirstChildOfClass("BloomEffect") or Instance.new("BloomEffect")
+		bloom.Intensity = 0.25
+		bloom.Threshold = 1.6
+		bloom.Parent = Lighting
+		local rays = Lighting:FindFirstChildOfClass("SunRaysEffect") or Instance.new("SunRaysEffect")
+		rays.Intensity = 0.06
+		rays.Parent = Lighting
+	end)
 
-	local z0, z1, rise = -1900, -2200, 36 -- hill ramp: start z, end z, height
-
-	step('ground', function()
-		-- ground tiles (parts max 2048 studs)
+	step("ground", function()
 		for _, cx in ipairs({ -1300, 500, 2300 }) do
 			for _, cz in ipairs({ -2500, -700, 1100 }) do
-				mk(town, "Ground", Vector3.new(1800, 4, 1800), CFrame.new(cx, -2, cz), C.grass, Enum.Material.Grass)
+				mk(town, "Ground", V3(1800, 4, 1800), CF(cx, -2, cz), C.grass, M.Grass)
 			end
 		end
 	end)
 
-	step("Roads (highest level drawn last so junctions don't z-fight)", function()
-		road(300, 0, 2400, 0, 32, 0.20, true) -- Schnellstrasse east
-		road(2400, 0, 2400, -1900, 32, 0.20, true) -- ...north
-		road(1200, 0, 1200, 640, 18, 0.22) -- Hofweg to the farm
-		road(-1500, 0, -300, 0, 16, 0.24, false, C.lane) -- Landstrasse west
-		road(-1500, -1200, -1500, 0, 16, 0.24, false, C.lane) -- Waldweg north
-		road(-1500, -1200, 0, -1200, 16, 0.24, false, C.lane)
-		road(0, -1200, 0, 0, 16, 0.24, false, C.lane) -- Marktstrasse back to the village
-		road(-300, 0, 300, 0, 24, 0.26, true) -- Hauptstrasse (village main street)
+	step("roads", function()
+		road(300, 0, 2400, 0, 32, 0.20, { dashed = true, edge = true }) -- Schnellstrasse east
+		road(2400, 0, 2400, -1900, 32, 0.20, { dashed = true, edge = true }) -- ...north
+		road(1200, 0, 1200, 640, 18, 0.22, { edge = true }) -- Hofweg to the farm
+		road(-1500, 0, -300, 0, 16, 0.24, { color = C.lane }) -- Landstrasse west
+		road(-1500, -1200, -1500, 0, 16, 0.24, { color = C.lane }) -- Waldweg north
+		road(-1500, -1200, 0, -1200, 16, 0.24, { color = C.lane })
+		road(0, -1200, 0, 0, 16, 0.24, { color = C.lane }) -- Marktstrasse back to the village
+		road(-300, 0, 300, 0, 24, 0.26, { dashed = true }) -- Hauptstrasse (village main street)
 
 		-- Marktplatz
-		mk(town, "Marktplatz", Vector3.new(150, 0.5, 130), CFrame.new(0, 0.05, -150), C.cobble, Enum.Material.Cobblestone)
+		mk(town, "Marktplatz", V3(150, 0.5, 130), CF(0, 0.05, -150), C.cobble, M.Cobblestone)
+		mk(town, "MarktplatzRim", V3(154, 0.4, 134), CF(0, 0.02, -150), rgb(120, 114, 104), M.Granite)
 		addRect(-75, -215, 75, -85)
-		fountain(0, -150)
-	end)
 
-	step('Hill ramp to Huegeldorf: a thick slab so there is no hollow underneath', function()
-		
-		local a, b = Vector3.new(2400, 0, z0), Vector3.new(2400, rise, z1)
-		local dir = (b - a)
+		-- hill ramp to Huegeldorf: a thick slab so there is no hollow underneath
+		local a, b = V3(2400, 0, z0), V3(2400, rise, z1)
+		local dir = b - a
 		local len = dir.Magnitude
 		local lookCF = CFrame.lookAt((a + b) / 2, (a + b) / 2 + dir)
-		local slab = mk(town, "RampSlab", Vector3.new(44, 40, len), lookCF * CFrame.new(0, -20, 0), C.grass, Enum.Material.Grass)
-		slab.Name = "RampSlab"
-		mk(roads, "RampRoad", Vector3.new(18, 0.4, len), lookCF * CFrame.new(0, 0.2, 0), C.asphalt, Enum.Material.Asphalt)
+		mk(town, "RampSlab", V3(44, 40, len), lookCF * CF(0, -20, 0), C.grass, M.Grass)
+		mk(roads, "RampRoad", V3(18, 0.4, len), lookCF * CF(0, 0.2, 0), C.asphalt, M.Asphalt)
 		addRect(2370, z1, 2430, z0)
-		-- plateau
-		mk(town, "Plateau", Vector3.new(500, rise, 520), CFrame.new(2400, rise / 2, z1 - 260), C.grass, Enum.Material.Grass)
-		mk(roads, "HamletRoad", Vector3.new(18, 0.4, 500), CFrame.new(2400, rise + 0.2, z1 - 250), C.lane, Enum.Material.Asphalt)
+		mk(town, "Plateau", V3(500, rise, 520), CF(2400, rise / 2, z1 - 260), C.grass, M.Grass)
+		mk(roads, "HamletRoad", V3(18, 0.4, 500), CF(2400, rise + 0.2, z1 - 250), C.lane, M.Asphalt)
 		addRect(2150, z1 - 520, 2650, z1)
 	end)
 
-	step('Kleindorf: houses along the main street', function()
-		local reserved = { -200, -80, 80, 200 } -- shop / garage slots on each side
-		local function isReserved(x: number): boolean
-			for _, r in ipairs(reserved) do
-				if math.abs(x - r) < 36 then
-					return true
-				end
-			end
-			return false
-		end
-		for x = -270, 270, 46 do
-			if not isReserved(x) and math.abs(x) > 14 then
-				randomHouse("Haus", x + rng:NextInteger(-4, 4), -40, 0) -- north side faces south
-				randomHouse("Haus", x + rng:NextInteger(-4, 4), 40, math.pi) -- south side faces north
-			end
-		end
-
-		-- named buildings
-		shop("Baeckerei", "BAECKEREI", -200, -40, 0, 34, 26, 18, Color3.fromRGB(240, 214, 160), ROOFS[1])
-		shop("Dorfladen", "DORFLADEN", 200, -40, 0, 34, 26, 18, Color3.fromRGB(200, 222, 200), ROOFS[2])
-		local garage = shop("Garage", "GARAGE", -80, 40, math.pi, 34, 26, 16, Color3.fromRGB(205, 175, 130), ROOFS[3])
-		tag(garage, "GarageDoor")
-		local werkstatt = shop("Werkstatt", "WERKSTATT (repair)", 80, 40, math.pi, 34, 26, 16, Color3.fromRGB(150, 170, 200), ROOFS[3])
-		tag(werkstatt, "Workshop")
-		petrolStation("TankstelleSued", -200, 36, math.pi)
-
-		-- lamps down the main street
-		for x = -270, 270, 60 do
-			lamp(x, -15, 0)
-			lamp(x + 30, 15, 0)
-		end
-
-		-- job board next to the spawn
-		local board = mk(scenery, "JobBoard", Vector3.new(10, 8, 1.2), CFrame.new(34, 4.8, -20), Color3.fromRGB(110, 80, 52), Enum.Material.Wood)
-		mk(scenery, "BoardPost", Vector3.new(1.2, 6, 1.2), CFrame.new(29, 3, -20), C.timber, Enum.Material.Wood)
-		mk(scenery, "BoardPost", Vector3.new(1.2, 6, 1.2), CFrame.new(39, 3, -20), C.timber, Enum.Material.Wood)
-		tag(board, "MissionBoard")
-		label(board, "JOBS", 7)
-		addRect(24, -24, 44, -16)
-	end)
-
-	step('Marktplatz buildings', function()
-		shop("Gasthof", "GASTHOF ZUR LINDE", 62, -240, 0, 52, 30, 24, Color3.fromRGB(238, 222, 190), ROOFS[1])
-		church(-140, -150, math.pi / 2)
-		randomHouse("Haus", 135, -150, -math.pi / 2)
-		randomHouse("Haus", 135, -200, -math.pi / 2)
-		lamp(-60, -95, 0)
-		lamp(60, -95, 0)
-		lamp(-60, -205, 0)
-		lamp(60, -205, 0)
-	end)
-
-	step('Highway: second petrol station, signs of life', function()
-		petrolStation("TankstelleNord", 1500, 40, math.pi)
-		for x = 400, 2300, 120 do
-			lamp(x, -20, 0)
-		end
-		scatterTrees(120, 350, -500, 2300, -40, false, 14)
-		scatterTrees(80, 350, 40, 2300, 520, false, 14)
-	end)
-
-	step('Hof (farm) at the end of the lane', function()
-		fenceLine(1182, 80, 1182, 600)
-		fenceLine(1218, 80, 1218, 600)
-		barn(1170, 660, 0)
-		mk(town, "Field", Vector3.new(220, 0.3, 300), CFrame.new(1420, 0.15, 330), Color3.fromRGB(208, 184, 96), Enum.Material.Grass)
-		mk(town, "Field", Vector3.new(220, 0.3, 300), CFrame.new(980, 0.15, 330), Color3.fromRGB(120, 160, 70), Enum.Material.Grass)
-		addRect(870, 160, 1530, 500)
-	end)
-
-	step('Hamlet on the plateau', function()
-		for i = 0, 5 do
-			local z = z1 - 60 - i * 72
-			randomHouse("HausH", 2400 - 34, z, math.pi / 2, rise)
-			randomHouse("HausH", 2400 + 34, z - 30, -math.pi / 2, rise)
-		end
-		church(2490, z1 - 440, 0)
-		for z = z1 - 40, z1 - 480, 80 do
-			lamp(2400 - 11, z, rise)
-		end
-	end)
-
-	step('Forest', function()
-		scatterTrees(380, -1480, -1180, -20, -20, true, 18) -- inside the loop
-		scatterTrees(260, -1900, -1500, -1520, 200, true, 16)
-		scatterTrees(120, -1500, -1500, 100, -1220, true, 16)
-		scatterTrees(90, -300, 60, -40, 420, false, 14)
-		scatterTrees(60, 300, -400, 1100, -60, false, 14)
-	end)
-
-	step('Spawn + mission spots', function()
+	step("spawn + spots", function()
 		local spawn = Instance.new("SpawnLocation")
 		spawn.Anchored = true
-		spawn.Size = Vector3.new(12, 1, 12)
-		spawn.Position = Vector3.new(0, 0.8, 56)
+		spawn.Size = V3(12, 1, 12)
+		spawn.Position = V3(0, 0.8, 56)
 		spawn.Transparency = 1
 		spawn.CanCollide = false
 		spawn.Parent = town
-		mk(roads, "SpawnPad", Vector3.new(16, 0.3, 16), CFrame.new(0, 0.3, 56), C.cobble, Enum.Material.Cobblestone).CanCollide = false
+		mk(roads, "SpawnPad", V3(16, 0.3, 16), CF(0, 0.3, 56), C.cobble, M.Cobblestone).CanCollide = false
 
 		local spots = Instance.new("Folder")
 		spots.Name = "MissionSpots"
 		spots.Parent = Workspace
 		local positions = {
-			Spot_Bakery = Vector3.new(-200, 0.6, -10),
-			Spot_Dorfladen = Vector3.new(200, 0.6, -10),
-			Spot_Gasthof = Vector3.new(0, 0.6, -200),
-			Spot_Farm = Vector3.new(1200, 0.6, 570),
-			Spot_Huegeldorf = Vector3.new(2400, rise + 0.6, z1 - 250),
-			CP_Forest1 = Vector3.new(-900, 0.6, 0),
-			CP_Forest2 = Vector3.new(-1500, 0.6, -300),
-			CP_Forest3 = Vector3.new(-1500, 0.6, -1000),
-			CP_Forest4 = Vector3.new(-900, 0.6, -1200),
-			CP_Forest5 = Vector3.new(-300, 0.6, -1200),
+			Spot_Bakery = V3(-200, 0.6, -10),
+			Spot_Dorfladen = V3(200, 0.6, -10),
+			Spot_Gasthof = V3(0, 0.6, -200),
+			Spot_Farm = V3(1200, 0.6, 570),
+			Spot_Huegeldorf = V3(2400, rise + 0.6, z1 - 250),
+			CP_Forest1 = V3(-900, 0.6, 0),
+			CP_Forest2 = V3(-1500, 0.6, -300),
+			CP_Forest3 = V3(-1500, 0.6, -1000),
+			CP_Forest4 = V3(-900, 0.6, -1200),
+			CP_Forest5 = V3(-300, 0.6, -1200),
 		}
 		for name, pos in pairs(positions) do
 			local size = name:sub(1, 2) == "CP" and 20 or 14
-			local p = mk(spots, name, Vector3.new(size, 0.4, size), CFrame.new(pos), Color3.fromRGB(255, 220, 60), Enum.Material.Neon)
+			local p = mk(spots, name, V3(size, 0.4, size), CF(pos), rgb(255, 220, 60), M.Neon)
 			p.CanCollide = false
 			p.CanQuery = false
 			p.Transparency = 0.55
 			label(p, (name:gsub("^%a+_", "")), 6)
+		end
+	end)
+
+	----------------------------------------------------------------------
+	-- SCENERY (background, in small steps)
+	----------------------------------------------------------------------
+	task.spawn(function()
+		TownBuilder.buildScenery(z0, z1, rise)
+		print("[TownBuilder] scenery complete")
+	end)
+end
+
+function TownBuilder.buildScenery(z0: number, z1: number, rise: number)
+	----------------------------------------------------------------------
+	-- Kleindorf
+	----------------------------------------------------------------------
+	step("Kleindorf houses", function()
+		-- pavements, kerbs and zebra crossings on the main street
+		for _, s in ipairs({ -1, 1 }) do
+			Props.sidewalk(roads, V3(-300, 0, s * 15), V3(-12, 0, s * 15), 6, -s) -- kerb on the street side
+			Props.sidewalk(roads, V3(12, 0, s * 15), V3(300, 0, s * 15), 6, -s)
+		end
+		for _, x in ipairs({ -120, 120 }) do
+			Props.crosswalk(roads, CF(x, 0, 0) * CFrame.Angles(0, math.pi / 2, 0), 24)
+		end
+
+		local reserved = { -200, -80, 80, 200 }
+		local function isReserved(x: number): boolean
+			for _, r in ipairs(reserved) do
+				if math.abs(x - r) < 38 then
+					return true
+				end
+			end
+			return false
+		end
+		local styles = { "putz", "brick", "stone", "putz", "fachwerk" }
+		for x = -270, 270, 46 do
+			if not isReserved(x) and math.abs(x) > 16 then
+				local centre = math.abs(x) < 130
+				local sN = centre and "fachwerk" or styles[rng:NextInteger(1, #styles)]
+				local sS = centre and "fachwerk" or styles[rng:NextInteger(1, #styles)]
+				placeHouse(x + rng:NextInteger(-4, 4), -42, 0, sN)
+				placeHouse(x + rng:NextInteger(-4, 4), 42, math.pi, sS)
+				yield()
+			end
+		end
+
+		-- second row behind the main street houses for a denser village
+		for _, x in ipairs({ -262, -214, -166, 166, 214, 262 }) do
+			for _, side in ipairs({ -1, 1 }) do
+				local z = side * 92
+				if not blocked(x, z, 24) then
+					placeHouse(x + rng:NextInteger(-5, 5), z, side == -1 and 0 or math.pi, styles[rng:NextInteger(1, #styles)], 0, { fancy = false })
+				end
+			end
+			yield()
+		end
+
+		-- shops
+		local bakery, bakeryBody = Buildings.shop(houses, CF(-200, 0, -42), { rng = rng, name = "Baeckerei", text = "BAECKEREI", wall = rgb(240, 214, 160), roof = ROOF_STYLES[1][1], hangText = "Brezel" })
+		addRect(-224, -66, -176, -18)
+		local store = Buildings.shop(houses, CF(200, 0, -42), { rng = rng, name = "Dorfladen", text = "DORFLADEN", wall = rgb(200, 222, 200), roof = ROOF_STYLES[3][1], awning = { rgb(40, 110, 70), rgb(246, 244, 238) }, hangText = "Laden" })
+		addRect(176, -66, 224, -18)
+
+		-- garage + workshop on the south side facing the street
+		local garage, gr, gbody = Buildings.garage(houses, CF(-80, 0, 40) * CFrame.Angles(0, math.pi, 0), { rng = rng, name = "Garage", text = "GARAGE", wall = rgb(190, 160, 120) })
+		tag(gbody, "GarageDoor")
+		addRect(-80 - gr, 40 - gr, -80 + gr, 40 + gr)
+		local werk, wr, wbody = Buildings.garage(houses, CF(80, 0, 40) * CFrame.Angles(0, math.pi, 0), { rng = rng, name = "Werkstatt", text = "KFZ-WERKSTATT" })
+		tag(wbody, "Workshop")
+		addRect(80 - wr, 40 - wr, 80 + wr, 40 + wr)
+		local _, pr = Buildings.petrolStation(houses, CF(-200, 0, 46) * CFrame.Angles(0, math.pi, 0), { rng = rng, name = "TankstelleSued", color = rgb(214, 54, 44) })
+		addRect(-200 - pr, 46 - pr, -200 + pr, 46 + pr)
+	end)
+
+	step("village streetscape", function()
+		-- lamps, street trees, parked cars, bus stop, post box
+		for x = -270, 270, 45 do
+			Props.lamp(scenery, CF(x, 0, -19) * CFrame.Angles(0, math.pi, 0))
+			Props.lamp(scenery, CF(x + 22, 0, 19))
+		end
+		for x = -260, 260, 52 do
+			if math.abs(x) > 20 then
+				Props.tree(scenery, V3(x + rng:NextNumber(-5, 5), 0, -21), rng, "oak")
+				Props.tree(scenery, V3(x + 26 + rng:NextNumber(-5, 5), 0, 21), rng, "oak")
+			end
+		end
+		local carColors = { rgb(60, 110, 170), rgb(190, 60, 52), rgb(230, 200, 70), rgb(240, 238, 230), rgb(70, 120, 84), rgb(90, 96, 104) }
+		for i, x in ipairs({ -250, -160, -40, 30, 150, 240, 120, -120 }) do
+			local side = (i % 2 == 0) and 1 or -1
+			Props.car(scenery, CF(x, 0, side * 9.6) * CFrame.Angles(0, side * math.pi / 2, 0), (i % 3 == 0) and "bubble" or "estate", carColors[(i - 1) % #carColors + 1])
+		end
+		Props.busStop(scenery, CF(-40, 0, 20) * CFrame.Angles(0, math.pi, 0), "Kleindorf Mitte")
+		Props.busStop(scenery, CF(60, 0, -20), "Kleindorf Mitte")
+		Props.postBox(scenery, CF(-6, 0, -17))
+		Props.litfass(scenery, CF(-16, 0, -17))
+		Props.bench(scenery, CF(30, 0, 18) * CFrame.Angles(0, math.pi, 0))
+
+		-- village entrance signs
+		Props.roadSign(scenery, CF(305, 0, -19) * CFrame.Angles(0, math.pi / 2, 0), "ortsschild", "KLEINDORF")
+		Props.roadSign(scenery, CF(-305, 0, 19) * CFrame.Angles(0, -math.pi / 2, 0), "ortsschild", "KLEINDORF")
+		Props.roadSign(scenery, CF(318, 0, -19) * CFrame.Angles(0, math.pi / 2, 0), "limit", "50")
+		Props.roadSign(scenery, CF(-318, 0, 19) * CFrame.Angles(0, -math.pi / 2, 0), "limit", "50")
+		Props.roadSign(scenery, CF(-20, 0, -20), "limit", "30")
+		Props.roadSign(scenery, CF(20, 0, 20) * CFrame.Angles(0, math.pi, 0), "limit", "30")
+		Props.roadSign(scenery, CF(14, 0, -14) * CFrame.Angles(0, math.pi, 0), "stop")
+
+		-- job board next to the spawn
+		local board = mk(scenery, "JobBoard", V3(12, 8, 1.2), CF(34, 6.4, -23), rgb(110, 80, 52), M.WoodPlanks)
+		for _, sx in ipairs({ -5, 5 }) do
+			mk(scenery, "BoardPost", V3(1.2, 7, 1.2), CF(34 + sx, 3.5, -23), rgb(86, 58, 40), M.Wood)
+		end
+		mk(scenery, "BoardRoof", V3(14, 0.6, 3.2), CF(34, 10.8, -23.4) * CFrame.Angles(math.rad(-12), 0, 0), rgb(120, 70, 54), M.WoodPlanks)
+		for i = 0, 4 do
+			local paper = mk(scenery, "Notice", V3(1.8, 2.4, 0.1), CF(29.8 + i * 2.1, 6.6 + (i % 2) * 0.8, -22.35), rgb(246, 240, 220), M.SmoothPlastic)
+			paper.CanCollide = false
+		end
+		local head = mk(scenery, "BoardHead", V3(10, 1.6, 0.2), CF(34, 9.4, -22.35), rgb(40, 34, 30), M.Wood)
+		ModelKit.signText(head, "AUFTRAEGE", Enum.NormalId.Back, rgb(240, 214, 140))
+		tag(board, "MissionBoard")
+		addRect(24, -28, 44, -18)
+	end)
+
+	----------------------------------------------------------------------
+	-- Marktplatz
+	----------------------------------------------------------------------
+	step("Marktplatz", function()
+		Props.fountain(scenery, CF(0, 0.3, -150))
+		Props.maibaum(scenery, CF(-45, 0.3, -120))
+		Props.litfass(scenery, CF(48, 0.3, -112))
+		for i = -3, 3 do
+			Props.lamp(scenery, CF(i * 20, 0.3, -214))
+			Props.lamp(scenery, CF(i * 20, 0.3, -86) * CFrame.Angles(0, math.pi, 0))
+		end
+		for _, x in ipairs({ -52, 52 }) do
+			for _, z in ipairs({ -130, -170 }) do
+				Props.bench(scenery, CF(x, 0.3, z) * CFrame.Angles(0, x > 0 and math.pi / 2 or -math.pi / 2, 0))
+			end
+		end
+		-- market stalls along the north and south edges of the square
+		for i, x in ipairs({ -60, -34, -8, 18, 44 }) do
+			Props.marketStall(scenery, CF(x, 0.3, -96) * CFrame.Angles(0, math.pi, 0), i)
+		end
+		for i, x in ipairs({ -60, -34 }) do
+			Props.marketStall(scenery, CF(x, 0.3, -206), i + 1)
+		end
+		-- the church on the west side faces the square
+		local _, cr = Buildings.church(houses, CF(-150, 0, -150) * CFrame.Angles(0, math.pi / 2, 0), { rng = rng })
+		addRect(-150 - 40, -150 - 30, -150 + 40, -150 + 30)
+		-- Gasthof on the north side
+		Buildings.gasthof(houses, CF(62, 0, -246), { rng = rng })
+		addRect(30, -280, 100, -225)
+		-- houses on the east side
+		placeHouse(140, -150, -math.pi / 2, "fachwerk")
+		placeHouse(140, -200, -math.pi / 2, "putz")
+		placeHouse(-62, -246, 0, "fachwerk")
+		Props.car(scenery, CF(-30, 0.3, -96) * CFrame.Angles(0, math.pi / 2, 0), "bubble", rgb(230, 200, 70))
+	end)
+
+	----------------------------------------------------------------------
+	-- Schnellstrasse
+	----------------------------------------------------------------------
+	step("highway", function()
+		local _, pr = Buildings.petrolStation(houses, CF(1500, 0, 46) * CFrame.Angles(0, math.pi, 0), { rng = rng, name = "TankstelleNord", color = rgb(40, 110, 190), text = "AUTOHOF" })
+		addRect(1500 - pr, 46 - pr, 1500 + pr, 46 + pr)
+		-- power poles with wires, reflector posts, bus stop, signs
+		local prevX
+		for x = 360, 2380, 90 do
+			Props.powerPole(scenery, CF(x, 0, -26) * CFrame.Angles(0, math.pi / 2, 0)) -- crossarm runs across the road
+			if prevX then
+				for _, dz in ipairs({ -4, 0, 4 }) do
+					Props.wire(scenery, V3(prevX, 25.4, -26 + dz), V3(x, 25.4, -26 + dz), 2.2)
+				end
+			end
+			prevX = x
+			if x % 270 == 0 then
+				yield()
+			end
+		end
+		for x = 340, 2380, 60 do
+			Props.reflectorPost(scenery, CF(x, 0, -18) * CFrame.Angles(0, math.pi, 0))
+			Props.reflectorPost(scenery, CF(x, 0, 18))
+		end
+		for z = -60, -1880, -60 do
+			Props.reflectorPost(scenery, CF(2382, 0, z) * CFrame.Angles(0, -math.pi / 2, 0))
+			Props.reflectorPost(scenery, CF(2418, 0, z) * CFrame.Angles(0, math.pi / 2, 0))
+		end
+		Props.roadSign(scenery, CF(700, 0, 20), "limit", "100")
+		Props.roadSign(scenery, CF(1300, 0, 22), "vorfahrt")
+		Props.roadSign(scenery, CF(2370, 0, 22) * CFrame.Angles(0, math.pi, 0), "curve")
+		Props.busStop(scenery, CF(900, 0, 24) * CFrame.Angles(0, math.pi, 0), "Autohof")
+		-- trees along the road
+		scatterTrees(110, 340, -520, 2300, -44, { "oak", "birch", "fir" }, 18)
+		scatterTrees(70, 340, 44, 2300, 540, { "oak", "birch", "orchard" }, 18)
+	end)
+
+	----------------------------------------------------------------------
+	-- Farm
+	----------------------------------------------------------------------
+	step("farm", function()
+		Props.fenceRun(scenery, V3(1184, 0, 70), V3(1184, 0, 600))
+		Props.fenceRun(scenery, V3(1216, 0, 70), V3(1216, 0, 600))
+		local barn, _, bbody = Buildings.barn(houses, CF(1170, 0, 690), { rng = rng })
+		addRect(1100, 650, 1260, 740)
+		placeHouse(1250, 640, -math.pi / 2, "stone", 0, { name = "Bauernhaus", w = 34, d = 26 })
+		Props.tractor(scenery, CF(1215, 0, 580) * CFrame.Angles(0, math.pi * 0.8, 0), rgb(52, 112, 64))
+		for i = 0, 4 do
+			Props.haybale(scenery, CF(1096 + i * 6, 0, 735 - (i % 2) * 4.5))
+		end
+		Props.haybale(scenery, CF(1102, 4.4, 735))
+		Props.haybale(scenery, CF(1108, 4.4, 731))
+		-- fields with crop rows
+		local fields = { { 1420, 330, 206, 182, 92 }, { 980, 330, 112, 152, 64 }, { 1420, 90, 150, 170, 80 } }
+		for _, f in ipairs(fields) do
+			mk(town, "Field", V3(220, 0.3, 240), CF(f[1], 0.15, f[2]), rgb(f[3], f[4], f[5]), M.Grass)
+			for k = -4, 4 do
+				local row = mk(scenery, "CropRow", V3(220, 0.5, 1.4), CF(f[1], 0.45, f[2] + k * 26), rgb(f[3] * 0.82, f[4] * 0.82, f[5] * 0.78), M.Grass)
+				row.CanCollide = false
+			end
+		end
+		addRect(870, 20, 1530, 470)
+		-- orchard + pond
+		for i = 0, 3 do
+			for j = 0, 2 do
+				Props.tree(scenery, V3(1320 + i * 22, 0, 560 + j * 24), rng, "orchard")
+			end
+		end
+		local pond = mk(town, "Pond", V3(0.5, 70, 70), CF(1060, 0.1, 560) * CFrame.Angles(0, 0, math.pi / 2), rgb(88, 142, 176), M.Glass, Enum.PartType.Cylinder)
+		pond.Transparency = 0.25
+		pond.CanCollide = false
+		for k = 1, 14 do
+			local a = k / 14 * math.pi * 2
+			local rock = mk(scenery, "PondRock", V3(rng:NextNumber(3, 6), 2, rng:NextNumber(3, 6)), CF(1060 + math.cos(a) * 36, 0.8, 560 + math.sin(a) * 36) * CFrame.Angles(0, a, 0), rgb(140, 138, 132), M.Granite)
+			rock.CanCollide = false
+		end
+		Props.wayCross(scenery, CF(1230, 0, 40))
+	end)
+
+	----------------------------------------------------------------------
+	-- Hamlet on the plateau
+	----------------------------------------------------------------------
+	step("Huegeldorf", function()
+		for i = 0, 5 do
+			local z = z1 - 70 - i * 70
+			placeHouse(2400 - 36, z, math.pi / 2, (i % 2 == 0) and "fachwerk" or "putz", rise)
+			placeHouse(2400 + 36, z - 30, -math.pi / 2, (i % 2 == 0) and "putz" or "fachwerk", rise)
+			yield()
+		end
+		Buildings.church(houses, CF(2520, rise, z1 - 330) * CFrame.Angles(0, -math.pi / 2, 0), { rng = rng })
+		Props.fountain(scenery, CF(2400, rise, z1 - 510))
+		for z = z1 - 40, z1 - 480, 80 do
+			Props.lamp(scenery, CF(2400 - 13, rise, z))
+			Props.lamp(scenery, CF(2400 + 13, rise, z - 40) * CFrame.Angles(0, math.pi, 0))
+		end
+		for i = 0, 4 do
+			Props.turbine(scenery, CF(2250 + i * 90, rise, z1 - 640 - (i % 2) * 60))
+		end
+		Props.roadSign(scenery, CF(2420, 0, z0 + 40) * CFrame.Angles(0, math.pi, 0), "ortsschild", "HUEGELDORF")
+	end)
+
+	----------------------------------------------------------------------
+	-- Forest + Waldweg
+	----------------------------------------------------------------------
+	step("forest", function()
+		scatterTrees(300, -1480, -1180, -20, -24, { "fir", "fir", "fir", "birch" }, 16)
+		yield()
+		scatterTrees(200, -1760, -1500, -1520, 200, { "fir", "fir", "oak" }, 16)
+		scatterTrees(110, -1500, -1500, 100, -1220, { "fir", "fir", "birch" }, 16)
+		scatterTrees(100, -300, 60, -40, 460, { "oak", "orchard" }, 14)
+		Props.wayCross(scenery, CF(-700, 0, 20))
+		Props.wayCross(scenery, CF(-1480, 0, -600))
+		Props.busStop(scenery, CF(-1000, 0, 22) * CFrame.Angles(0, math.pi, 0), "Waldrand")
+		Props.roadSign(scenery, CF(-700, 0, 14), "curve")
+		Props.roadSign(scenery, CF(-1488, 0, -1180) * CFrame.Angles(0, math.pi / 2, 0), "curve")
+	end)
+
+	----------------------------------------------------------------------
+	-- Backdrop ridges: low-poly mountains far outside the playable area
+	----------------------------------------------------------------------
+	step("backdrop", function()
+		local ridges = {
+			{ -400, -3000, 1800, 520, 0 },
+			{ 1600, -3700, 2000, 600, 0.1 },
+			{ -2700, -900, 1700, 460, math.pi / 2 },
+			{ 3500, -1200, 1800, 540, math.pi / 2 },
+			{ 800, 1900, 2200, 380, 0.05 },
+		}
+		for _, r in ipairs(ridges) do
+			local cx, cz, len, ht, yaw = r[1], r[2], r[3], r[4], r[5]
+			local half = ht * 1.6
+			local pitch = math.atan(ht / half)
+			local base = CF(cx, 0, cz) * CFrame.Angles(0, yaw, 0)
+			for _, s in ipairs({ -1, 1 }) do
+				local slope = half / math.cos(pitch)
+				local slab = mk(town, "Ridge", V3(len, 20, slope), base * CF(0, ht / 2 - 8, s * half / 2) * CFrame.Angles(s * pitch, 0, 0), rgb(112, 130, 104), M.Grass)
+				slab.CanCollide = false
+				slab.CanQuery = false
+				local cap = mk(town, "RidgeRock", V3(len * 0.6, 10, slope * 0.35), base * CF(0, ht * 0.8 - 4, s * half * 0.2) * CFrame.Angles(s * pitch, 0, 0), rgb(150, 150, 154), M.Rock)
+				cap.CanCollide = false
+				cap.CanQuery = false
+			end
+			yield()
 		end
 	end)
 end

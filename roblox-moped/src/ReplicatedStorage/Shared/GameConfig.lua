@@ -96,4 +96,8 @@ GameConfig.TestFleet = true
 -- folder) to use your own map.
 GameConfig.GenerateTown = true
 
+-- Scenery density multiplier (trees etc). Lower it (0.5) for slower computers
+-- or phones; raise it for a denser forest.
+GameConfig.TownDetail = 1
+
 return GameConfig

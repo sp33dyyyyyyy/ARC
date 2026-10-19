@@ -113,7 +113,9 @@ roblox-moped/
    │   ├─ GameConfig.lua                 ModuleScript  tuning numbers
    │   ├─ MissionData.lua                ModuleScript  job templates
    │   ├─ Remotes.lua                    ModuleScript  creates/gets every remote
-   │   ├─ BikeFactory.lua                ModuleScript  placeholder bike builder + your-model loader
+   │   ├─ ModelKit.lua                   ModuleScript  part-building toolkit (tubes, arcs, spoked wheels ...)
+   │   ├─ BikeModels.lua                 ModuleScript  the detailed moped / scooter / supermoto bodies
+   │   ├─ BikeFactory.lua                ModuleScript  builds a bike (or loads YOUR model) + physics setup
    │   ├─ BikePhysics.lua                ModuleScript  raycast-wheel two-wheeler solver
    │   ├─ ClientState.lua                ModuleScript  client-only shared telemetry
    │   └─ SoundIds.lua                   ModuleScript  <- paste YOUR audio ids here
@@ -126,7 +128,9 @@ roblox-moped/
    │       ├─ GarageService.lua          validated buy / equip / spawn
    │       ├─ StationService.lua         petrol station, workshop, garage door prompts
    │       ├─ MissionService.lua         delivery / checkpoint / cruise, server-judged
-   │       └─ TownBuilder.lua            builds the whole village/highway/forest/hill map at start
+   │       ├─ TownBuilder.lua            lays out the whole map (core first, scenery in the background)
+   │       ├─ Buildings.lua              houses, church, barn, shops, garage, petrol station, Gasthof
+   │       └─ Props.lua                  trees, lamps, signs, cars, tractor, maibaum, fountain, power poles ...
    └─ StarterPlayerScripts/              (StarterPlayer > StarterPlayerScripts)
        ├─ BikeClient.client.lua          LocalScript  input + physics for the bike you control
        ├─ EffectsController.client.lua   LocalScript  sound, smoke, shake (cosmetic only)
@@ -246,7 +250,26 @@ map in a Folder called `Town`), then tag props (`GarageDoor`, `Workshop`,
 so ground parts must have CanQuery on; keep slopes under ~35 degrees. Missions
 whose spots are missing simply aren't offered.
 
-**Bike meshes (optional - placeholders work)** - import your own and drop a
+**About "realistic" models.** Everything you see is built from Roblox parts
+(boxes, cylinders, spheres) by code - about 430 parts per bike and ~12,000 for
+the whole map. That gives a convincing low-poly look (see tools/preview.py to
+render any model offline), but it cannot match sculpted meshes. For truly
+realistic models, make or get real meshes and drop them in - nothing else has
+to change, because both the bikes and the buildings have override slots:
+
+- **Bikes:** Model named after the vehicle id in `ReplicatedStorage/VehicleModels`
+  (requirements below).
+- **Buildings:** Models in `ReplicatedStorage/TownModels` named
+  `Fachwerkhaus1`, `Fachwerkhaus2` ... (houses, picked at random), `Kirche`,
+  `Scheune`, `Werkstatt`, `Tankstelle`. Front door faces +Z, origin at ground
+  level centre. They replace the generated version automatically.
+- Where to get meshes: the Roblox Creator Store (Toolbox > Models, free models
+  by other creators - check the licence/creator and look for "low poly village",
+  "moped", "motocross"), Roblox Studio's built-in Mesh Generator / Cube 3D AI
+  tool (Home > Generate), or model in Blender and import with the 3D Importer.
+  Import in Studio - they have to be uploaded to YOUR Roblox account.
+
+**Bike meshes (optional - the generated bikes work)** - import your own and drop a
 Model named after each vehicle id into `ReplicatedStorage/VehicleModels`.
 Requirements:
 - `PrimaryPart` = a part named **Chassis**. Axes: **-Z forward, +X right, +Y up**.
@@ -294,3 +317,18 @@ play session.
   server per player, add a lock before shipping widely.
 - Saved: money, owned bikes (+colour), equipped bike, jobs, lifetime earnings,
   per-bike fuel and health.
+
+---------------------------------------------------------------------------
+
+## 7. Developer tools
+
+`tools/build_rbxlx.py` packs `src/` into `MopedDays.rbxlx` (a place file), no
+Rojo needed. `tools/preview.py` runs the real model-building code under a mock
+Roblox runtime and renders it to a PNG, so models can be checked without Studio:
+
+```
+python3 tools/preview.py bike spatz50 out.png        # one bike, four views
+python3 tools/preview.py scene houses out.png        # houses | church | barn | shops | petrol | props
+python3 tools/preview.py region out.png -330 -300 330 90 0   # a region of the full town
+```
+(needs `luau` on PATH or `LUAU=/path/to/luau`, plus numpy and Pillow.)
