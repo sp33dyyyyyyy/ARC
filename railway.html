@@ -29,6 +29,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
 #palette h4{margin:0 0 5px;font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:uppercase;font-weight:600}
 #palette .items{display:flex;flex-wrap:wrap;gap:4px}
 #palette .items button{padding:4px 7px}
+#palette .hintp{color:var(--dim);font-size:12px;margin-top:6px;max-width:190px}
 #palette .row{display:flex;gap:4px;margin-top:5px;align-items:center;flex-wrap:wrap}
 #palette label{color:var(--dim);font-size:12px}
 #panel{position:absolute;right:8px;top:8px;bottom:8px;width:310px;max-width:calc(100% - 16px);background:#1c222af0;border:1px solid var(--line);border-radius:8px;overflow:auto;padding:10px;z-index:4}
@@ -73,11 +74,36 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
   kbd{display:none}
   #palette{max-width:60%}
 }
+
+#menu{position:fixed;inset:0;z-index:40;display:none;overflow:auto;background:radial-gradient(ellipse at 30% 20%,#1d3a24f2,#0d1612f7);backdrop-filter:blur(6px);touch-action:pan-y;-webkit-user-select:none;user-select:none}
+#menu.show{display:block}
+.mwrap{max-width:900px;margin:0 auto;padding:28px 18px 60px}
+.mwrap h1{margin:0;font-size:34px;letter-spacing:.02em}
+.mwrap .sub{color:var(--dim);margin:2px 0 18px}
+.mrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.big{background:var(--acc);color:#1a1405;border-color:var(--acc);font-weight:700;padding:9px 16px;font-size:14px}
+#mNewForm{background:#0006;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;display:none}
+#mNewForm.show{display:block}
+#mNewForm .f{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+#mNewForm input[type=text]{flex:1;min-width:180px}
+.card{display:grid;grid-template-columns:auto 132px 1fr auto;gap:12px;align-items:center;background:#0008;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:8px 0}
+.card.cur{border-color:var(--acc)}
+.card img{width:132px;height:77px;object-fit:cover;border-radius:6px;background:#2a4a2a;display:block}
+.card .nm{font-weight:600;font-size:15px}
+.card .meta{color:var(--dim);font-size:12px;margin-top:2px}
+.card .acts{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.card input[type=checkbox]{width:18px;height:18px}
+.card input.rn{font-size:15px;font-weight:600;width:100%}
+.empty{color:var(--dim);padding:18px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+button.armed{background:#a22;color:#fff;border-color:#f66}
+@media(max-width:640px){.card{grid-template-columns:auto 96px 1fr}.card img{width:96px;height:56px}.card .acts{grid-column:1/-1;justify-content:flex-start}}
 </style>
 </head>
 <body>
 <div id="app">
   <div id="topbar">
+    <button id="bMenu">☰ Menu</button>
+    <div class="sep"></div>
     <div class="grp" id="tools">
       <button data-tool="select">Select<kbd>V</kbd></button>
       <button data-tool="track">Track<kbd>T</kbd></button>
@@ -86,6 +112,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
       <button data-tool="joint">Joint<kbd>J</kbd></button>
       <button data-tool="buffer">Buffer<kbd>B</kbd></button>
       <button data-tool="station">Station<kbd>N</kbd></button>
+      <button data-tool="glue">Glue<kbd>G</kbd></button>
       <button data-tool="train">Train<kbd>A</kbd></button>
       <button data-tool="delete" class="danger">Delete<kbd>D</kbd></button>
     </div>
@@ -98,7 +125,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
     </div>
     <div class="sep"></div>
     <div class="grp">
-      <button id="bSave">Save</button><button id="bLoad">Load</button>
+      <button id="bSave">Save<kbd>Ctrl+S</kbd></button>
       <button id="bExport">Export JSON</button><button id="bImport">Import</button>
       <select id="selExample"><option value="">Examples…</option><option value="oval">Simple oval</option><option value="eight">Figure-eight with siding</option><option value="terminus">Branch-line terminus</option><option value="twin">Twin loops (6 trains)</option><option value="blank">Blank layout</option></select>
       <button id="bBlocks">Blocks<kbd>L</kbd></button>
@@ -118,8 +145,28 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
     <span id="sClock">08:00:00</span>
     <span id="sSim"></span>
     <span class="grow" id="sHint"></span>
+    <span id="looseChip" style="color:var(--acc);cursor:pointer" title="Glue all loose track"></span>
     <span id="warnChip" title="Click to jump to first open end"></span>
     <button id="bPanel" style="padding:1px 8px">Panel</button><span id="sZoom"></span>
+  </div>
+</div>
+<div id="menu">
+  <div class="mwrap">
+    <h1>🚂 Model Railway</h1>
+    <div class="sub">Build, glue down, and run your layouts. Saves live in this browser.</div>
+    <div class="mrow">
+      <button class="big" id="mNew">＋ New layout</button>
+      <button id="mContinue" style="display:none"></button>
+      <button id="mBack" style="display:none">↩ Back to current layout</button>
+      <button id="mImport">Import JSON file…</button>
+    </div>
+    <div id="mNewForm">
+      <div class="f"><label>Name <input type="text" id="mName" maxlength="40" value="My railway"></label></div>
+      <div class="f"><label>Start from <select id="mTpl"><option value="blank">Blank layout</option><option value="oval">Simple oval</option><option value="eight">Figure-eight with siding</option><option value="terminus">Branch-line terminus</option><option value="twin">Twin loops (6 trains)</option></select></label>
+        <button class="big" id="mCreate">Create &amp; open</button><button id="mCancel">Cancel</button></div>
+    </div>
+    <div class="mrow" style="justify-content:space-between;align-items:center"><h3 style="margin:8px 0">Your saves</h3><button id="mDelSel" class="danger" style="display:none"></button></div>
+    <div id="saveList"></div>
   </div>
 </div>
 <script>
@@ -149,6 +196,7 @@ const W={               // the world / layout
   blocks:[],nodeMap:new Map(),warn:[],crashes:[],clock:8*3600,ver:0,nextTrain:1,nextSt:1,nextSig:1,sep:new Set()
 };
 let _pathUid=0;
+let menuOpen=false;   // main menu overlay visible
 const cam={x:10,y:6,z:40};   // world point at screen centre, pixels per cell
 let baseline=null;          // JSON string of the state to restore on Reset
 const UNDO=[];
@@ -185,11 +233,11 @@ function xform(x,y,d,rot,mir){
 
 function makePiece(id,type,rot,mir,ox,oy,state){
   const T=TPL[type];
-  const p={id,type,rot,mir,x:ox,y:oy,state:state||0,blade:state||0,turnout:!!T.turnout,
+  const p={id,type,rot,mir,x:ox,y:oy,glued:true,state:state||0,blade:state||0,turnout:!!T.turnout,
            ends:[],paths:[],block:null,occN:0,minx:1e9,miny:1e9,maxx:-1e9,maxy:-1e9};
   T.ends.forEach(([x,y,d],i)=>{
     const r=xform(x,y,d,rot,mir);
-    p.ends.push({x:r[0]+ox,y:r[1]+oy,d:r[2],link:null,piece:p,idx:i,sig:null,buffer:false});
+    p.ends.push({x:r[0]+ox,y:r[1]+oy,d:r[2],link:null,elink:null,piece:p,idx:i,sig:null,buffer:false});
   });
   T.paths.forEach(([a,b,f,lin,vl],i)=>p.paths.push(makePath(p,i,a,b,f,!!lin,vl)));
   for(const pa of p.paths)for(let i=0;i<=pa.n;i++){
@@ -243,9 +291,10 @@ function nearestOnPath(path,x,y){
   return{d:best,s:bs};
 }
 // Nearest path to a world point: {path,s,d} or null
-function pickPath(x,y,maxD){
+function pickPath(x,y,maxD,gluedOnly){
   let best=null;
   for(const p of W.pieces){
+    if(gluedOnly&&!p.glued)continue;
     if(x<p.minx-maxD||x>p.maxx+maxD||y<p.miny-maxD||y>p.maxy+maxD)continue;
     for(const pa of p.paths){const r=nearestOnPath(pa,x,y);if(r.d<maxD&&(!best||r.d<best.d))best={path:pa,s:r.s,d:r.d};}
   }
@@ -288,27 +337,32 @@ function rebuild(fast){
   W.byId.clear();for(const p of W.pieces)W.byId.set(p.id,p);
   const nm=W.nodeMap;nm.clear();
   for(const p of W.pieces)for(const e of p.ends){
-    e.link=null;e.sig=null;
+    e.link=null;e.elink=null;e.sig=null;
     const k=nkey(e.x,e.y);let l=nm.get(k);if(!l)nm.set(k,l=[]);l.push(e);
   }
   // Link ends that share a node and face opposite ways.
   for(const l of nm.values())if(l.length>1)
     for(let i=0;i<l.length;i++)for(let j=i+1;j<l.length;j++){
       const a=l[i],b=l[j];
-      if(a.piece!==b.piece&&!a.link&&!b.link&&a.d===opp(b.d)){a.link=b;b.link=a;}
+      if(a.piece!==b.piece&&!a.elink&&!b.elink&&a.d===opp(b.d)){a.elink=b;b.elink=a;}
     }
-  for(const p of W.pieces)for(const e of p.ends)if(e.link)e.buffer=false;
+  // GLUE / NAILS: elink = geometric connection (used by the editor for snapping);
+  // link = "nailed" connection, only between two glued pieces. The simulation sees
+  // only nailed links, so loose track is not part of the working railway yet.
+  for(const p of W.pieces)for(const e of p.ends)if(e.elink&&p.glued&&e.elink.piece.glued)e.link=e.elink;
+  W.loose=W.pieces.reduce((n,p)=>n+(p.glued?0:1),0);
+  for(const p of W.pieces)for(const e of p.ends)if(e.elink)e.buffer=false;
   W.signals=W.signals.filter(s=>{
     const p=W.byId.get(s.pid);if(!p)return false;
-    const e=p.ends[s.e];if(!e||!e.link||e.sig)return false;
+    const e=p.ends[s.e];if(!e||!e.elink||e.sig)return false;
     s.end=e;e.sig=s;return true;
   });
-  W.jointSet=new Set(W.joints.filter(k=>(nm.get(k)||[]).some(e=>e.link)));
+  W.jointSet=new Set(W.joints.filter(k=>(nm.get(k)||[]).some(e=>e.elink)));
   W.joints=[...W.jointSet];
   W.stations=W.stations.filter(s=>{const p=W.byId.get(s.pid);if(!p||!p.paths[s.pi])return false;s.path=p.paths[s.pi];s.s=clamp(s.s,0,s.path.len);return true;});
   computeBlocks();
   W.warn=[];
-  for(const p of W.pieces)for(const e of p.ends)if(!e.link&&!e.buffer)W.warn.push(e);
+  for(const p of W.pieces)for(const e of p.ends)if(!e.elink&&!e.buffer)W.warn.push(e);
   for(const t of W.trains)t.plan={};
   if(!fast){buildStatic();computeOccupancy();}
 }
@@ -387,7 +441,7 @@ function checkPlacement(type,rot,mir,ox,oy){
   for(const e of endsOf(type,rot,mir,ox,oy)){
     const l=W.nodeMap.get(nkey(e.x,e.y));if(!l)continue;
     for(const o of l){
-      if(o.d===opp(e.d)){if(o.link)return{ok:false,why:'That end is already connected'};links++;}
+      if(o.d===opp(e.d)){if(o.elink)return{ok:false,why:'That end is already connected'};links++;}
       else if(o.d===e.d)return{ok:false,why:'Ends overlap'};
       else return{ok:false,why:'Mismatched end angle'};
     }
@@ -407,8 +461,8 @@ function overlapsTrack(tmp){
   }
   return false;
 }
-function addPiece(type,rot,mir,ox,oy,state,id){
-  const p=makePiece(id||W.nextId,type,rot,mir,ox,oy,state);
+function addPiece(type,rot,mir,ox,oy,state,id,glued){
+  const p=makePiece(id||W.nextId,type,rot,mir,ox,oy,state);p.glued=glued!==false;
   W.nextId=Math.max(W.nextId,p.id+1);
   W.pieces.push(p);return p;
 }
@@ -419,6 +473,15 @@ function removePiece(p){
   rebuild();
   if(dead.length)toast(dead.length+' train(s) removed with the track');
 }
+// Glue (nail) a piece down so it becomes part of the working railway; unglue to edit it again.
+function setGlue(p,v){
+  if(!v&&p.occN>0){toast('A train is on that piece – clear it first');return false;}
+  p.glued=v;rebuild();return true;
+}
+function glueAll(){
+  let n=0;for(const p of W.pieces)if(!p.glued){p.glued=true;n++;}
+  if(n)rebuild();return n;
+}
 function toggleTurnout(p){
   if(p.occN>0){toast('Turnout is locked while a train is on it');return false;}
   p.state=1-p.state;return true;
@@ -426,17 +489,17 @@ function toggleTurnout(p){
 function toggleSignal(p,ei){
   const e=p.ends[ei];
   if(e.sig){W.signals=W.signals.filter(s=>s!==e.sig);rebuild();return true;}
-  if(!e.link){toast('Signals go on connected joints – join track first');return false;}
+  if(!e.elink){toast('Signals go on connected joints – join track first');return false;}
   W.signals.push({id:W.nextSig++,pid:p.id,e:ei,hold:false,lamp:0});rebuild();return true;
 }
 function toggleJoint(x,y){
   const k=nkey(x,y);
   if(W.jointSet.has(k))W.joints=W.joints.filter(j=>j!==k);
-  else{if(!(W.nodeMap.get(k)||[]).some(e=>e.link)){toast('Insulated joints go where two pieces meet');return false;}W.joints.push(k);}
+  else{if(!(W.nodeMap.get(k)||[]).some(e=>e.elink)){toast('Insulated joints go where two pieces meet');return false;}W.joints.push(k);}
   rebuild();return true;
 }
 function toggleBuffer(e){
-  if(e.link){toast('Buffer stops go on open track ends');return false;}
+  if(e.elink){toast('Buffer stops go on open track ends');return false;}
   e.buffer=!e.buffer;rebuild();return true;
 }
 function addStation(path,s){
@@ -454,7 +517,7 @@ function serialize(){
   for(const p of W.pieces)for(const e of p.ends)if(e.buffer)buffers.push({p:p.id,e:e.idx});
   return{
     v:1,app:'railsim',
-    pieces:W.pieces.map(p=>({id:p.id,t:p.type,r:p.rot,m:p.mir,x:p.x,y:p.y,s:p.state})),
+    pieces:W.pieces.map(p=>({id:p.id,t:p.type,r:p.rot,m:p.mir,x:p.x,y:p.y,s:p.state,g:p.glued?1:0})),
     signals:W.signals.map(s=>({p:s.pid,e:s.e,h:s.hold?1:0})),
     joints:W.joints.slice(),buffers,
     stations:W.stations.map(s=>({id:s.id,n:s.name,p:s.pid,i:s.pi,s:+s.s.toFixed(3),side:s.side})),
@@ -466,11 +529,11 @@ function deserialize(o,keepCam){
   if(!o||o.app!=='railsim'||!Array.isArray(o.pieces))throw new Error('Not a railway layout file');
   W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();
   W.nextId=1;W.nextSig=1;W.nextSt=1;W.nextTrain=1;
-  for(const q of o.pieces){if(!TPL[q.t])continue;addPiece(q.t,q.r|0,q.m|0,q.x|0,q.y|0,q.s|0,q.id);}
+  for(const q of o.pieces){if(!TPL[q.t])continue;addPiece(q.t,q.r|0,q.m|0,q.x|0,q.y|0,q.s|0,q.id,q.g!==0);}
   for(const s of o.signals||[])W.signals.push({id:W.nextSig++,pid:s.p,e:s.e,hold:!!s.h,lamp:0});
   W.joints=(o.joints||[]).slice();
   rebuild();   // links must exist before buffers are validated
-  for(const b of o.buffers||[]){const p=W.byId.get(b.p);if(p&&p.ends[b.e]&&!p.ends[b.e].link)p.ends[b.e].buffer=true;}
+  for(const b of o.buffers||[]){const p=W.byId.get(b.p);if(p&&p.ends[b.e]&&!p.ends[b.e].elink)p.ends[b.e].buffer=true;}
   for(const s of o.stations||[]){
     W.stations.push({id:s.id,name:s.n,pid:s.p,pi:s.i,s:s.s,side:s.side||1,path:null,wait:5+Math.floor(Math.random()*20)});
     W.nextSt=Math.max(W.nextSt,s.id+1);
@@ -515,16 +578,7 @@ function exportJSON(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='railway-layout.json';
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
-const LS_KEY='railsim.layout.v1';
-function saveLocal(){
-  try{localStorage.setItem(LS_KEY,JSON.stringify(serialize()));toast('Saved to this browser');}
-  catch(e){toast('Could not save (storage unavailable)');}
-}
-function loadLocal(){
-  try{const s=localStorage.getItem(LS_KEY);if(!s){toast('No saved layout yet');return;}
-    pushUndo();loadLayout(JSON.parse(s),false);toast('Loaded from this browser');}
-  catch(e){toast('Saved layout is unreadable');}
-}
+function saveLocal(){saveCurrent(false);}   // Ctrl+S / Save button: write to the current save slot
 
 /* =====================================================================
    5. TRAINS: rolling stock, trail (body-on-track) model
@@ -1109,14 +1163,15 @@ function addPathGeom(pa,bal,sl,rl){
 function buildStatic(){
   const bal=new Path2D(),sl=new Path2D(),rl=new Path2D();
   for(const p of W.pieces){
-    if(p.turnout){            // turnouts keep per-path geometry so the route can be coloured
+    if(p.turnout||!p.glued){  // turnouts / loose pieces keep per-path geometry (route colours, loose styling)
       p.geo=p.paths.map(pa=>{const b=new Path2D(),s=new Path2D(),r=new Path2D();addPathGeom(pa,b,s,r);return{b,s,r};});
-    }else for(const pa of p.paths)addPathGeom(pa,bal,sl,rl);
+    }else{p.geo=null;for(const pa of p.paths)addPathGeom(pa,bal,sl,rl);}
   }
   ST={ballast:bal,sleepers:sl,rails:rl};
 }
 
 const _o={x:0,y:0,a:0};
+let DRAG=null;     // active drag-to-lay / drag-to-resize gesture (see input section)
 function strokePathLine(pa,width,col,alpha){
   ctx.beginPath();ctx.moveTo(pa.xs[0],pa.ys[0]);
   for(let i=1;i<=pa.n;i++)ctx.lineTo(pa.xs[i],pa.ys[i]);
@@ -1162,13 +1217,15 @@ function render(tms){
   ctx.lineCap='round';ctx.lineJoin='round';
   ctx.lineWidth=0.46;ctx.strokeStyle=C.ballastO;ctx.stroke(ST.ballast);
   ctx.lineWidth=0.36;ctx.strokeStyle=C.ballastI;ctx.stroke(ST.ballast);
-  for(const p of W.pieces)if(p.turnout&&p.geo){
+  for(const p of W.pieces)if(p.geo){
+    ctx.globalAlpha=p.glued?1:0.5;
     for(const g of p.geo){ctx.lineWidth=0.46;ctx.strokeStyle=C.ballastO;ctx.stroke(g.b);ctx.lineWidth=0.36;ctx.strokeStyle=C.ballastI;ctx.stroke(g.b);}
+    ctx.globalAlpha=1;
   }
   // sleepers
   if(cam.z>=11){
     ctx.lineCap='butt';ctx.lineWidth=0.05;ctx.strokeStyle=C.sleeper;ctx.stroke(ST.sleepers);
-    for(const p of W.pieces)if(p.turnout&&p.geo)for(const g of p.geo)ctx.stroke(g.s);
+    for(const p of W.pieces)if(p.geo&&p.glued)for(const g of p.geo)ctx.stroke(g.s);
   }
   // rails
   ctx.lineCap='butt';
@@ -1176,7 +1233,16 @@ function render(tms){
   ctx.lineWidth=rw+0.02;ctx.strokeStyle=C.railDark;ctx.stroke(ST.rails);
   ctx.lineWidth=rw;ctx.strokeStyle=C.rail;ctx.stroke(ST.rails);
   // turnouts: the active route is drawn in a different colour; blades follow the lever
-  for(const p of W.pieces)if(p.turnout&&p.geo){
+  for(const p of W.pieces)if(p.geo&&!p.glued){          // LOOSE track: amber rails, no sleepers, handles on open ends
+    for(const g of p.geo){
+      ctx.lineWidth=rw+0.02;ctx.strokeStyle='#5a3d0c';ctx.stroke(g.r);
+      ctx.lineWidth=rw;ctx.strokeStyle='#f2b94b';ctx.stroke(g.r);
+    }
+    if(p.turnout)drawBlades(p,rw);
+    const pa=p.paths[0];posAt(pa,pa.len/2,_o);
+    ctx.fillStyle='#ffb52e';ctx.beginPath();ctx.arc(_o.x,_o.y,0.05,0,7);ctx.fill();
+  }
+  for(const p of W.pieces)if(p.turnout&&p.geo&&p.glued){
     for(let i=0;i<2;i++){
       const act=p.state===i,g=p.geo[i];
       ctx.lineWidth=rw+0.02;ctx.strokeStyle=act?C.activeDark:C.railDark;ctx.stroke(g.r);
@@ -1191,6 +1257,18 @@ function render(tms){
     ctx.lineWidth=0.05;ctx.strokeStyle='#f2f2f2';ctx.beginPath();
     ctx.moveTo(e.x-u[1]*0.2,e.y+u[0]*0.2);ctx.lineTo(e.x+u[1]*0.2,e.y-u[0]*0.2);ctx.stroke();
     ctx.lineWidth=0.02;ctx.strokeStyle='#333';ctx.stroke();
+  }
+  // nails on glued track (only visible when zoomed in)
+  if(cam.z>=30){
+    ctx.fillStyle='#8f969d';ctx.beginPath();
+    for(const p of W.pieces)if(p.glued)for(const e of p.ends){ctx.moveTo(e.x+0.035,e.y);ctx.arc(e.x,e.y,0.035,0,7);}
+    ctx.fill();
+  }
+  // drag handles on the open ends of loose straight track
+  for(const p of W.pieces)if(!p.glued&&p.type==='straight')for(const e of p.ends)if(!e.elink){
+    const act=DRAG&&DRAG.pieces&&DRAG.pieces.includes(p);
+    ctx.fillStyle=act?'#fff':'#ffb52e';ctx.strokeStyle='#5a3d0c';ctx.lineWidth=0.035;
+    ctx.beginPath();ctx.arc(e.x,e.y,0.15,0,7);ctx.fill();ctx.stroke();
   }
   // buffer stops
   for(const p of W.pieces)for(const e of p.ends)if(e.buffer){
@@ -1363,6 +1441,20 @@ function drawOverlays(T){
       if(g.err)label(g.err,p.x,p.y-0.6,11,'#fff','#b3261e');
     }
   }
+  const dp=sim.dragPreview;
+  if(dp&&dp.k>0){
+    ctx.lineCap='round';
+    const col=dp.linked?'#3ddc84':'#ffc233';
+    for(let i=0;i<dp.k;i++){
+      const pc=makePiece(0,'straight',dp.d,0,dp.S[0]+DV[dp.d][0]*i,dp.S[1]+DV[dp.d][1]*i,0);
+      strokePathLine(pc.paths[0],0.3,col,0.35);strokePathLine(pc.paths[0],0.04,col,0.95);
+    }
+    const ex=dp.S[0]+DV[dp.d][0]*dp.k,ey=dp.S[1]+DV[dp.d][1]*dp.k;
+    ctx.fillStyle=col;ctx.beginPath();ctx.arc(ex,ey,0.12,0,7);ctx.fill();
+    label(dp.k+' piece'+(dp.k>1?'s':''),ex,ey-0.45,11,'#fff','#000a');
+    if(dp.k<dp.n&&dp.why){const bx=dp.S[0]+DV[dp.d][0]*dp.k,by=dp.S[1]+DV[dp.d][1]*dp.k;
+      ctx.fillStyle='#ff4d4d';ctx.beginPath();ctx.arc(bx,by,0.18,0,7);ctx.fill();label(dp.why,bx,by-0.5,11,'#fff','#b3261e');}
+  }
   for(const m of sim.marks||[]){
     ctx.lineWidth=0.05;ctx.strokeStyle=m.col||'#4ab3ff';ctx.fillStyle=(m.col||'#4ab3ff')+'44';
     ctx.beginPath();ctx.arc(m.x,m.y,m.r||0.3,0,7);ctx.fill();ctx.stroke();
@@ -1456,7 +1548,7 @@ function computePieceGhost(wx,wy){
   const sym=type==='straight'||type==='crossing';
   let best=null,bs=1e9;
   for(const p of W.pieces)for(const e of p.ends){
-    if(e.link||Math.hypot(e.x-wx,e.y-wy)>2.8)continue;
+    if(e.elink||Math.hypot(e.x-wx,e.y-wy)>2.8)continue;
     for(let rot=0;rot<8;rot++)for(let mir=0;mir<2;mir++){
       if(sym&&mir)continue;
       if(type==='turnout'&&mir!==sim.mir)continue;
@@ -1513,18 +1605,19 @@ function bufferAt(wx,wy){
 }
 function nearestEnd(piece,wx,wy,needLink){
   let b=null,bd=1e9;
-  for(const e of piece.ends){if(needLink&&!e.link)continue;const d=Math.hypot(e.x-wx,e.y-wy);if(d<bd){bd=d;b=e;}}
+  for(const e of piece.ends){if(needLink&&!e.elink)continue;const d=Math.hypot(e.x-wx,e.y-wy);if(d<bd){bd=d;b=e;}}
   return b;
 }
 function openEndNear(wx,wy,r){
   let b=null,bd=r;
-  for(const p of W.pieces)for(const e of p.ends){if(e.link)continue;const d=Math.hypot(e.x-wx,e.y-wy);if(d<bd){bd=d;b=e;}}
+  for(const p of W.pieces)for(const e of p.ends){if(e.elink)continue;const d=Math.hypot(e.x-wx,e.y-wy);if(d<bd){bd=d;b=e;}}
   return b;
 }
 
 /* ---- hover / ghost update per tool --------------------------------- */
 function updateHover(wx,wy){
   sim.ghost=null;sim.marks=[];sim.markPiece=null;sim.hoverW=[wx,wy];
+  cvs.style.cursor=((sim.tool==='select'||sim.tool==='track')&&handleAt(wx,wy))?'grab':'default';
   let hint='';
   switch(sim.tool){
     case'track':case'turnout':{
@@ -1534,7 +1627,7 @@ function updateHover(wx,wy){
     case'signal':{
       const h=pickPath(wx,wy,0.7);
       if(h){const e=nearestEnd(h.path.piece,wx,wy,false);
-        if(e&&e.link){sim.marks.push({x:e.x,y:e.y,r:0.3,col:e.sig?'#ff9f1a':'#3ddc84'});hint=e.sig?'Click to remove signal':'Click to place a signal guarding trains leaving this piece';}
+        if(e&&e.elink){sim.marks.push({x:e.x,y:e.y,r:0.3,col:e.sig?'#ff9f1a':'#3ddc84'});hint=e.sig?'Click to remove signal':'Click to place a signal guarding trains leaving this piece';}
         else hint='Signals need a connected joint';}
       else hint='Click a track near a joint to place/remove a signal';break;}
     case'joint':{
@@ -1550,13 +1643,18 @@ function updateHover(wx,wy){
       if(h){posAt(h.path,h.s,_o);sim.marks.push({x:_o.x,y:_o.y,r:0.3,col:'#f2c14e'});hint='Click to place a station here';}
       else hint='Click on track to place a station';break;}
     case'train':{
-      const h=pickPath(wx,wy,0.7);
+      const h=pickPath(wx,wy,0.7,true);
       if(h){
         const r=buildTrainAt(sim.trainSpec,h.path,h.s,sim.trainFlip?-1:1);
         if(r.err)sim.ghost={type:'train',t:ghostStub(h),err:r.err};
         else{const err=trainFits(r.t);sim.ghost={type:'train',t:r.t,err};}
         hint=(sim.ghost.err||'Click to place the train (head at the arrow)')+'  •  R reverses facing';
       }else hint='Click on track to place the train';break;}
+    case'glue':{
+      const h=pickPath(wx,wy,0.4);
+      if(h){sim.markPiece=h.path.piece;sim.markCol=h.path.piece.glued?'#ff9f1a':'#3ddc84';
+        hint=h.path.piece.glued?'Click to unglue this piece so it can be edited':'Click to glue (nail) this piece down';}
+      else hint='Click loose track to glue it. Shift+G glues everything.';break;}
     case'delete':{
       const t=trainAt(wx,wy);
       if(t){sim.marks.push({x:t.poses[0].x,y:t.poses[0].y,r:0.5,col:'#ff4d4d'});hint='Click to remove '+t.name;break;}
@@ -1603,7 +1701,7 @@ function onClick(wx,wy){
         const h=pickPath(wx,wy,0.3);
         if(h&&h.path.piece.turnout){toggleTurnout(h.path.piece);return;}
         toast(g.why);return;}
-      pushUndo();addPiece(g.ptype,g.rot,g.mir,g.ox,g.oy,0);
+      pushUndo();addPiece(g.ptype,g.rot,g.mir,g.ox,g.oy,0,null,false);   // new track is LOOSE until glued
       sim.rot=g.rot;sim.mir=g.mir;
       rebuild();afterEdit();updateHover(wx,wy);return;}
     case'signal':{
@@ -1625,7 +1723,7 @@ function onClick(wx,wy){
       pushUndo();const st=addStation(h.path,h.s);afterEdit();
       sim.sel={type:'station',id:st.id};ui.rebuildPanel=true;return;}
     case'train':{
-      const h=pickPath(wx,wy,0.7);if(!h)return;
+      const h=pickPath(wx,wy,0.7,true);if(!h){toast('Trains can only be placed on glued track');return;}
       const r=buildTrainAt(sim.trainSpec,h.path,h.s,sim.trainFlip?-1:1);
       if(r.err){toast(r.err);return;}
       const err=trainFits(r.t);if(err){toast(err);return;}
@@ -1634,6 +1732,11 @@ function onClick(wx,wy){
       if(sim.started&&baseline){const b=JSON.parse(baseline);b.trains.push(serTrain(t));baseline=JSON.stringify(b);}
       else afterEdit();
       sim.sel={type:'train',id:t.id};ui.rebuildPanel=true;
+      updateHover(wx,wy);return;}
+    case'glue':{
+      const h=pickPath(wx,wy,0.4);if(!h)return;
+      const p=h.path.piece;pushUndo();
+      if(setGlue(p,!p.glued)){afterEdit();toast(p.glued?'Glued':'Unglued – drag its end handles to reshape');}else UNDO.pop();
       updateHover(wx,wy);return;}
     case'delete':{
       const t=trainAt(wx,wy);
@@ -1663,9 +1766,17 @@ cvs.addEventListener('pointerdown',e=>{
   if(ptrs.size===1){
     down={x:p.x,y:p.y,btn:e.button,moved:false,cx:cam.x,cy:cam.y,type:e.pointerType,pinch:false};
     if(e.button===1||e.button===2)down.moved=true;   // middle / right drag pans immediately
+    else if(e.button===0&&!menuOpen){
+      const[wx,wy]=s2w(p.x,p.y);
+      const h=(sim.tool==='select'||sim.tool==='track')?handleAt(wx,wy):null;
+      if(h){down.mode='resize';down.E=h;}                 // grab an end of loose track
+      else if(isLineTool())down.mode='draw';              // drag to lay a straight run
+    }
   }else if(ptrs.size===2){
     const[a,b]=[...ptrs.values()];
-    down=down||{};down.pinch=true;down.moved=true;
+    if(DRAG&&DRAG.kind==='draw'){DRAG=null;sim.dragPreview=null;}
+    if(DRAG&&DRAG.kind==='resize')finishDrag();
+    down=down||{};down.mode=null;down.pinch=true;down.moved=true;
     down.d0=Math.hypot(a.x-b.x,a.y-b.y)||1;down.z0=cam.z;down.mx=(a.x+b.x)/2;down.my=(a.y+b.y)/2;
     down.cx=cam.x;down.cy=cam.y;
   }
@@ -1684,7 +1795,11 @@ cvs.addEventListener('pointermove',e=>{
   if(down&&ptrs.has(e.pointerId)&&ptrs.size===1){
     const dx=p.x-down.x,dy=p.y-down.y;
     if(!down.moved&&Math.hypot(dx,dy)>(down.type==='touch'?9:5))down.moved=true;
-    if(down.moved){cam.x=down.cx-dx/cam.z;cam.y=down.cy-dy/cam.z;{const st=selTrain();if(st&&st.follow){st.follow=false;ui.dirty=true;}}}
+    if(down.moved&&down.mode){
+      const[wx,wy]=s2w(p.x,p.y);
+      if(!DRAG){down.mode==='resize'?startResize(down.E):startDraw(...s2w(down.x,down.y));}
+      if(DRAG)DRAG.kind==='resize'?updateResize(wx,wy):updateDraw(wx,wy);
+    }else if(down.moved){cam.x=down.cx-dx/cam.z;cam.y=down.cy-dy/cam.z;{const st=selTrain();if(st&&st.follow){st.follow=false;ui.dirty=true;}}}
   }
   if(e.pointerType!=='touch'&&!(down&&down.moved)){const[wx,wy]=s2w(p.x,p.y);updateHover(wx,wy);}
 });
@@ -1693,7 +1808,8 @@ function endPointer(e,cancel){
   const wasDown=down;
   ptrs.delete(e.pointerId);
   if(ptrs.size===0){
-    if(wasDown&&!wasDown.moved&&!wasDown.pinch&&!cancel&&wasDown.btn===0){
+    if(DRAG){if(cancel&&DRAG.kind==='draw'){DRAG=null;sim.dragPreview=null;}else finishDrag();}
+    else if(wasDown&&!wasDown.moved&&!wasDown.pinch&&!cancel&&wasDown.btn===0){
       const[wx,wy]=s2w(p.x,p.y);
       if(e.pointerType==='touch')updateHover(wx,wy);
       onClick(wx,wy);
@@ -1716,7 +1832,7 @@ cvs.addEventListener('wheel',e=>{
 },{passive:false});
 
 /* ---- keyboard ------------------------------------------------------ */
-const TOOLKEYS={v:'select',t:'track',u:'turnout',s:'signal',j:'joint',b:'buffer',n:'station',a:'train',d:'delete'};
+const TOOLKEYS={v:'select',t:'track',u:'turnout',s:'signal',j:'joint',b:'buffer',n:'station',a:'train',d:'delete',g:'glue'};
 let brakeHeld=null;
 function selTrain(){return sim.sel&&sim.sel.type==='train'?W.trains.find(t=>t.id===sim.sel.id)||null:null;}
 function setThrottle(t,v){t.throttle=clamp(v,0,1);if(t.mode!=='manual')t.mode='manual';ui.dirty=true;}
@@ -1728,6 +1844,7 @@ function cycleTrain(dir){
 }
 window.addEventListener('keydown',e=>{
   if(e.target&&/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)&&e.key!=='Escape')return;
+  if(menuOpen)return;
   const k=e.key.toLowerCase();
   if(e.ctrlKey||e.metaKey){
     if(k==='z'){e.preventDefault();undo();}
@@ -1742,6 +1859,7 @@ window.addEventListener('keydown',e=>{
     const s=60/cam.z;if(e.key==='ArrowUp')cam.y-=s;if(e.key==='ArrowDown')cam.y+=s;
     if(e.key==='ArrowLeft')cam.x-=s;if(e.key==='ArrowRight')cam.x+=s;e.preventDefault();return;
   }
+  if(k==='g'&&e.shiftKey){doGlueAll();return;}
   if(TOOLKEYS[k]){ui.setTool(TOOLKEYS[k]);return;}
   switch(k){
     case'r':sim.rot=(sim.rot+(e.shiftKey?7:1))&7;if(sim.tool==='train'){sim.trainFlip=!sim.trainFlip;}refreshGhost();break;
@@ -1759,6 +1877,7 @@ window.addEventListener('keydown',e=>{
     case'tab':e.preventDefault();cycleTrain(e.shiftKey?-1:1);break;
     case'escape':
       if($('help').classList.contains('show')){ui.toggleHelp();break;}
+      if(DRAG&&DRAG.kind==='draw'){DRAG=null;sim.dragPreview=null;break;}
       sim.sel=null;ui.rebuildPanel=true;if(sim.tool!=='select')ui.setTool('select');break;
     case'delete':case'backspace':
       if(t){pushUndo();W.trains=W.trains.filter(x=>x!==t);sim.sel=null;afterEdit();ui.rebuildPanel=true;}break;
@@ -1770,6 +1889,92 @@ window.addEventListener('keyup',e=>{
   if(e.key===' '&&brakeHeld!==null){const t=selTrain();if(t){t.brake=brakeHeld;ui.dirty=true;}brakeHeld=null;}
 });
 function refreshGhost(){if(sim.hoverW)updateHover(sim.hoverW[0],sim.hoverW[1]);}
+
+/* =====================================================================
+   9b. DRAG TO LAY / DRAG TO RESIZE LOOSE TRACK
+   Track tool with Straight/Diagonal selected: press and drag to lay a run
+   of straight pieces from the start point to the cursor (snapped to the 8
+   directions); the run stops at the first obstacle.  Loose straight track
+   shows amber handles on its open ends: drag one to lengthen/shorten the
+   run (a run with a free far end can also be swung to a new direction).
+   ===================================================================== */
+const isLineTool=()=>sim.tool==='track'&&(sim.piece==='straight'||sim.piece==='diag');
+const dirFromVec=(dx,dy)=>(((Math.round(Math.atan2(dy,dx)/(Math.PI/4)))%8)+8)%8;
+// How many straight pieces starting at node S heading d can be laid before something is in the way?
+function chainFor(S,d,n){
+  let k=0,why='';
+  for(let i=0;i<n;i++){
+    const c=checkPlacement('straight',d,0,S[0]+DV[d][0]*i,S[1]+DV[d][1]*i);
+    if(!c.ok){why=c.why;break;}k++;
+  }
+  return{k,why};
+}
+function pieceCount(S,d,dx,dy){const v=DV[d];return Math.round((dx*v[0]+dy*v[1])/(v[0]*v[0]+v[1]*v[1]));}
+function handleAt(wx,wy){
+  for(const p of W.pieces)if(!p.glued&&p.type==='straight')for(const e of p.ends)
+    if(!e.elink&&Math.hypot(e.x-wx,e.y-wy)<0.4)return e;
+  return null;
+}
+function startDraw(wx,wy){
+  const e=openEndNear(wx,wy,1.0);
+  DRAG={kind:'draw',S:e?[e.x,e.y]:[Math.round(wx),Math.round(wy)],lock:e?e.d:null,linked:!!e};
+}
+function updateDraw(wx,wy){
+  const S=DRAG.S,dx=wx-S[0],dy=wy-S[1];
+  if(DRAG.lock===null&&Math.hypot(dx,dy)<0.6){sim.dragPreview={S,d:0,k:0,n:0};return;}
+  const d=DRAG.lock!==null?DRAG.lock:dirFromVec(dx,dy),n=Math.max(0,pieceCount(S,d,dx,dy));
+  const r=chainFor(S,d,n);
+  DRAG.d=d;DRAG.k=r.k;
+  sim.dragPreview={S,d,k:r.k,n,why:r.why,linked:DRAG.linked};
+}
+// The run of loose straight pieces ending at open end E (stops at anything that isn't loose straight track).
+function looseRun(E){
+  const P=E.piece;if(P.type!=='straight'||P.glued)return null;
+  const run=[P];let entry=P.ends.find(e=>e!==E);
+  while(entry.elink&&entry.elink.piece.type==='straight'&&!entry.elink.piece.glued&&!run.includes(entry.elink.piece)){
+    const nb=entry.elink.piece;run.unshift(nb);entry=nb.ends.find(e=>e!==entry.elink);
+  }
+  return{S:[entry.x,entry.y],d:E.d,free:!entry.elink,pieces:run};
+}
+function startResize(E){
+  const r=looseRun(E);if(!r){DRAG=null;return;}
+  pushUndo();
+  DRAG={kind:'resize',S:r.S,d:r.d,free:r.free,pieces:r.pieces,n:r.pieces.length,changed:false};
+}
+function updateResize(wx,wy){
+  const S=DRAG.S,dx=wx-S[0],dy=wy-S[1];
+  let d=DRAG.d;
+  if(DRAG.free&&Math.hypot(dx,dy)>=0.6)d=dirFromVec(dx,dy);
+  const n=Math.max(1,pieceCount(S,d,dx,dy));
+  if(d===DRAG.d&&n===DRAG.n)return;
+  // take the run out, see how many pieces fit the new target, then lay them again
+  const old=DRAG.pieces;
+  W.pieces=W.pieces.filter(p=>!old.includes(p));rebuild(true);
+  let r=chainFor(S,d,n);
+  if(r.k<1){d=DRAG.d;r=chainFor(S,d,DRAG.n);}       // nothing fits: keep the previous shape
+  const made=[];
+  for(let i=0;i<r.k;i++)made.push(addPiece('straight',d,0,S[0]+DV[d][0]*i,S[1]+DV[d][1]*i,0,null,false));
+  rebuild();
+  DRAG.pieces=made;DRAG.d=d;DRAG.n=made.length;DRAG.changed=true;
+  $('sHint').textContent=made.length+' piece'+(made.length>1?'s':'')+(r.k<n?' – blocked: '+r.why:'');
+}
+function finishDrag(){
+  const D=DRAG;DRAG=null;sim.dragPreview=null;if(!D)return;
+  if(D.kind==='draw'){
+    if(!D.k)return;
+    pushUndo();
+    for(let i=0;i<D.k;i++)addPiece('straight',D.d,0,D.S[0]+DV[D.d][0]*i,D.S[1]+DV[D.d][1]*i,0,null,false);
+    rebuild();afterEdit();
+    toast('Laid '+D.k+' loose piece'+(D.k>1?'s':'')+' – drag an end handle to resize, then glue (G)');
+  }else{
+    if(D.changed)afterEdit();else UNDO.pop();
+  }
+  ui.dirty=true;
+}
+function doGlueAll(){
+  pushUndo();const n=glueAll();
+  if(n){afterEdit();toast('Glued '+n+' piece'+(n>1?'s':''));}else{UNDO.pop();toast('Nothing loose to glue');}
+}
 
 /* =====================================================================
    10. USER INTERFACE: toolbar, palette, side panel, help, toasts
@@ -1794,11 +1999,12 @@ const ui={
     document.querySelectorAll('#tools button').forEach(b=>b.classList.toggle('on',b.dataset.tool===t));
     ui.buildPalette();
     $('sHint').textContent={select:'Click trains, turnouts and signals. Drag to pan, wheel/pinch to zoom.',
-      track:'Hover near a track end to snap; click to lay track.',turnout:'Hover near a track end to snap a turnout.',
+      track:'Click to place loose track, or drag (Straight/Diagonal) to lay a run. Glue it when done.',glue:'Click loose track to glue it down.',turnout:'Hover near a track end to snap a turnout.',
       signal:'Click track near a joint to place/remove a signal.',joint:'Click a joint to insert an insulated rail joint.',
       buffer:'Click an open end to add/remove a buffer stop.',station:'Click on track to place a station.',
       train:'Choose a consist, then click on track to place it.',delete:'Click an object to delete it.'}[t];
   },
+  setPaused(v){if(sim.paused!==v)ui.togglePause();},
   togglePause(){sim.paused=!sim.paused;$('bPause').firstChild.nodeValue=sim.paused?'Resume':'Pause';$('bPause').classList.toggle('on',sim.paused);},
   setSpeed(n){sim.speed=n;document.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('on',+b.dataset.speed===n));},
   toggleBlocks(){sim.showBlocks=!sim.showBlocks;$('bBlocks').classList.toggle('on',sim.showBlocks);},
@@ -1811,10 +2017,13 @@ const ui={
     const el=$('palette'),t=sim.tool;let h='';
     if(t==='track'){
       h='<h4>Track piece</h4><div class="items">'+Object.entries(PIECES).map(([k,v])=>'<button data-piece="'+k+'" class="'+(sim.piece===k?'on':'')+'">'+v.label+'</button>').join('')+'</div>'+
-        '<div class="row"><button data-pact="rot">Rotate (R)</button><button data-pact="flip">Flip (F)</button></div>';
+        '<div class="row"><button data-pact="rot">Rotate (R)</button><button data-pact="flip">Flip (F)</button><button data-pact="glueall">Glue all (⇧G)</button></div>'+
+        '<div class="hintp">New track is <b>loose</b> (amber). Drag with Straight/Diagonal to lay a run; drag an amber handle to resize; then <b>glue</b> it.</div>';
     }else if(t==='turnout'){
       h='<h4>Turnout</h4><div class="items">'+Object.entries(TURNOUTS).map(([k,v])=>'<button data-tpiece="'+k+'" class="'+(sim.tpiece===k?'on':'')+'">'+v.label+'</button>').join('')+'</div>'+
-        '<div class="row"><button data-pact="rot">Rotate (R)</button></div>';
+        '<div class="row"><button data-pact="rot">Rotate (R)</button><button data-pact="glueall">Glue all (⇧G)</button></div>';
+    }else if(t==='glue'){
+      h='<h4>Glue / nail</h4><div class="hintp">Click loose (amber) track to glue it down. Click glued track to unglue it for editing.</div><div class="row"><button data-pact="glueall">Glue all (⇧G)</button></div>';
     }else if(t==='train'){
       const s=sim.trainSpec;
       const num=(k,l)=>'<label>'+l+' <input type="number" min="0" max="10" value="'+s[k]+'" data-spec="'+k+'" style="width:46px"></label>';
@@ -1855,6 +2064,7 @@ const ui={
   tick(){
     $('sClock').textContent=fmtClock(W.clock);
     $('sSim').textContent=W.trains.length+' trains · '+W.blocks.length+' blocks · '+W.signals.length+' signals';
+    const lc=$('looseChip');lc.textContent=W.loose?'◌ '+W.loose+' loose piece'+(W.loose>1?'s':'')+' – click to glue':'';
     const wc=$('warnChip');wc.textContent=W.warn.length?'⚠ '+W.warn.length+' open end'+(W.warn.length>1?'s':'')+' (click to find)':'';
     $('sZoom').textContent=Math.round(cam.z/40*100)+'%';
     if(ui.rebuildPanel||(ui.dirty&&!(document.activeElement&&$('panel').contains(document.activeElement)&&/INPUT|SELECT/.test(document.activeElement.tagName)))){
@@ -1874,7 +2084,7 @@ function summaryHTML(){
     '<span>Signals</span><span>'+W.signals.length+'</span><span>Trains</span><span>'+W.trains.length+'</span><span>Stations</span><span>'+W.stations.length+'</span>'+
     '<span>Open ends</span><span style="color:'+(W.warn.length?'var(--warn)':'inherit')+'">'+W.warn.length+'</span></div>'+
     '<h5>Block occupancy</h5><div>'+(occ||'<span style="color:var(--dim)">none</span>')+'</div>'+
-    '<h5>Quick start</h5><ol style="margin:0;padding-left:18px;color:var(--dim)"><li>Pick <b>Track</b>, hover near a track end – pieces snap on.</li><li>Add <b>Signals</b>/<b>Joints</b> to create blocks.</li><li>Use <b>Train</b> to place a consist, then select it and drive (↑ ↓ throttle, X e-stop).</li><li>Click turnouts to switch routes.</li></ol>'+
+    '<h5>Quick start</h5><ol style="margin:0;padding-left:18px;color:var(--dim)"><li>Pick <b>Track</b>: click pieces (they snap to open ends) or drag to lay straight runs. New track is <b>loose</b> – drag its amber end handles to resize, then <b>glue</b> it (G, or ⇧G for all).</li><li>Add <b>Signals</b>/<b>Joints</b> to create blocks.</li><li>Use <b>Train</b> to place a consist, then select it and drive (↑ ↓ throttle, X e-stop).</li><li>Click turnouts to switch routes.</li></ol>'+
     '<p style="color:var(--dim)">Press <b>H</b> for all controls. Try the built-in examples from the menu.</p>';
 }
 function trainPanelHTML(t){
@@ -1999,6 +2209,7 @@ $('palette').addEventListener('click',e=>{
   else if(b.dataset.pact==='rot'){sim.rot=(sim.rot+1)&7;}
   else if(b.dataset.pact==='flip'){sim.mir^=1;}
   else if(b.dataset.pact==='tflip'){sim.trainFlip=!sim.trainFlip;}
+  else if(b.dataset.pact==='glueall'){doGlueAll();}
   refreshGhost();
 });
 $('palette').addEventListener('change',e=>{
@@ -2014,14 +2225,18 @@ $('bPause').addEventListener('click',ui.togglePause);
 $('bReset').addEventListener('click',resetSim);
 $('bUndo').addEventListener('click',undo);
 $('bSave').addEventListener('click',saveLocal);
-$('bLoad').addEventListener('click',loadLocal);
+$('bMenu').addEventListener('click',showMenu);
+$('looseChip').addEventListener('click',()=>{doGlueAll();});
 $('bExport').addEventListener('click',exportJSON);
 $('bImport').addEventListener('click',()=>$('fileIn').click());
 $('fileIn').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
-  r.onload=()=>{try{pushUndo();loadLayout(JSON.parse(r.result),false);fitView();toast('Layout imported');}
-    catch(err){UNDO.pop();toast('Import failed: '+err.message);}};
+  r.onload=()=>{try{
+      const o=JSON.parse(r.result);
+      if(menuOpen){newSaveFromData(o,f.name.replace(/\.json$/i,'')||'Imported layout');toast('Imported as a new save');}
+      else{pushUndo();loadLayout(o,false);fitView();toast('Layout imported');}
+    }catch(err){if(!menuOpen)UNDO.pop();toast('Import failed: '+err.message);}};
   r.readAsText(f);e.target.value='';
 });
 $('bBlocks').addEventListener('click',ui.toggleBlocks);
@@ -2045,9 +2260,9 @@ $('warnChip').addEventListener('click',()=>{if(W.warn.length){cam.x=W.warn[0].x;
 function buildHelp(){
   const rows=(a)=>a.map(([k,d])=>'<tr><td>'+k+'</td><td>'+d+'</td></tr>').join('');
   $('helpBox').innerHTML='<h2>Controls</h2><div class="twocol"><div><h4>Tools</h4><table>'+rows([
-    ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['S','Signals (red/green)'],['J','Insulated joints'],
+    ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['G','Glue / unglue track (⇧G = glue all)'],['S','Signals (red/green)'],['J','Insulated joints'],
     ['B','Buffer stops'],['N','Stations'],['A','Add train'],['D','Delete'],['R / Shift+R','Rotate ghost (or flip train facing)'],['F','Flip / mirror ghost'],['Esc','Cancel / deselect']])+
-    '</table><h4>View</h4><table>'+rows([['Drag','Pan (mouse, touch)'],['Wheel / pinch','Zoom'],['+ / −','Zoom'],['Shift+arrows','Pan'],['L','Show blocks overlay'],['K','Night / day'],['M','Sound on / off'],['O','Horn (selected train)']])+
+    '</table><h4>View</h4><table>'+rows([['Drag','Pan (mouse, touch); with Track+Straight: lay a run'],['Drag a handle','Resize loose straight track'],['Right/middle drag','Always pans'],['Wheel / pinch','Zoom'],['+ / −','Zoom'],['Shift+arrows','Pan'],['L','Show blocks overlay'],['K','Night / day'],['M','Sound on / off'],['O','Horn (selected train)']])+
     '</table></div><div><h4>Driving the selected train</h4><table>'+rows([['↑ / ↓','Throttle +10% / −10%'],['Space (hold)','Brake'],['X','Emergency stop'],['C','Reverse direction (when stopped)'],
     ['Tab','Next train'],['Delete','Remove train']])+'</table><h4>Simulation</h4><table>'+rows([['P','Pause / resume'],['1 / 2 / 3','Speed 1× / 2× / 5×'],['0','Reset to start of run'],['Ctrl+Z','Undo'],['Ctrl+S','Save to browser'],['H','This help']])+
     '</table></div></div><p style="color:var(--dim)">Signals: click one (Select tool) to hold it at red. Click a turnout to throw it; the active route is highlighted amber. Open track ends are flagged ⚠ – give them a buffer stop or join them up.</p><p style="text-align:right"><button onclick="ui.toggleHelp()">Close</button></p>';
@@ -2199,14 +2414,14 @@ function exTerminus(){
   void stP2;
 }
 const EXAMPLES={oval:exOval,eight:exEight,terminus:exTerminus,twin:exTwin,blank:()=>{clearWorld();}};
-function loadExample(name){
-  pushUndo();
+function loadExample(name,silent){
+  if(!silent)pushUndo();
   try{EXAMPLES[name]();}catch(err){console.error(err);toast('Example failed: '+err.message);return;}
   rebuild();computeOccupancy();
   for(const t of W.trains)updateGeometry(t);
   for(const s of W.signals)s.lamp=0;
   baseline=JSON.stringify(serialize());sim.started=false;sim.sel=null;
-  fitView();ui.refresh();toast(name==='blank'?'Blank layout':'Loaded example: '+name);
+  fitView();ui.refresh();if(!silent)toast(name==='blank'?'Blank layout':'Loaded example: '+name);
 }
 function fitView(){
   if(!W.pieces.length){cam.x=10;cam.y=6;cam.z=40;return;}
@@ -2268,6 +2483,168 @@ function sndUpdate(dt){
 }
 
 /* =====================================================================
+   11c. MAIN MENU & SAVE SLOTS (localStorage; each save has a thumbnail)
+   ===================================================================== */
+const STORE={
+  IDX:'railsim.index.v2',DATA:'railsim.data.v2.',LAST:'railsim.last',
+  index(){try{const a=JSON.parse(localStorage.getItem(this.IDX)||'[]');return Array.isArray(a)?a:[];}catch(e){return[];}},
+  setIndex(a){try{localStorage.setItem(this.IDX,JSON.stringify(a));return true;}catch(e){toast('Browser storage is full or blocked – use Export JSON');return false;}},
+  read(id){try{return JSON.parse(localStorage.getItem(this.DATA+id));}catch(e){return null;}},
+  write(id,o){try{localStorage.setItem(this.DATA+id,JSON.stringify(o));return true;}catch(e){toast('Browser storage is full or blocked – use Export JSON');return false;}},
+  remove(id){try{localStorage.removeItem(this.DATA+id);}catch(e){}},
+  last(){try{return localStorage.getItem(this.LAST);}catch(e){return null;}},
+  setLast(id){try{localStorage.setItem(this.LAST,id);}catch(e){}}
+};
+let curSave=null;          // {id,name} – the slot the editor is saving into
+const newId=()=>'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+// Small picture of the layout for the save card.
+function makeThumb(){
+  const c=document.createElement('canvas');c.width=240;c.height=140;const g=c.getContext('2d');
+  g.fillStyle='#4d7a3b';g.fillRect(0,0,240,140);
+  if(W.pieces.length){
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    for(const p of W.pieces){x0=Math.min(x0,p.minx);x1=Math.max(x1,p.maxx);y0=Math.min(y0,p.miny);y1=Math.max(y1,p.maxy);}
+    const s=Math.min(216/Math.max(1,x1-x0),116/Math.max(1,y1-y0),30),ox=120-(x0+x1)/2*s,oy=70-(y0+y1)/2*s;
+    g.lineCap='round';g.lineJoin='round';
+    const line=(w,col,loose)=>{
+      g.lineWidth=w;g.strokeStyle=col;
+      for(const p of W.pieces)for(const pa of p.paths){
+        if(!!p.glued===loose)continue;
+        g.beginPath();g.moveTo(pa.xs[0]*s+ox,pa.ys[0]*s+oy);for(let i=1;i<=pa.n;i++)g.lineTo(pa.xs[i]*s+ox,pa.ys[i]*s+oy);g.stroke();
+      }
+    };
+    line(Math.max(2.4,s*0.4),'#6a6256',false);line(Math.max(1,s*0.13),'#d3d7dc',false);
+    line(Math.max(1,s*0.13),'#f2b94b',true);
+    for(const t of W.trains)for(let i=0;i<t.poses.length;i++){
+      const p=t.poses[i];g.fillStyle=t.cars[i].col||CARS[t.cars[i].k].color;g.fillRect(p.x*s+ox-2,p.y*s+oy-2,4,4);
+    }
+  }
+  return c.toDataURL('image/jpeg',0.7);
+}
+function saveCurrent(silent){
+  if(!curSave)return false;
+  if(!STORE.write(curSave.id,serialize()))return false;
+  const idx=STORE.index().filter(x=>x.id!==curSave.id);
+  idx.unshift({id:curSave.id,name:curSave.name,updated:Date.now(),pieces:W.pieces.length,trains:W.trains.length,thumb:makeThumb()});
+  STORE.setIndex(idx);STORE.setLast(curSave.id);
+  if(!silent)toast('Saved "'+curSave.name+'"');
+  return true;
+}
+function openSlot(id){
+  const meta=STORE.index().find(x=>x.id===id),data=STORE.read(id);
+  if(!meta||!data){toast('That save is missing or damaged');renderMenu();return;}
+  try{loadLayout(data,false);}catch(e){toast('Could not open save: '+e.message);return;}
+  curSave={id,name:meta.name};STORE.setLast(id);
+  ui.setPaused(false);hideMenu();
+}
+function newSaveFromData(o,name){
+  loadLayout(o,false);
+  curSave={id:newId(),name:name||'Untitled'};saveCurrent(true);
+  ui.setPaused(false);hideMenu();
+}
+function newSave(name,tpl){
+  if(tpl&&tpl!=='blank')loadExample(tpl,true);else{clearWorld();rebuild();computeOccupancy();baseline=JSON.stringify(serialize());cam.x=10;cam.y=6;cam.z=40;ui.refresh();}
+  UNDO.length=0;
+  curSave={id:newId(),name:name||'Untitled'};saveCurrent(true);
+  ui.setPaused(false);hideMenu();
+  toast(tpl==='blank'||!tpl?'New blank layout – pick Track (T) and start laying':'Created "'+curSave.name+'"');
+}
+function renameSlot(id,name){
+  const a=STORE.index(),m=a.find(x=>x.id===id);if(!m||!name)return;
+  m.name=name.slice(0,40);STORE.setIndex(a);if(curSave&&curSave.id===id)curSave.name=m.name;
+}
+function duplicateSlot(id){
+  const a=STORE.index(),m=a.find(x=>x.id===id),d=STORE.read(id);if(!m||!d)return;
+  const nid=newId();if(!STORE.write(nid,d))return;
+  a.unshift(Object.assign({},m,{id:nid,name:m.name+' copy',updated:Date.now()}));STORE.setIndex(a);
+}
+function deleteSlots(ids){
+  const set=new Set(ids);
+  for(const id of ids)STORE.remove(id);
+  STORE.setIndex(STORE.index().filter(x=>!set.has(x.id)));
+  if(curSave&&set.has(curSave.id))curSave=null;
+}
+function showMenu(){
+  if(menuOpen)return;
+  saveCurrent(true);
+  menuOpen=true;ui._wasPaused=sim.paused;ui.setPaused(true);
+  $('menu').classList.add('show');renderMenu();
+}
+function hideMenu(){
+  menuOpen=false;$('menu').classList.remove('show');
+  if(ui._wasPaused===false)ui.setPaused(false);
+}
+let selSlots=new Set(),armed=null,armTimer=0;
+function arm(key,btn,label,fn){
+  if(armed===key){clearTimeout(armTimer);armed=null;fn();return;}
+  armed=key;btn.classList.add('armed');btn.textContent=label;
+  clearTimeout(armTimer);armTimer=setTimeout(()=>{armed=null;renderMenu();},3000);
+}
+function renderMenu(){
+  const idx=STORE.index().sort((a,b)=>b.updated-a.updated),list=$('saveList');
+  selSlots=new Set([...selSlots].filter(id=>idx.some(x=>x.id===id)));
+  const last=STORE.last(),lm=idx.find(x=>x.id===last);
+  const bc=$('mContinue');bc.style.display=lm?'':'none';if(lm)bc.textContent='▶ Continue: '+lm.name;
+  $('mBack').style.display=curSave?'':'none';
+  list.innerHTML=idx.length?'':'<div class="empty">No saves yet – create a new layout to get started.</div>';
+  for(const m of idx){
+    const d=document.createElement('div');d.className='card'+(curSave&&curSave.id===m.id?' cur':'');d.dataset.id=m.id;
+    const when=new Date(m.updated).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+    d.innerHTML='<input type="checkbox" data-a="sel"'+(selSlots.has(m.id)?' checked':'')+'><img alt="" src="'+(m.thumb||'')+'">'+
+      '<div><div class="nm">'+esc(m.name)+'</div><div class="meta">'+when+' · '+m.pieces+' pieces · '+m.trains+' trains'+(curSave&&curSave.id===m.id?' · open':'')+'</div></div>'+
+      '<div class="acts"><button data-a="open" class="on">Open</button><button data-a="ren">Rename</button><button data-a="dup">Duplicate</button><button data-a="del" class="danger">Delete</button></div>';
+    list.appendChild(d);
+  }
+  const n=selSlots.size,ds=$('mDelSel');ds.style.display=n?'':'none';ds.textContent='Delete selected ('+n+')';ds.classList.remove('armed');
+}
+$('saveList').addEventListener('click',e=>{
+  const b=e.target.closest('[data-a]'),card=e.target.closest('.card');if(!b||!card)return;
+  const id=card.dataset.id,a=b.dataset.a;
+  if(a==='open')openSlot(id);
+  else if(a==='dup'){duplicateSlot(id);renderMenu();}
+  else if(a==='del')arm('del:'+id,b,'Click again to delete',()=>{deleteSlots([id]);renderMenu();toast('Deleted');});
+  else if(a==='ren'){
+    const nm=card.querySelector('.nm'),inp=document.createElement('input');
+    inp.type='text';inp.className='rn';inp.value=nm.textContent;nm.replaceWith(inp);inp.focus();inp.select();
+    const done=()=>{renameSlot(id,inp.value.trim());renderMenu();};
+    inp.addEventListener('keydown',ev=>{if(ev.key==='Enter')done();if(ev.key==='Escape')renderMenu();});
+    inp.addEventListener('blur',done);
+  }
+});
+$('saveList').addEventListener('change',e=>{
+  if(e.target.dataset.a!=='sel')return;
+  const id=e.target.closest('.card').dataset.id;
+  e.target.checked?selSlots.add(id):selSlots.delete(id);renderMenu();
+});
+$('mDelSel').addEventListener('click',e=>{
+  const ids=[...selSlots];
+  arm('delsel',e.target,'Click again to delete '+ids.length,()=>{deleteSlots(ids);selSlots.clear();renderMenu();toast('Deleted '+ids.length+' save(s)');});
+});
+$('mNew').addEventListener('click',()=>{$('mNewForm').classList.toggle('show');$('mName').focus();$('mName').select();});
+$('mCancel').addEventListener('click',()=>$('mNewForm').classList.remove('show'));
+$('mCreate').addEventListener('click',()=>{
+  const name=$('mName').value.trim()||'My railway';$('mNewForm').classList.remove('show');
+  newSave(name,$('mTpl').value);
+});
+$('mName').addEventListener('keydown',e=>{if(e.key==='Enter')$('mCreate').click();});
+$('mContinue').addEventListener('click',()=>{const id=STORE.last();if(id)openSlot(id);});
+$('mBack').addEventListener('click',hideMenu);
+$('mImport').addEventListener('click',()=>$('fileIn').click());
+window.addEventListener('beforeunload',()=>saveCurrent(true));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saveCurrent(true);});
+// carry over a layout saved by the first version, if any
+(function migrate(){
+  try{
+    const old=localStorage.getItem('railsim.layout.v1');
+    if(old&&!STORE.index().length){
+      const o=JSON.parse(old),id=newId();
+      if(STORE.write(id,o))STORE.setIndex([{id,name:'Quick save (old)',updated:Date.now(),pieces:(o.pieces||[]).length,trains:(o.trains||[]).length,thumb:''}]);
+    }
+  }catch(e){}
+})();
+
+/* =====================================================================
    12. MAIN LOOP & BOOT
    ===================================================================== */
 let lastTs=0,uiAcc=0;
@@ -2298,7 +2675,8 @@ if('ResizeObserver' in window)new ResizeObserver(()=>resize()).observe(cvs.paren
 document.addEventListener('visibilitychange',()=>{lastTs=performance.now();});
 
 resize();buildHelp();ui.setTool('select');ui.setSpeed(1);
-loadExample('oval');
+loadExample('oval',true);
+showMenu();
 requestAnimationFrame(t=>{lastTs=t;frame(t);});
 
 </script>
