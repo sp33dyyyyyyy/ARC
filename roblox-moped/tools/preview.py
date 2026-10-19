@@ -5,7 +5,7 @@ Runs the real model-building Luau code under a mock Roblox runtime (real
 CFrame/Vector3 maths, records every Part) and renders the result to PNG with a
 small z-buffer rasteriser, so models can be inspected without Roblox Studio.
 
-  python3 tools/preview.py bike spatz50 out.png
+  python3 tools/preview.py bike aerox50 out.png
   python3 tools/preview.py house out.png          (any scene defined in SCENES)
 
 Needs: luau on PATH or LUAU=/path/to/luau, numpy, Pillow.
@@ -323,7 +323,7 @@ local PS = require('PartsService')
 local PD = require('PartsData')
 local VD = require('VehicleData')
 local function say(...) print('[test]', ...) end
-local profile = { money = 5000, owned = { spatz50 = { paint = 1 } }, parts = {}, orders = {} }
+local profile = { money = 5000, owned = { aerox50 = { paint = 1 } }, parts = {}, orders = {} }
 local player = { UserId = 1 }
 local standRec = nil
 local Data = { get = function() return profile end, push = function() end }
@@ -348,21 +348,21 @@ local R = require('Remotes')
 local orderFn = R.func('PartsOrder').OnServerInvoke
 local installFn = R.func('PartsInstall').OnServerInvoke
 local removeFn = R.func('PartsRemove').OnServerInvoke
-local r = orderFn(player, 'sport_exhaust', 'spatz50'); say('order sport_exhaust ->', r.ok, r.reason, 'money', profile.money)
-r = orderFn(player, 'sport_exhaust', 'spatz50'); say('order again ->', r.ok, r.reason)
-r = orderFn(player, 'titan_exhaust', 'spatz50'); say('order 4-stroke part on 2-stroke ->', r.ok, r.reason)
-r = orderFn(player, 'race_pipe', 'wiesel125'); say('order for unowned bike (TestFleet) ->', r.ok, r.reason)
-r = orderFn(player, 'nope', 'spatz50'); say('unknown part ->', r.ok, r.reason)
+local r = orderFn(player, 'sport_exhaust', 'aerox50'); say('order sport_exhaust ->', r.ok, r.reason, 'money', profile.money)
+r = orderFn(player, 'sport_exhaust', 'aerox50'); say('order again ->', r.ok, r.reason)
+r = orderFn(player, 'titan_exhaust', 'aerox50'); say('order 4-stroke part on 2-stroke ->', r.ok, r.reason)
+r = orderFn(player, 'race_pipe', 'supermoto80'); say('order for unowned bike (TestFleet) ->', r.ok, r.reason)
+r = orderFn(player, 'nope', 'aerox50'); say('unknown part ->', r.ok, r.reason)
 -- deliver + unpack by hand (the van is stubbed)
 local o = profile.orders[1]; o.arrived = true; PS.markArrived(player, o)
 PS.unpack(player, o.id)
-say('inventory after unpack', profile.parts.spatz50 and profile.parts.spatz50.owned.sport_exhaust, 'orders left', #profile.orders)
-r = installFn(player, 'spatz50', 'sport_exhaust'); say('install without stand ->', r.ok, r.reason)
-standRec = { vehicle = VD.byId.spatz50 }
-r = installFn(player, 'spatz50', 'sport_exhaust'); say('install on stand ->', r.ok, 'refits', refits, 'installed', profile.parts.spatz50.installed.exhaust)
-local eff = PD.apply(VD.byId.spatz50, PD.installedList(profile, 'spatz50'))
-say('top speed', VD.byId.spatz50.stats.topSpeedKmh, '->', eff.stats.topSpeedKmh)
-r = removeFn(player, 'spatz50', 'exhaust'); say('remove ->', r.ok, 'back in inventory', profile.parts.spatz50.owned.sport_exhaust, 'installed', profile.parts.spatz50.installed.exhaust)
+say('inventory after unpack', profile.parts.aerox50 and profile.parts.aerox50.owned.sport_exhaust, 'orders left', #profile.orders)
+r = installFn(player, 'aerox50', 'sport_exhaust'); say('install without stand ->', r.ok, r.reason)
+standRec = { vehicle = VD.byId.aerox50 }
+r = installFn(player, 'aerox50', 'sport_exhaust'); say('install on stand ->', r.ok, 'refits', refits, 'installed', profile.parts.aerox50.installed.exhaust)
+local eff = PD.apply(VD.byId.aerox50, PD.installedList(profile, 'aerox50'))
+say('top speed', VD.byId.aerox50.stats.topSpeedKmh, '->', eff.stats.topSpeedKmh)
+r = removeFn(player, 'aerox50', 'exhaust'); say('remove ->', r.ok, 'back in inventory', profile.parts.aerox50.owned.sport_exhaust, 'installed', profile.parts.aerox50.installed.exhaust)
 """,
   "van": """
 local oldGet = game.GetService
