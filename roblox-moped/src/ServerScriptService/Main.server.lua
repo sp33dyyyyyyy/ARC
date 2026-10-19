@@ -20,14 +20,25 @@ local Stations = require(Services.StationService)
 local Missions = require(Services.MissionService)
 local TownBuilder = require(Services.TownBuilder)
 
-TownBuilder.build()
+print("[MopedDays] starting server")
+local okTown, townErr = pcall(TownBuilder.build)
+if not okTown then
+	warn("[MopedDays] TownBuilder crashed: " .. tostring(townErr))
+end
 
-DataService.init()
-Economy.init(DataService)
-Vehicles.init(DataService, Economy)
-Garage.init(DataService, Economy, Vehicles)
-Stations.init(Economy, Vehicles, Garage)
-Missions.init(Economy, Vehicles)
+local function boot(name: string, fn: () -> ())
+	local ok, err = pcall(fn)
+	if not ok then
+		warn(("[MopedDays] %s failed to start: %s"):format(name, tostring(err)))
+	end
+end
+boot("DataService", function() DataService.init() end)
+boot("Economy", function() Economy.init(DataService) end)
+boot("Vehicles", function() Vehicles.init(DataService, Economy) end)
+boot("Garage", function() Garage.init(DataService, Economy, Vehicles) end)
+boot("Stations", function() Stations.init(Economy, Vehicles, Garage) end)
+boot("Missions", function() Missions.init(Economy, Vehicles) end)
+print("[MopedDays] services ready")
 
 local function onPlayerAdded(player: Player)
 	local profile = DataService.load(player) -- yields (with retries)

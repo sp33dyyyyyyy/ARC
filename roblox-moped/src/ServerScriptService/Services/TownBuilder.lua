@@ -236,6 +236,10 @@ local function fenceLine(x1: number, z1: number, x2: number, z2: number, y: numb
 	rail.CanCollide = false
 end
 
+local function progress(stage: string)
+	print(("[TownBuilder] %s done (%d descendants so far)"):format(stage, #town:GetDescendants()))
+end
+
 local function tag(part: Instance, name: string)
 	CollectionService:AddTag(part, name)
 end
@@ -330,6 +334,15 @@ end
 ----------------------------------------------------------------------------
 -- Build
 ----------------------------------------------------------------------------
+local function step(name: string, fn: () -> ())
+	local ok, err = pcall(fn)
+	if ok then
+		progress(name)
+	else
+		warn(("[TownBuilder] step '%s' FAILED: %s"):format(name, tostring(err)))
+	end
+end
+
 function TownBuilder.build()
 	if not GameConfig.GenerateTown or Workspace:FindFirstChild("Town") then
 		return
@@ -355,178 +368,174 @@ function TownBuilder.build()
 	atmosphere.Color = Color3.fromRGB(200, 215, 235)
 	atmosphere.Parent = Lighting
 
-	-- ground tiles (parts max 2048 studs)
-	for _, cx in ipairs({ -1300, 500, 2300 }) do
-		for _, cz in ipairs({ -2500, -700, 1100 }) do
-			mk(town, "Ground", Vector3.new(1800, 4, 1800), CFrame.new(cx, -2, cz), C.grass, Enum.Material.Grass)
-		end
-	end
 
-	----------------------------------------------------------------------
-	-- Roads (highest level drawn last so junctions don't z-fight)
-	----------------------------------------------------------------------
-	road(300, 0, 2400, 0, 32, 0.20, true) -- Schnellstrasse east
-	road(2400, 0, 2400, -1900, 32, 0.20, true) -- ...north
-	road(1200, 0, 1200, 640, 18, 0.22) -- Hofweg to the farm
-	road(-1500, 0, -300, 0, 16, 0.24, false, C.lane) -- Landstrasse west
-	road(-1500, -1200, -1500, 0, 16, 0.24, false, C.lane) -- Waldweg north
-	road(-1500, -1200, 0, -1200, 16, 0.24, false, C.lane)
-	road(0, -1200, 0, 0, 16, 0.24, false, C.lane) -- Marktstrasse back to the village
-	road(-300, 0, 300, 0, 24, 0.26, true) -- Hauptstrasse (village main street)
+	local z0, z1, rise = -1900, -2200, 36 -- hill ramp: start z, end z, height
 
-	-- Marktplatz
-	mk(town, "Marktplatz", Vector3.new(150, 0.5, 130), CFrame.new(0, 0.05, -150), C.cobble, Enum.Material.Cobblestone)
-	addRect(-75, -215, 75, -85)
-	fountain(0, -150)
-
-	----------------------------------------------------------------------
-	-- Hill ramp to Huegeldorf: a thick slab so there is no hollow underneath
-	----------------------------------------------------------------------
-	local z0, z1, rise = -1900, -2200, 36
-	local a, b = Vector3.new(2400, 0, z0), Vector3.new(2400, rise, z1)
-	local dir = (b - a)
-	local len = dir.Magnitude
-	local lookCF = CFrame.lookAt((a + b) / 2, (a + b) / 2 + dir)
-	local slab = mk(town, "RampSlab", Vector3.new(44, 40, len), lookCF * CFrame.new(0, -20, 0), C.grass, Enum.Material.Grass)
-	slab.Name = "RampSlab"
-	mk(roads, "RampRoad", Vector3.new(18, 0.4, len), lookCF * CFrame.new(0, 0.2, 0), C.asphalt, Enum.Material.Asphalt)
-	addRect(2370, z1, 2430, z0)
-	-- plateau
-	mk(town, "Plateau", Vector3.new(500, rise, 520), CFrame.new(2400, rise / 2, z1 - 260), C.grass, Enum.Material.Grass)
-	mk(roads, "HamletRoad", Vector3.new(18, 0.4, 500), CFrame.new(2400, rise + 0.2, z1 - 250), C.lane, Enum.Material.Asphalt)
-	addRect(2150, z1 - 520, 2650, z1)
-
-	----------------------------------------------------------------------
-	-- Kleindorf: houses along the main street
-	----------------------------------------------------------------------
-	local reserved = { -200, -80, 80, 200 } -- shop / garage slots on each side
-	local function isReserved(x: number): boolean
-		for _, r in ipairs(reserved) do
-			if math.abs(x - r) < 36 then
-				return true
+	step('ground', function()
+		-- ground tiles (parts max 2048 studs)
+		for _, cx in ipairs({ -1300, 500, 2300 }) do
+			for _, cz in ipairs({ -2500, -700, 1100 }) do
+				mk(town, "Ground", Vector3.new(1800, 4, 1800), CFrame.new(cx, -2, cz), C.grass, Enum.Material.Grass)
 			end
 		end
-		return false
-	end
-	for x = -270, 270, 46 do
-		if not isReserved(x) and math.abs(x) > 14 then
-			randomHouse("Haus", x + rng:NextInteger(-4, 4), -40, 0) -- north side faces south
-			randomHouse("Haus", x + rng:NextInteger(-4, 4), 40, math.pi) -- south side faces north
+	end)
+
+	step("Roads (highest level drawn last so junctions don't z-fight)", function()
+		road(300, 0, 2400, 0, 32, 0.20, true) -- Schnellstrasse east
+		road(2400, 0, 2400, -1900, 32, 0.20, true) -- ...north
+		road(1200, 0, 1200, 640, 18, 0.22) -- Hofweg to the farm
+		road(-1500, 0, -300, 0, 16, 0.24, false, C.lane) -- Landstrasse west
+		road(-1500, -1200, -1500, 0, 16, 0.24, false, C.lane) -- Waldweg north
+		road(-1500, -1200, 0, -1200, 16, 0.24, false, C.lane)
+		road(0, -1200, 0, 0, 16, 0.24, false, C.lane) -- Marktstrasse back to the village
+		road(-300, 0, 300, 0, 24, 0.26, true) -- Hauptstrasse (village main street)
+
+		-- Marktplatz
+		mk(town, "Marktplatz", Vector3.new(150, 0.5, 130), CFrame.new(0, 0.05, -150), C.cobble, Enum.Material.Cobblestone)
+		addRect(-75, -215, 75, -85)
+		fountain(0, -150)
+	end)
+
+	step('Hill ramp to Huegeldorf: a thick slab so there is no hollow underneath', function()
+		
+		local a, b = Vector3.new(2400, 0, z0), Vector3.new(2400, rise, z1)
+		local dir = (b - a)
+		local len = dir.Magnitude
+		local lookCF = CFrame.lookAt((a + b) / 2, (a + b) / 2 + dir)
+		local slab = mk(town, "RampSlab", Vector3.new(44, 40, len), lookCF * CFrame.new(0, -20, 0), C.grass, Enum.Material.Grass)
+		slab.Name = "RampSlab"
+		mk(roads, "RampRoad", Vector3.new(18, 0.4, len), lookCF * CFrame.new(0, 0.2, 0), C.asphalt, Enum.Material.Asphalt)
+		addRect(2370, z1, 2430, z0)
+		-- plateau
+		mk(town, "Plateau", Vector3.new(500, rise, 520), CFrame.new(2400, rise / 2, z1 - 260), C.grass, Enum.Material.Grass)
+		mk(roads, "HamletRoad", Vector3.new(18, 0.4, 500), CFrame.new(2400, rise + 0.2, z1 - 250), C.lane, Enum.Material.Asphalt)
+		addRect(2150, z1 - 520, 2650, z1)
+	end)
+
+	step('Kleindorf: houses along the main street', function()
+		local reserved = { -200, -80, 80, 200 } -- shop / garage slots on each side
+		local function isReserved(x: number): boolean
+			for _, r in ipairs(reserved) do
+				if math.abs(x - r) < 36 then
+					return true
+				end
+			end
+			return false
 		end
-	end
+		for x = -270, 270, 46 do
+			if not isReserved(x) and math.abs(x) > 14 then
+				randomHouse("Haus", x + rng:NextInteger(-4, 4), -40, 0) -- north side faces south
+				randomHouse("Haus", x + rng:NextInteger(-4, 4), 40, math.pi) -- south side faces north
+			end
+		end
 
-	-- named buildings
-	shop("Baeckerei", "BAECKEREI", -200, -40, 0, 34, 26, 18, Color3.fromRGB(240, 214, 160), ROOFS[1])
-	shop("Dorfladen", "DORFLADEN", 200, -40, 0, 34, 26, 18, Color3.fromRGB(200, 222, 200), ROOFS[2])
-	local garage = shop("Garage", "GARAGE", -80, 40, math.pi, 34, 26, 16, Color3.fromRGB(205, 175, 130), ROOFS[3])
-	tag(garage, "GarageDoor")
-	local werkstatt = shop("Werkstatt", "WERKSTATT (repair)", 80, 40, math.pi, 34, 26, 16, Color3.fromRGB(150, 170, 200), ROOFS[3])
-	tag(werkstatt, "Workshop")
-	petrolStation("TankstelleSued", -200, 36, math.pi)
+		-- named buildings
+		shop("Baeckerei", "BAECKEREI", -200, -40, 0, 34, 26, 18, Color3.fromRGB(240, 214, 160), ROOFS[1])
+		shop("Dorfladen", "DORFLADEN", 200, -40, 0, 34, 26, 18, Color3.fromRGB(200, 222, 200), ROOFS[2])
+		local garage = shop("Garage", "GARAGE", -80, 40, math.pi, 34, 26, 16, Color3.fromRGB(205, 175, 130), ROOFS[3])
+		tag(garage, "GarageDoor")
+		local werkstatt = shop("Werkstatt", "WERKSTATT (repair)", 80, 40, math.pi, 34, 26, 16, Color3.fromRGB(150, 170, 200), ROOFS[3])
+		tag(werkstatt, "Workshop")
+		petrolStation("TankstelleSued", -200, 36, math.pi)
 
-	-- lamps down the main street
-	for x = -270, 270, 60 do
-		lamp(x, -15, 0)
-		lamp(x + 30, 15, 0)
-	end
+		-- lamps down the main street
+		for x = -270, 270, 60 do
+			lamp(x, -15, 0)
+			lamp(x + 30, 15, 0)
+		end
 
-	-- job board next to the spawn
-	local board = mk(scenery, "JobBoard", Vector3.new(10, 8, 1.2), CFrame.new(34, 4.8, -20), Color3.fromRGB(110, 80, 52), Enum.Material.Wood)
-	mk(scenery, "BoardPost", Vector3.new(1.2, 6, 1.2), CFrame.new(29, 3, -20), C.timber, Enum.Material.Wood)
-	mk(scenery, "BoardPost", Vector3.new(1.2, 6, 1.2), CFrame.new(39, 3, -20), C.timber, Enum.Material.Wood)
-	tag(board, "MissionBoard")
-	label(board, "JOBS", 7)
-	addRect(24, -24, 44, -16)
+		-- job board next to the spawn
+		local board = mk(scenery, "JobBoard", Vector3.new(10, 8, 1.2), CFrame.new(34, 4.8, -20), Color3.fromRGB(110, 80, 52), Enum.Material.Wood)
+		mk(scenery, "BoardPost", Vector3.new(1.2, 6, 1.2), CFrame.new(29, 3, -20), C.timber, Enum.Material.Wood)
+		mk(scenery, "BoardPost", Vector3.new(1.2, 6, 1.2), CFrame.new(39, 3, -20), C.timber, Enum.Material.Wood)
+		tag(board, "MissionBoard")
+		label(board, "JOBS", 7)
+		addRect(24, -24, 44, -16)
+	end)
 
-	----------------------------------------------------------------------
-	-- Marktplatz buildings
-	----------------------------------------------------------------------
-	shop("Gasthof", "GASTHOF ZUR LINDE", 62, -240, 0, 52, 30, 24, Color3.fromRGB(238, 222, 190), ROOFS[1])
-	church(-140, -150, math.pi / 2)
-	randomHouse("Haus", 135, -150, -math.pi / 2)
-	randomHouse("Haus", 135, -200, -math.pi / 2)
-	lamp(-60, -95, 0)
-	lamp(60, -95, 0)
-	lamp(-60, -205, 0)
-	lamp(60, -205, 0)
+	step('Marktplatz buildings', function()
+		shop("Gasthof", "GASTHOF ZUR LINDE", 62, -240, 0, 52, 30, 24, Color3.fromRGB(238, 222, 190), ROOFS[1])
+		church(-140, -150, math.pi / 2)
+		randomHouse("Haus", 135, -150, -math.pi / 2)
+		randomHouse("Haus", 135, -200, -math.pi / 2)
+		lamp(-60, -95, 0)
+		lamp(60, -95, 0)
+		lamp(-60, -205, 0)
+		lamp(60, -205, 0)
+	end)
 
-	----------------------------------------------------------------------
-	-- Highway: second petrol station, signs of life
-	----------------------------------------------------------------------
-	petrolStation("TankstelleNord", 1500, 40, math.pi)
-	for x = 400, 2300, 120 do
-		lamp(x, -20, 0)
-	end
-	scatterTrees(120, 350, -500, 2300, -40, false, 14)
-	scatterTrees(80, 350, 40, 2300, 520, false, 14)
+	step('Highway: second petrol station, signs of life', function()
+		petrolStation("TankstelleNord", 1500, 40, math.pi)
+		for x = 400, 2300, 120 do
+			lamp(x, -20, 0)
+		end
+		scatterTrees(120, 350, -500, 2300, -40, false, 14)
+		scatterTrees(80, 350, 40, 2300, 520, false, 14)
+	end)
 
-	----------------------------------------------------------------------
-	-- Hof (farm) at the end of the lane
-	----------------------------------------------------------------------
-	fenceLine(1182, 80, 1182, 600)
-	fenceLine(1218, 80, 1218, 600)
-	barn(1170, 660, 0)
-	mk(town, "Field", Vector3.new(220, 0.3, 300), CFrame.new(1420, 0.15, 330), Color3.fromRGB(208, 184, 96), Enum.Material.Grass)
-	mk(town, "Field", Vector3.new(220, 0.3, 300), CFrame.new(980, 0.15, 330), Color3.fromRGB(120, 160, 70), Enum.Material.Grass)
-	addRect(870, 160, 1530, 500)
+	step('Hof (farm) at the end of the lane', function()
+		fenceLine(1182, 80, 1182, 600)
+		fenceLine(1218, 80, 1218, 600)
+		barn(1170, 660, 0)
+		mk(town, "Field", Vector3.new(220, 0.3, 300), CFrame.new(1420, 0.15, 330), Color3.fromRGB(208, 184, 96), Enum.Material.Grass)
+		mk(town, "Field", Vector3.new(220, 0.3, 300), CFrame.new(980, 0.15, 330), Color3.fromRGB(120, 160, 70), Enum.Material.Grass)
+		addRect(870, 160, 1530, 500)
+	end)
 
-	----------------------------------------------------------------------
-	-- Hamlet on the plateau
-	----------------------------------------------------------------------
-	for i = 0, 5 do
-		local z = z1 - 60 - i * 72
-		randomHouse("HausH", 2400 - 34, z, math.pi / 2, rise)
-		randomHouse("HausH", 2400 + 34, z - 30, -math.pi / 2, rise)
-	end
-	church(2490, z1 - 440, 0)
-	for z = z1 - 40, z1 - 480, 80 do
-		lamp(2400 - 11, z, rise)
-	end
+	step('Hamlet on the plateau', function()
+		for i = 0, 5 do
+			local z = z1 - 60 - i * 72
+			randomHouse("HausH", 2400 - 34, z, math.pi / 2, rise)
+			randomHouse("HausH", 2400 + 34, z - 30, -math.pi / 2, rise)
+		end
+		church(2490, z1 - 440, 0)
+		for z = z1 - 40, z1 - 480, 80 do
+			lamp(2400 - 11, z, rise)
+		end
+	end)
 
-	----------------------------------------------------------------------
-	-- Forest
-	----------------------------------------------------------------------
-	scatterTrees(380, -1480, -1180, -20, -20, true, 18) -- inside the loop
-	scatterTrees(260, -1900, -1500, -1520, 200, true, 16)
-	scatterTrees(120, -1500, -1500, 100, -1220, true, 16)
-	scatterTrees(90, -300, 60, -40, 420, false, 14)
-	scatterTrees(60, 300, -400, 1100, -60, false, 14)
+	step('Forest', function()
+		scatterTrees(380, -1480, -1180, -20, -20, true, 18) -- inside the loop
+		scatterTrees(260, -1900, -1500, -1520, 200, true, 16)
+		scatterTrees(120, -1500, -1500, 100, -1220, true, 16)
+		scatterTrees(90, -300, 60, -40, 420, false, 14)
+		scatterTrees(60, 300, -400, 1100, -60, false, 14)
+	end)
 
-	----------------------------------------------------------------------
-	-- Spawn + mission spots
-	----------------------------------------------------------------------
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Anchored = true
-	spawn.Size = Vector3.new(12, 1, 12)
-	spawn.Position = Vector3.new(0, 0.8, 56)
-	spawn.Transparency = 1
-	spawn.CanCollide = false
-	spawn.Parent = town
-	mk(roads, "SpawnPad", Vector3.new(16, 0.3, 16), CFrame.new(0, 0.3, 56), C.cobble, Enum.Material.Cobblestone).CanCollide = false
+	step('Spawn + mission spots', function()
+		local spawn = Instance.new("SpawnLocation")
+		spawn.Anchored = true
+		spawn.Size = Vector3.new(12, 1, 12)
+		spawn.Position = Vector3.new(0, 0.8, 56)
+		spawn.Transparency = 1
+		spawn.CanCollide = false
+		spawn.Parent = town
+		mk(roads, "SpawnPad", Vector3.new(16, 0.3, 16), CFrame.new(0, 0.3, 56), C.cobble, Enum.Material.Cobblestone).CanCollide = false
 
-	local spots = Instance.new("Folder")
-	spots.Name = "MissionSpots"
-	spots.Parent = Workspace
-	local positions = {
-		Spot_Bakery = Vector3.new(-200, 0.6, -10),
-		Spot_Dorfladen = Vector3.new(200, 0.6, -10),
-		Spot_Gasthof = Vector3.new(0, 0.6, -200),
-		Spot_Farm = Vector3.new(1200, 0.6, 570),
-		Spot_Huegeldorf = Vector3.new(2400, rise + 0.6, z1 - 250),
-		CP_Forest1 = Vector3.new(-900, 0.6, 0),
-		CP_Forest2 = Vector3.new(-1500, 0.6, -300),
-		CP_Forest3 = Vector3.new(-1500, 0.6, -1000),
-		CP_Forest4 = Vector3.new(-900, 0.6, -1200),
-		CP_Forest5 = Vector3.new(-300, 0.6, -1200),
-	}
-	for name, pos in pairs(positions) do
-		local size = name:sub(1, 2) == "CP" and 20 or 14
-		local p = mk(spots, name, Vector3.new(size, 0.4, size), CFrame.new(pos), Color3.fromRGB(255, 220, 60), Enum.Material.Neon)
-		p.CanCollide = false
-		p.CanQuery = false
-		p.Transparency = 0.55
-		label(p, (name:gsub("^%a+_", "")), 6)
-	end
+		local spots = Instance.new("Folder")
+		spots.Name = "MissionSpots"
+		spots.Parent = Workspace
+		local positions = {
+			Spot_Bakery = Vector3.new(-200, 0.6, -10),
+			Spot_Dorfladen = Vector3.new(200, 0.6, -10),
+			Spot_Gasthof = Vector3.new(0, 0.6, -200),
+			Spot_Farm = Vector3.new(1200, 0.6, 570),
+			Spot_Huegeldorf = Vector3.new(2400, rise + 0.6, z1 - 250),
+			CP_Forest1 = Vector3.new(-900, 0.6, 0),
+			CP_Forest2 = Vector3.new(-1500, 0.6, -300),
+			CP_Forest3 = Vector3.new(-1500, 0.6, -1000),
+			CP_Forest4 = Vector3.new(-900, 0.6, -1200),
+			CP_Forest5 = Vector3.new(-300, 0.6, -1200),
+		}
+		for name, pos in pairs(positions) do
+			local size = name:sub(1, 2) == "CP" and 20 or 14
+			local p = mk(spots, name, Vector3.new(size, 0.4, size), CFrame.new(pos), Color3.fromRGB(255, 220, 60), Enum.Material.Neon)
+			p.CanCollide = false
+			p.CanQuery = false
+			p.Transparency = 0.55
+			label(p, (name:gsub("^%a+_", "")), 6)
+		end
+	end)
 end
 
 return TownBuilder

@@ -52,6 +52,19 @@ def item(cls, name, children="", props=""):
             f'<string name="Name">{escape(name)}</string>{props}</Properties>{children}</Item>')
 
 
+def static_part(cls, name, size, pos, rgb):
+    r, g, b = rgb
+    packed = 0xFF000000 | (r << 16) | (g << 8) | b
+    extra = '<bool name="Neutral">true</bool>' if cls == "SpawnLocation" else ""
+    cf = (f'<CoordinateFrame name="CFrame"><X>{pos[0]}</X><Y>{pos[1]}</Y><Z>{pos[2]}</Z>'
+          '<R00>1</R00><R01>0</R01><R02>0</R02><R10>0</R10><R11>1</R11><R12>0</R12>'
+          '<R20>0</R20><R21>0</R21><R22>1</R22></CoordinateFrame>')
+    props = (f'<bool name="Anchored">true</bool>{extra}{cf}'
+             f'<Color3uint8 name="Color3uint8">{packed}</Color3uint8>'
+             f'<Vector3 name="size"><X>{size[0]}</X><Y>{size[1]}</Y><Z>{size[2]}</Z></Vector3>')
+    return item(cls, name, "", props)
+
+
 def build():
     rs = item("ReplicatedStorage", "ReplicatedStorage",
               item("Folder", "Shared", folder_items(SRC / "ReplicatedStorage/Shared")) +
@@ -59,7 +72,11 @@ def build():
     sss = item("ServerScriptService", "ServerScriptService", folder_items(SRC / "ServerScriptService"))
     sps = item("StarterPlayerScripts", "StarterPlayerScripts", folder_items(SRC / "StarterPlayerScripts"))
     sp = item("StarterPlayer", "StarterPlayer", sps + item("StarterCharacterScripts", "StarterCharacterScripts"))
-    ws = item("Workspace", "Workspace", item("Terrain", "Terrain"),
+    # A plain ground + spawn pad so the place is never an empty void, even if
+    # the generated town fails. TownBuilder's own ground sits 1 stud above it.
+    base = static_part("Part", "Baseplate", (2048, 4, 2048), (0, -3, 0), (104, 146, 74))
+    spawn = static_part("SpawnLocation", "SpawnLocation", (12, 1, 12), (0, 0.5, 56), (160, 150, 130))
+    ws = item("Workspace", "Workspace", item("Terrain", "Terrain") + base + spawn,
               '<float name="Gravity">196.2</float>')
     parts = [ws, rs, sss, sp,
              item("StarterGui", "StarterGui"), item("StarterPack", "StarterPack"),
