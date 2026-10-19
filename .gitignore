@@ -3,3 +3,4 @@ build/
 export/
 *.exe
 *.pck
+*.zip
