@@ -67,6 +67,52 @@ local function character(player: Player): (Model?, Humanoid?, BasePart?)
 	return char, char:FindFirstChildOfClass("Humanoid"), char:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- Procedural rider poses (no animation assets needed). Joint C0 changes made on
+-- the server replicate, so everybody sees the pose.
+local function origC0(joint: Motor6D): CFrame
+	if joint:GetAttribute("OrigC0") == nil then
+		joint:SetAttribute("OrigC0", joint.C0)
+	end
+	return joint:GetAttribute("OrigC0")
+end
+
+-- angle = radians the arms swing forward; nil restores the normal pose
+local function setArmPose(char: Model?, angle: number?)
+	if not char then
+		return
+	end
+	for _, name in ipairs({ "RightShoulder", "LeftShoulder" }) do
+		local joint = char:FindFirstChild(name, true)
+		if joint and joint:IsA("Motor6D") then
+			local orig = origC0(joint)
+			joint.C0 = angle and (orig * CFrame.Angles(angle, 0, 0)) or orig
+		end
+	end
+end
+
+-- a quick stomp of the right leg on the kick lever
+local function kickPose(char: Model?)
+	local joint = char and char:FindFirstChild("RightHip", true)
+	if not (joint and joint:IsA("Motor6D")) then
+		return
+	end
+	local orig = origC0(joint)
+	task.spawn(function()
+		local started = os.clock()
+		while joint.Parent do
+			local t = (os.clock() - started) / 0.3
+			if t >= 1 then
+				break
+			end
+			joint.C0 = orig * CFrame.Angles(-math.sin(t * math.pi) * 0.9, 0, 0)
+			task.wait()
+		end
+		if joint.Parent then
+			joint.C0 = orig
+		end
+	end)
+end
+
 local function nearBike(player: Player, rec, distance: number?): boolean
 	local _, _, hrp = character(player)
 	if not hrp then
@@ -118,6 +164,9 @@ local function tryStart(rec, player: Player, method: string)
 
 	-- the lever / button is pressed whether or not the engine catches
 	fireBikeEvent(rec, method == "electric" and "Crank" or "Kick")
+	if method == "kick" then
+		kickPose(player.Character)
+	end
 
 	if m:GetAttribute("EngineRunning") then
 		return
@@ -232,6 +281,7 @@ local function releasePush(rec, reason: string?)
 		local char, hum = character(pusher)
 		if char then
 			char:SetAttribute("PushSpeed", nil)
+			setArmPose(char, nil)
 		end
 		if hum then
 			hum.WalkSpeed = rec.savedWalkSpeed or PUSH.FreeWalkSpeed
@@ -266,6 +316,7 @@ local function startPush(rec, player: Player)
 	char:SetAttribute("PushSpeed", limits.walkSpeed)
 	m:SetAttribute("Pusher", player.UserId)
 	takeControl(rec, player, "Push")
+	setArmPose(char, 1.35) -- hands out to the bars
 
 	-- the pusher's body must not shove the bike around through collisions
 	for _, part in ipairs(char:GetDescendants()) do
@@ -299,7 +350,7 @@ end
 -- Mounting
 ----------------------------------------------------------------------------
 local function mount(rec, player: Player)
-	local _, hum = character(player)
+	local char, hum = character(player)
 	if not hum or hum.Health <= 0 or not nearBike(player, rec, 10) then
 		return
 	end
@@ -310,6 +361,7 @@ local function mount(rec, player: Player)
 	takeControl(rec, player, "Ride")
 	rec.model:SetAttribute("Rider", player.UserId)
 	rec.seat:Sit(hum)
+	setArmPose(char, 0.9) -- hands on the bars
 end
 
 ----------------------------------------------------------------------------
@@ -536,6 +588,8 @@ function VehicleService.spawn(player: Player): (boolean, string?)
 
 	table.insert(rec.conns, seat:GetPropertyChangedSignal("Occupant"):Connect(function()
 		if seat.Occupant == nil and model:GetAttribute("Mode") == "Ride" then
+			local rider = Players:GetPlayerByUserId(model:GetAttribute("Rider"))
+			setArmPose(rider and rider.Character, nil)
 			startCoast(rec)
 		end
 	end))

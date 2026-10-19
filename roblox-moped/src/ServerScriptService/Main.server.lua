@@ -18,9 +18,9 @@ local Vehicles = require(Services.VehicleService)
 local Garage = require(Services.GarageService)
 local Stations = require(Services.StationService)
 local Missions = require(Services.MissionService)
-local TestWorld = require(Services.TestWorld)
+local TownBuilder = require(Services.TownBuilder)
 
-TestWorld.build()
+TownBuilder.build()
 
 DataService.init()
 Economy.init(DataService)

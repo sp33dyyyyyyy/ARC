@@ -183,6 +183,25 @@ function BikeFactory.build(vehicle, paintIndex: number): Model
 	addPart(model, chassis, "Accent", Vector3.new(0.9, 0.12, L * 0.3), offs(0, 1.05, -L * 0.1),
 		vehicle.colours[1].accent, { paint = "accent" })
 
+	-- class-specific details so mopeds and supermotos read differently at a glance
+	if vehicle.class == "Moped" then
+		addPart(model, chassis, "LegShield", Vector3.new(1.1, 2.3, 0.3),
+			offs(0, 0.95, -L / 2 + 1.0) * CFrame.Angles(math.rad(-12), 0, 0),
+			vehicle.colours[1].body, { paint = "body" })
+		addPart(model, chassis, "Rack", Vector3.new(1.0, 0.15, 1.6), offs(0, 1.8, L * 0.5), METAL,
+			{ material = Enum.Material.Metal })
+		addPart(model, chassis, "Basket", Vector3.new(0.9, 0.5, 0.9), offs(0, 0.9, -L / 2 + 0.2) * CFrame.Angles(math.rad(-12), 0, 0),
+			Color3.fromRGB(120, 92, 60), { material = Enum.Material.WoodPlanks })
+	else
+		addPart(model, chassis, "NumberPlate", Vector3.new(0.95, 0.95, 0.15),
+			offs(0, 1.6, -L / 2 - 0.18) * CFrame.Angles(math.rad(-14), 0, 0), Color3.fromRGB(245, 245, 240))
+		for _, sx in ipairs({ -1, 1 }) do
+			addPart(model, chassis, "HandGuard", Vector3.new(0.15, 0.6, 0.6), offs(sx * 0.95, 2.05, hb.Z - 0.25), DARK)
+		end
+		addPart(model, chassis, "SkidPlate", Vector3.new(0.8, 0.15, L * 0.4), offs(0, -0.4, 0), METAL,
+			{ material = Enum.Material.Metal })
+	end
+
 	-- seat
 	local seat = Instance.new("Seat")
 	seat.Name = "Seat"

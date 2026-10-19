@@ -88,7 +88,8 @@ GameConfig.Data = {
 	AutosaveSeconds = 90,
 }
 
--- Set false once you have built your own Workspace/Town.
-GameConfig.GenerateTestWorld = true
+-- Builds the bundled village at start. Set false (or add your own Workspace/Town
+-- folder) to use your own map.
+GameConfig.GenerateTown = true
 
 return GameConfig

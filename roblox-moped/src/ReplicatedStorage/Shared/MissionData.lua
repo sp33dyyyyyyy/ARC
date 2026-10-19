@@ -20,7 +20,7 @@ return {
 		description = "Grab the warm rolls from the bakery and get them to the Gasthof before they go cold.",
 		pickup = "Spot_Bakery",
 		dropoff = "Spot_Gasthof",
-		timeLimit = 200,
+		timeLimit = 120,
 		basePay = 220,
 	},
 	{
@@ -30,7 +30,7 @@ return {
 		description = "Milk churns from the farm to the village shop. Do not spill. Do not hurry. Hurry a little.",
 		pickup = "Spot_Farm",
 		dropoff = "Spot_Dorfladen",
-		timeLimit = 260,
+		timeLimit = 150,
 		basePay = 300,
 	},
 	{
@@ -39,8 +39,8 @@ return {
 		title = "Waldweg-Sprint",
 		description = "Five gates, one clock. Beat the par time for a bonus.",
 		checkpoints = { "CP_Forest1", "CP_Forest2", "CP_Forest3", "CP_Forest4", "CP_Forest5" },
-		timeLimit = 130,
-		parTime = 95,
+		timeLimit = 150,
+		parTime = 100,
 		basePay = 380,
 	},
 	{

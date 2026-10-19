@@ -118,7 +118,7 @@ roblox-moped/
    │       ├─ GarageService.lua          validated buy / equip / spawn
    │       ├─ StationService.lua         petrol station, workshop, garage door prompts
    │       ├─ MissionService.lua         delivery / checkpoint / cruise, server-judged
-   │       └─ TestWorld.lua              throw-away test track (disable when you have a town)
+   │       └─ TownBuilder.lua            builds the whole village/highway/forest/hill map at start
    └─ StarterPlayerScripts/              (StarterPlayer > StarterPlayerScripts)
        ├─ BikeClient.client.lua          LocalScript  input + physics for the bike you control
        ├─ EffectsController.client.lua   LocalScript  sound, smoke, shake (cosmetic only)
@@ -183,9 +183,10 @@ Bike modes (`Mode` attribute): `Parked` (anchored, kickstand) → `Ride` (seated
 7. **Home > Game Settings > Security > Enable Studio Access to API Services**
    (and publish the place, or saves will not work). Without it the game still
    runs, but with a temporary profile that is never saved - by design.
-8. Press **Play**. With `GenerateTestWorld = true` (default) and no
-   `Workspace/Town`, a test track appears: garage, workshop, petrol station,
-   job board, mission markers, ring road.
+8. Press **Play**. `TownBuilder` generates the map (about 3,300 parts, a second
+   or two at server start): village, market square, highway, farm, forest loop
+   and the hill hamlet. You spawn at (0, 0, 56) on the main street, next to the
+   job board, garage and Werkstatt. Your bike appears in front of you.
 
 ### Testing checklist
 1. **Start-up:** walk to your Spatz. Try the Ride prompt (`R`) *before*
@@ -220,27 +221,22 @@ starting money to apply - use a new `StoreName` while testing.)
 
 ## 5. What YOU need to do
 
-**Map (the big one)** - build a small German village in Workspace. Suggested zones:
-Kleindorf (spawn, narrow lanes, half-timbered houses, bakery, Werkstatt),
-Marktplatz (cobbled square, fountain, job board), Tankstelle Sued / Nord,
-Landstrasse (hills, farms, hairpins), Huegeldorf (steep hill hamlet),
-Schnellstrasse (wide highway connector), Waldweg (dirt forest shortcut).
-Roads need real collision surfaces (any BasePart); wheels raycast, so
-**decals/meshes with CanQuery=false are invisible to the bike**. Keep slopes
-under ~35°. Use your own geometry/textures - do not copy another game's layout.
+**Map - done for you.** `TownBuilder.lua` generates an original map (zones,
+roads, buildings, trees, tagged props and every mission spot). Landmarks:
+Kleindorf main street (z=0, x -300..300) with Baeckerei, Dorfladen, Garage,
+Werkstatt and Tankstelle Sued; Marktplatz (0,-150) with fountain, church and
+Gasthof; Schnellstrasse east along z=0 to x=2400 then north (Tankstelle Nord at
+x=1500); Hofweg farm lane south at x=1200; Waldweg loop west/north through pine
+forest; Huegeldorf on a plateau up a ramp road at the end of the highway.
+Roads are long on purpose - a moped does ~45 studs/s, a Dachs ~130.
 
-**Tag the map props** (Tag Editor plugin, or `CollectionService:AddTag`):
-`GarageDoor` (the garage prompt), `Workshop` (repair), `PetrolStation`
-(refuel), `MissionBoard` (jobs). Any BasePart works.
-
-**Mission spots** - parts in `Workspace/MissionSpots` with exactly these names
-(or edit `MissionData.lua`): `Spot_Bakery`, `Spot_Gasthof`, `Spot_Farm`,
-`Spot_Dorfladen`, `Spot_Huegeldorf`, `CP_Forest1` ... `CP_Forest5`. Make them
-non-colliding; players only need to drive within ~15 studs. Missions whose
-spots are missing simply aren't offered.
-
-**Then** put the map in a Folder called `Town` (or set `GenerateTestWorld=false`)
-so the test track stops generating.
+To use YOUR OWN map instead: set `GameConfig.GenerateTown = false` (or put your
+map in a Folder called `Town`), then tag props (`GarageDoor`, `Workshop`,
+`PetrolStation`, `MissionBoard` - any BasePart) and make
+`Workspace/MissionSpots` parts named `Spot_Bakery`, `Spot_Gasthof`, `Spot_Farm`,
+`Spot_Dorfladen`, `Spot_Huegeldorf`, `CP_Forest1`..`CP_Forest5`. Wheels raycast,
+so ground parts must have CanQuery on; keep slopes under ~35 degrees. Missions
+whose spots are missing simply aren't offered.
 
 **Bike meshes (optional - placeholders work)** - import your own and drop a
 Model named after each vehicle id into `ReplicatedStorage/VehicleModels`.
@@ -262,10 +258,11 @@ into `SoundIds.lua`: `engineLoop` (looping; pitch follows rpm), `kick`, `crank`,
 `startUp`, `sputter`, `stall`, `click`, `crash`, `refuel`, `repair`, `coin`.
 Empty = silent, nothing breaks. Per-bike overrides via `perBike`.
 
-**Animations (optional)** - pushing and riding use the default character
-poses. For polish, publish your own animations: hands-on-bars push, kick-lever
-stomp, sitting riding pose. Hook them in `VehicleService.startPush` /
-`BikeClient`.
+**Animations (optional)** - pushing, riding and kicking use simple procedural
+poses (arms out to the bars, a leg stomp on the kick lever), set by changing
+R15 shoulder/hip joints in `VehicleService` so every player sees them. They
+need no asset ids. For polish, publish your own animations and play them
+instead (R6 characters get no pose).
 
 **Tuning** - expect to adjust `GameConfig.Physics` (spring, grip), the per-bike
 `powerband`, `geometry.maxLeanDeg`, and `Crash.MinSpeedLoss` after a real
