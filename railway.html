@@ -131,22 +131,45 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
 #palette .tile canvas{width:72px;height:72px;display:block;background:#4d7a3b;border-radius:3px}
 #palette .tile:hover{border-color:#7a8aa0}
 #palette .tile.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;color:#fff}
-#ctrl{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:6;display:none;width:min(470px,calc(100% - 20px));
-  background:#2a2218;border:2px solid #b89b5e;border-radius:10px;padding:8px 10px 10px;box-shadow:0 6px 22px #000a;
-  font-family:Georgia,"Palatino Linotype",serif;color:#efe6d2}
-#ctrl .ch{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-size:13px}
-#ctrl .ch b{font:700 14px Rockwell,"Roboto Slab","Courier New",Georgia,serif;letter-spacing:.06em;text-transform:uppercase}
-#ctrl .ch i{color:#b8ab8c;font-size:12px;flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#ctrl .ch button{padding:0 7px}
-#ctrl .cb{display:flex;gap:8px;align-items:center;justify-content:center}
-#ctrl canvas{width:132px;height:132px;flex:none;touch-action:none}
-#cKnob{cursor:grab}
-#ctrl .cs{display:flex;flex-direction:column;gap:5px;min-width:86px}
-#ctrl .cs button{font:700 12px/1 Rockwell,"Courier New",Georgia,serif;letter-spacing:.1em;padding:9px 6px;border-radius:3px;background:#3b3022;border:1px solid #b89b5e;color:#efe6d2;touch-action:none}
-#ctrl .cs button:hover{background:#efe6d2;color:#2a2218}
-#ctrl .cs #cStop{background:#a3261f;border-color:#e06a5f;color:#fff}
-#ctrl .thr{text-align:center;font:12px "Courier New",monospace;color:#b8ab8c;margin-top:-2px}
-@media(max-width:760px){#ctrl{bottom:calc(44% + 14px);padding:6px}#ctrl canvas{width:104px;height:104px}#ctrl .cs{min-width:74px}}
+#ctrl{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:6;display:none;width:min(540px,calc(100% - 16px));
+  background:repeating-linear-gradient(0deg,#ffffff06 0 1px,transparent 1px 3px),linear-gradient(#444840,#32362f);border:3px solid #17181a;border-radius:12px;padding:9px 12px 12px;
+  box-shadow:0 8px 26px #000b,inset 0 1px 0 #ffffff28,inset 0 -3px 6px #0007;color:#ddd6c4;font-family:"Gill Sans","Trebuchet MS",sans-serif;user-select:none}
+#ctrl::before,#ctrl::after{content:"";position:absolute;top:8px;width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#c9c9c9,#555 60%,#222);box-shadow:inset 0 0 0 1px #0007}
+#ctrl::before{left:8px}#ctrl::after{right:8px}
+#ctrl .plate{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 20px 9px;padding:3px 10px;background:linear-gradient(#d2d5d7,#9da1a4);border:1px solid #2c2d2f;border-radius:3px;color:#1c1d1f;font:700 10px "Courier New",monospace;letter-spacing:.14em}
+#ctrl .plate b{font:700 13px Rockwell,"Roboto Slab","Courier New",serif;letter-spacing:.2em}
+#ctrl .plate button{background:transparent;border:0;color:#222;padding:0 4px;font-size:16px;border-radius:0;cursor:pointer}
+#ctrl .body{display:flex;gap:12px;align-items:flex-end;justify-content:center}
+#ctrl .col{display:flex;flex-direction:column;align-items:center;gap:3px}
+#ctrl .col label,#ctrl .sw label{font:700 10px "Courier New",monospace;letter-spacing:.18em;color:#cfc8b4}
+#ctrl canvas{display:block;touch-action:none}
+#cGauge{width:158px;height:118px}
+#cKnob{width:142px;height:142px;cursor:grab}
+#cBrakeKnob{width:100px;height:100px;cursor:grab}
+#ctrl .lcd{margin-top:2px;min-width:132px;text-align:center;font:700 15px "Courier New",monospace;color:#b9ff9a;background:#0c1a0c;border:2px inset #222;padding:2px 6px;letter-spacing:.08em;text-shadow:0 0 6px #6dff4a88}
+#ctrl .strip{display:flex;gap:14px;align-items:flex-end;justify-content:center;margin-top:10px;padding-top:9px;border-top:1px solid #0007;flex-wrap:wrap}
+#ctrl .sw{display:flex;flex-direction:column;align-items:center;gap:4px}
+#ctrl .row2{display:flex;gap:8px;align-items:center}
+#ctrl .rocker{width:48px;height:25px;background:#0e0e0e;border:2px solid #7d7d7d;border-radius:4px;position:relative;cursor:pointer}
+#ctrl .rocker::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:17px;background:linear-gradient(#e6e6e6,#8d8d8d);border-radius:2px;transition:left .12s}
+#ctrl .rocker.on::after{left:23px}
+#ctrl .led{width:12px;height:12px;border-radius:50%;background:#2a2a2a;box-shadow:inset 0 0 3px #000}
+#ctrl .led.g{background:#3cff6b;box-shadow:0 0 8px #3cff6b}
+#ctrl .led.r{background:#ff3b30;box-shadow:0 0 9px #ff3b30;animation:ledb .45s infinite alternate}
+@keyframes ledb{to{opacity:.35}}
+#ctrl .slide{position:relative;width:140px;height:28px;background:#0d0d0d;border:2px solid #7d7d7d;border-radius:4px;display:flex;cursor:pointer}
+#ctrl .slide span{flex:1;text-align:center;font:700 10px/24px "Courier New",monospace;color:#85806f;letter-spacing:.1em}
+#ctrl .slide b{position:absolute;top:2px;left:2px;width:42px;height:20px;background:linear-gradient(#ececec,#8a8a8a);border-radius:2px;box-shadow:0 1px 2px #000;transition:left .12s}
+#ctrl .slide.rev b{left:2px}#ctrl .slide.off b{left:46px}#ctrl .slide.fwd b{left:90px}
+#ctrl .push{font:700 11px "Courier New",monospace;letter-spacing:.14em;padding:10px 12px;background:linear-gradient(#2a2a2a,#111);border:2px solid #777;border-radius:4px;color:#ddd;cursor:pointer;touch-action:none}
+#ctrl .push:active{transform:translateY(1px);background:#000}
+#ctrl .push:disabled{opacity:.4}
+#ctrl .mush{width:56px;height:56px;border-radius:50%;border:4px solid #1b1b1b;background:radial-gradient(circle at 38% 30%,#ff7a6a,#c2231a 55%,#7d120d);color:#fff;font:700 10px "Courier New",monospace;letter-spacing:.1em;box-shadow:0 3px 0 #4a0b08,0 5px 8px #000a;cursor:pointer;padding:0;touch-action:none}
+#ctrl .mush:active{transform:translateY(3px);box-shadow:0 0 0 #4a0b08}
+#ctrl .mush:disabled{opacity:.4}
+#ctrl .rep{background:#a3261f;border-color:#ff8a7a;color:#fff;animation:ledb .6s infinite alternate}
+#ctrl .state{margin-top:7px;text-align:center;font:italic 12px Georgia,serif;color:#b8ab8c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:760px){#ctrl{bottom:calc(44% + 12px);transform:translateX(-50%) scale(.78);transform-origin:bottom center;width:560px}}
 </style>
 </head>
 <body>
@@ -164,6 +187,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
       <button data-tool="station">Station<kbd>N</kbd></button>
       <button data-tool="glue">Glue<kbd>G</kbd></button>
       <button data-tool="scenery">Scenery<kbd>Y</kbd></button>
+      <button data-tool="repair">Repair<kbd>W</kbd></button>
       <button data-tool="train">Train<kbd>A</kbd></button>
       <button data-tool="delete" class="danger">Delete<kbd>D</kbd></button>
     </div>
@@ -190,19 +214,21 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
     <div id="palette"></div>
     <div id="panel"></div>
     <div id="ctrl">
-      <div class="ch"><b id="cName"></b><i id="cState"></i><button id="cClose" title="Close controller">×</button></div>
-      <div class="cb">
-        <canvas id="cGauge" width="264" height="264"></canvas>
-        <canvas id="cKnob" width="264" height="264" title="Drag to set throttle"></canvas>
-        <div class="cs">
-          <button id="cDir">FWD</button>
-          <button id="cBrake" title="Hold to brake">BRAKE</button>
-          <button id="cHorn">HORN</button>
-          <button id="cStop">E-STOP</button>
-          <button id="cMode">MANUAL</button>
-        </div>
+      <div class="plate"><b id="cName">TRAIN</b><span>TRACK CONTROLLER · 12V DC</span><button id="cClose" title="Close controller">×</button></div>
+      <div class="body">
+        <div class="col"><canvas id="cGauge" width="316" height="236"></canvas><div class="lcd" id="cSpd">0 km/h</div></div>
+        <div class="col"><canvas id="cKnob" width="284" height="284" title="Drag to set speed"></canvas><label>SPEED</label></div>
+        <div class="col"><canvas id="cBrakeKnob" width="200" height="200" title="Drag to apply the brake"></canvas><label>BRAKE</label></div>
       </div>
-      <div class="thr">THROTTLE <span id="cThr">0%</span></div>
+      <div class="strip">
+        <div class="sw"><label>TRACK POWER</label><div class="row2"><div class="rocker on" id="cPower"></div><i class="led" id="cLed"></i></div></div>
+        <div class="sw"><label>DIRECTION</label><div class="slide fwd" id="cDirSw"><span>REV</span><span>OFF</span><span>FWD</span><b></b></div></div>
+        <button class="push" id="cHorn">HORN</button>
+        <button class="push" id="cMode">MANUAL</button>
+        <button class="push rep" id="cRepair" style="display:none">REPAIR</button>
+        <button class="mush" id="cStop">E-STOP</button>
+      </div>
+      <div class="state" id="cState"></div>
     </div>
     <div id="toast"></div>
     <div id="help"><div class="box" id="helpBox"></div></div>
@@ -211,6 +237,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
     <span id="sClock">08:00:00</span>
     <span id="sSim"></span>
     <span class="grow" id="sHint"></span>
+    <span id="dmgChip" style="color:#ff7a6a;cursor:pointer" title="Jump to the wreck and open the Repair tool"></span>
     <span id="looseChip" style="color:var(--acc);cursor:pointer" title="Glue all loose track"></span>
     <span id="warnChip" title="Click to jump to first open end"></span>
     <button id="bPanel" style="padding:1px 8px">Panel</button><span id="sZoom"></span>
@@ -261,7 +288,7 @@ const sim={            // UI / simulation flags
 };
 const W={               // the world / layout
   pieces:[],byId:new Map(),nextId:1,signals:[],joints:[],jointSet:new Set(),stations:[],trains:[],
-  blocks:[],nodeMap:new Map(),warn:[],crashes:[],clock:8*3600,ver:0,nextTrain:1,nextSt:1,nextSig:1,sep:new Set(),items:[],nextItem:1
+  blocks:[],nodeMap:new Map(),warn:[],crashes:[],clock:8*3600,ver:0,nextTrain:1,nextSt:1,nextSig:1,sep:new Set(),items:[],nextItem:1,repairs:[],dirtyLinks:false
 };
 let _pathUid=0;
 let menuOpen=false;   // main menu overlay visible
@@ -301,7 +328,7 @@ function xform(x,y,d,rot,mir){
 
 function makePiece(id,type,rot,mir,ox,oy,state){
   const T=TPL[type];
-  const p={id,type,rot,mir,x:ox,y:oy,glued:true,state:state||0,blade:state||0,turnout:!!T.turnout,
+  const p={id,type,rot,mir,x:ox,y:oy,glued:true,damaged:false,state:state||0,blade:state||0,turnout:!!T.turnout,
            ends:[],paths:[],block:null,occN:0,minx:1e9,miny:1e9,maxx:-1e9,maxy:-1e9};
   T.ends.forEach(([x,y,d],i)=>{
     const r=xform(x,y,d,rot,mir);
@@ -417,8 +444,10 @@ function rebuild(fast){
   // GLUE / NAILS: elink = geometric connection (used by the editor for snapping);
   // link = "nailed" connection, only between two glued pieces. The simulation sees
   // only nailed links, so loose track is not part of the working railway yet.
-  for(const p of W.pieces)for(const e of p.ends)if(e.elink&&p.glued&&e.elink.piece.glued)e.link=e.elink;
+  for(const p of W.pieces)for(const e of p.ends)if(e.elink&&p.glued&&e.elink.piece.glued&&!p.damaged&&!e.elink.piece.damaged)e.link=e.elink;
   W.loose=W.pieces.reduce((n,p)=>n+(p.glued?0:1),0);
+  // DAMAGE: a damaged piece (scene of a crash) has no nailed links until repaired, so trains cannot use it
+  W.damaged=W.pieces.reduce((n,p)=>n+(p.damaged?1:0),0);
   for(const p of W.pieces)for(const e of p.ends)if(e.elink)e.buffer=false;
   W.signals=W.signals.filter(s=>{
     const p=W.byId.get(s.pid);if(!p)return false;
@@ -585,20 +614,21 @@ function serialize(){
   for(const p of W.pieces)for(const e of p.ends)if(e.buffer)buffers.push({p:p.id,e:e.idx});
   return{
     v:1,app:'railsim',
-    pieces:W.pieces.map(p=>({id:p.id,t:p.type,r:p.rot,m:p.mir,x:p.x,y:p.y,s:p.state,g:p.glued?1:0})),
+    pieces:W.pieces.map(p=>({id:p.id,t:p.type,r:p.rot,m:p.mir,x:p.x,y:p.y,s:p.state,g:p.glued?1:0,d:p.damaged?1:0})),
     signals:W.signals.map(s=>({p:s.pid,e:s.e,h:s.hold?1:0})),
     joints:W.joints.slice(),buffers,
     stations:W.stations.map(s=>({id:s.id,n:s.name,p:s.pid,i:s.pi,s:+s.s.toFixed(3),side:s.side})),
     trains:W.trains.map(serTrain),
     items:W.items.map(i=>({k:i.k,x:i.x,y:i.y,r:i.rot,v:i.v})),
+    crashes:W.crashes.map(c=>({x:+c.x.toFixed(2),y:+c.y.toFixed(2),t:c.tids||[]})),
     clock:W.clock,cam:{x:cam.x,y:cam.y,z:cam.z}
   };
 }
 function deserialize(o,keepCam){
   if(!o||o.app!=='railsim'||!Array.isArray(o.pieces))throw new Error('Not a railway layout file');
-  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();W.items=[];
+  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();W.items=[];W.repairs=[];W.dirtyLinks=false;
   W.nextId=1;W.nextSig=1;W.nextSt=1;W.nextTrain=1;
-  for(const q of o.pieces){if(!TPL[q.t])continue;addPiece(q.t,q.r|0,q.m|0,q.x|0,q.y|0,q.s|0,q.id,q.g!==0);}
+  for(const q of o.pieces){if(!TPL[q.t])continue;addPiece(q.t,q.r|0,q.m|0,q.x|0,q.y|0,q.s|0,q.id,q.g!==0).damaged=!!q.d;}
   for(const s of o.signals||[])W.signals.push({id:W.nextSig++,pid:s.p,e:s.e,hold:!!s.h,lamp:0});
   W.joints=(o.joints||[]).slice();
   rebuild();   // links must exist before buffers are validated
@@ -609,6 +639,7 @@ function deserialize(o,keepCam){
   }
   rebuild();
   for(const t of o.trains||[]){const tr=deserTrain(t);if(tr)W.trains.push(tr);}
+  W.crashes=(o.crashes||[]).map(c=>({x:c.x,y:c.y,age:0,tids:c.t||[]}));
   W.items=(o.items||[]).filter(i=>ITEMS[i.k]).map(i=>({id:W.nextItem++,k:i.k,x:i.x,y:i.y,rot:i.r||0,v:i.v|0}));
   W.clock=o.clock||8*3600;
   if(!keepCam&&o.cam){cam.x=o.cam.x;cam.y=o.cam.y;cam.z=o.cam.z;}
@@ -638,7 +669,7 @@ function resetSim(){
   if(JSON.stringify(cur.pieces.map(p=>[p.id,p.t,p.r,p.m,p.x,p.y]))!==JSON.stringify(base.pieces.map(p=>[p.id,p.t,p.r,p.m,p.x,p.y]))){
     // Track was edited after the run began: keep the new track, restore trains that still fit.
     const ids=new Set(cur.pieces.map(p=>p.id));
-    base.pieces=cur.pieces;base.signals=cur.signals;base.joints=cur.joints;base.buffers=cur.buffers;base.stations=cur.stations;base.items=cur.items;
+    base.pieces=cur.pieces;base.signals=cur.signals;base.joints=cur.joints;base.buffers=cur.buffers;base.stations=cur.stations;base.items=cur.items;base.crashes=[];
     base.trains=base.trains.filter(t=>t.trail.every(e=>ids.has(e.p)));
   }
   deserialize(base,true);sim.started=false;ui.refresh();toast('Reset to start of run');
@@ -687,7 +718,7 @@ function newTrain(spec){
   for(const k of['coach','boxcar','tank','hopper'])for(let i=0;i<(spec[k]|0);i++)cars.push(newCar(k,liv));
   if(!cars.length)cars.push(newCar('coach'));
   const t={id:0,name:'',cars,trail:[],v:0,throttle:0,brake:0,estop:false,mode:spec.mode||'manual',atp:true,
-    crashed:false,rev:false,tt:{stops:[],idx:0,state:'run',timer:0},plan:{},stopDist:Infinity,hz:'',follow:false,
+    crashed:false,power:true,neutral:false,rev:false,tt:{stops:[],idx:0,state:'run',timer:0},plan:{},stopDist:Infinity,hz:'',follow:false,
     state:'Stopped',wait:0,poses:[],pts:[],bb:[0,0,0,0],_obs:null,spad:false,atpActive:true};
   calcTrain(t);return t;
 }
@@ -973,7 +1004,54 @@ function exchangeLoads(t,st){
 function crashTrain(t,msg,x,y){
   if(t.crashed)return;
   t.crashed=true;t.v=0;t.throttle=0;t.estop=false;t.mode='manual';
-  W.crashes.push({x,y,age:0});toast(msg);if(typeof sndCrash==='function')sndCrash();
+  addCrash(x,y,[t]);toast(msg);if(typeof sndCrash==='function')sndCrash();
+}
+/* ---- WRECKS & REPAIRS --------------------------------------------------
+   A crash leaves the trains derailed (they block their block and the track)
+   and scorches the piece(s) under the impact; a scorched piece is cut out of
+   the railway until repaired.  Repair is a timed job (Repair tool, or the
+   button in the panel / controller).                                       */
+function damageAt(x,y){
+  const h=pickPath(x,y,0.9);
+  if(h&&!h.path.piece.damaged){h.path.piece.damaged=true;W.dirtyLinks=true;}
+}
+function addCrash(x,y,ts){
+  W.crashes.push({x,y,age:0,tids:ts.map(t=>t.id)});
+  for(const t of ts){const p=t.poses[0];if(p)damageAt(p.x,p.y);}
+  damageAt(x,y);
+}
+const REPAIR_TIME={train:8,piece:5};
+function startRepair(kind,ref){
+  if(W.repairs.some(r=>r.ref===ref))return;
+  W.repairs.push({kind,ref,t:0,dur:REPAIR_TIME[kind]});
+  toast('Repair crew working on '+(kind==='train'?ref.name:'the track')+'…');
+}
+function updateRepairs(dt){
+  for(let i=W.repairs.length-1;i>=0;i--){
+    const r=W.repairs[i];
+    if((r.kind==='train'&&!W.trains.includes(r.ref))||(r.kind==='piece'&&!W.pieces.includes(r.ref))){W.repairs.splice(i,1);continue;}
+    r.t+=dt;
+    if(r.t>=r.dur){W.repairs.splice(i,1);if(r.kind==='train')finishTrainRepair(r.ref);else{r.ref.damaged=false;W.dirtyLinks=true;toast('Track repaired');}}
+  }
+}
+// Pull the whole train back along its own route by d cells (used to clear a wreck it overlaps).
+function retreatTrain(t,d){
+  const backup=cloneTrail(t.trail);let rem=d;
+  while(rem>1e-9){
+    const e=t.trail[0],len=Math.abs(e.b-e.a);
+    if(len>rem+1e-9){e.b-=e.dir*rem;rem=0;}
+    else if(t.trail.length===1){t.trail=backup;return false;}
+    else{rem-=len;t.trail.shift();}
+  }
+  if(!extendTail(t,d)){t.trail=backup;return false;}
+  mergeAdjacent(t.trail);updateGeometry(t);return true;
+}
+function finishTrainRepair(t){
+  t.crashed=false;t.v=0;t.throttle=0;t.brake=1;t.estop=false;t.state='Stopped';t.mode='manual';
+  const touching=()=>W.trains.filter(o=>o!==t&&bbOverlap(t,o,0.3)&&minDist(t,o)<0.4);
+  for(const o of touching())W.sep.add(t.id<o.id?t.id+':'+o.id:o.id+':'+t.id);
+  for(let i=0;i<60&&touching().length;i++)if(!retreatTrain(t,0.1))break;
+  toast(t.name+' is re-railed – release the brake and drive on');ui.dirty=true;
 }
 
 /* Per-train control step: decides acceleration from the driver/autopilot
@@ -1008,16 +1086,18 @@ function stepTrain(t,dt){
   let a=0;
   if(t.estop){a=-bd*2.2;if(t.v<=0.01)t.estop=false;}
   else{
-    let vt=vCmd,lim=Infinity;
+    const cut=!auto&&(t.neutral||t.power===false);      // direction switch OFF / track power off: coast
+    const vWant=cut?Infinity:vCmd;
+    let vt=vWant,lim=Infinity;
     if(protect&&t.stopDist<Infinity){lim=Math.sqrt(2*bd*0.85*Math.max(0,t.stopDist));vt=Math.min(vt,lim*0.98);}
     const cap=protect?t.speedCap:Infinity;vt=Math.min(vt,cap);
     if(!auto&&t.brake>0)a=-t.brake*bd;                    // driver's brake lever
-    else if(t.v<vt-0.005)a=Math.min(t.accel,(vt-t.v)*3+0.04);
+    else if(t.v<vt-0.005)a=cut?-(0.05+0.02*t.v):Math.min(t.accel,(vt-t.v)*3+0.04);
     else if(t.v>vt+0.005){
-      if(lim*0.98<Math.min(vCmd,cap)){                                         // safety-limited: brake to stop at the hazard
+      if(lim*0.98<Math.min(vWant,cap)){                                         // safety-limited: brake to stop at the hazard
         const need=t.stopDist>0.02?t.v*t.v/(2*t.stopDist):bd*1.3;
         a=-Math.min(bd*1.3,Math.max(need*1.05,bd*0.3));
-      }else a=-bd*(cap<vCmd?0.7:0.35);                       // speed limit ahead / driver backed off
+      }else a=-bd*(cap<vWant?0.7:0.35);                       // speed limit ahead / driver backed off
     }
   }
   t.v=clamp(t.v+a*dt,0,t.vmax*1.02+0.01);
@@ -1028,6 +1108,10 @@ function stepTrain(t,dt){
     if(dx>room){dx=room;t.v=Math.min(t.v,dx/dt);}
   }
   if(dx>0)advanceHead(t,dx);
+  if(!protect&&t.v>0){                               // DERAILMENT: too fast through a curve / diverging route
+    const pa=t.trail[0].path;
+    if(pa.vmax<1e9&&t.v>pa.vmax*1.45){const p=posAtDist(t,0,{x:0,y:0,a:0});crashTrain(t,t.name+' derailed – too fast for the curve!',p.x,p.y);return;}
+  }
   if(t.hitEnd){
     if(t.v>1.4){const p=posAtDist(t,0,{x:0,y:0,a:0});crashTrain(t,t.name+' ran off the end of the track!',p.x,p.y);}
     t.v=0;
@@ -1062,7 +1146,7 @@ function checkCollisions(){
       const x=(pa.x+pb.x)/2,y=(pa.y+pb.y)/2;
       if(!a.crashed||!b.crashed)toast('CRASH: '+a.name+' and '+b.name+' collided!');
       for(const t of[a,b]){t.crashed=true;t.v=0;t.throttle=0;t.estop=false;t.mode='manual';}
-      W.crashes.push({x,y,age:0});if(typeof sndCrash==='function')sndCrash();
+      addCrash(x,y,[a,b]);if(typeof sndCrash==='function')sndCrash();
     }
   }
 }
@@ -1146,7 +1230,7 @@ function trainFits(t){
   return null;
 }
 function serTrain(t){
-  return{id:t.id,n:t.name,mode:t.mode,atp:t.atp?1:0,thr:t.throttle,v:+t.v.toFixed(3),rev:t.rev?1:0,
+  return{id:t.id,n:t.name,mode:t.mode,atp:t.atp?1:0,cr:t.crashed?1:0,pw:t.power===false?0:1,ne:t.neutral?1:0,thr:t.throttle,v:+t.v.toFixed(3),rev:t.rev?1:0,
     cars:t.cars.map(c=>({k:c.k,f:c.face,l:c.load,c:c.col||undefined})),
     trail:t.trail.map(e=>({p:e.path.piece.id,i:e.path.idx,d:e.dir,a:+e.a.toFixed(4),b:+e.b.toFixed(4)})),
     tt:{idx:t.tt.idx,stops:t.tt.stops.map(s=>({st:s.st,dwell:s.dwell,dep:s.depart}))}};
@@ -1162,7 +1246,7 @@ function deserTrain(o){
   t.cars=o.cars.filter(c=>CARS[c.k]).map(c=>({k:c.k,face:c.f||1,load:c.l|0,col:c.c||null}));
   if(!t.cars.length)return null;
   t.id=o.id;W.nextTrain=Math.max(W.nextTrain,o.id+1);t.name=o.n||('Train '+o.id);
-  t.mode=o.mode||'manual';t.atp=o.atp!==0;t.throttle=o.thr||0;t.v=o.v||0;t.rev=!!o.rev;
+  t.mode=o.mode||'manual';t.atp=o.atp!==0;t.crashed=!!o.cr;t.power=o.pw!==0;t.neutral=!!o.ne;t.throttle=o.thr||0;t.v=o.v||0;t.rev=!!o.rev;
   t.trail=trail;
   t.tt={idx:(o.tt&&o.tt.idx)||0,state:'run',timer:0,stops:((o.tt&&o.tt.stops)||[]).map(s=>({st:s.st,dwell:s.dwell,depart:s.dep==null?null:s.dep}))};
   calcTrain(t);trimTail(t);updateGeometry(t);return t;
@@ -1180,6 +1264,8 @@ function simStep(dt){
   computeOccupancy();
   checkCoupling();
   checkCollisions();
+  updateRepairs(dt);
+  if(W.dirtyLinks){W.dirtyLinks=false;rebuild();computeOccupancy();}
   for(const s of W.signals){s.red=sigRed(s,null)||s.redResv;s.redResv=false;}
   for(const c of W.crashes)c.age+=dt;
   for(const st of W.stations)st.wait=Math.min(60,st.wait+dt*0.35*(0.5+Math.random()));   // passengers arrive
@@ -1237,7 +1323,7 @@ function addPathGeom(pa,bal,sl,rl){
 function buildStatic(){
   const bal=new Path2D(),sl=new Path2D(),rl=new Path2D();
   for(const p of W.pieces){
-    if(p.turnout||!p.glued){  // turnouts / loose pieces keep per-path geometry (route colours, loose styling)
+    if(p.turnout||!p.glued||p.damaged){  // turnouts / loose pieces keep per-path geometry (route colours, loose styling)
       p.geo=p.paths.map(pa=>{const b=new Path2D(),s=new Path2D(),r=new Path2D();addPathGeom(pa,b,s,r);return{b,s,r};});
     }else{p.geo=null;for(const pa of p.paths)addPathGeom(pa,bal,sl,rl);}
   }
@@ -1316,7 +1402,17 @@ function render(tms){
     const pa=p.paths[0];posAt(pa,pa.len/2,_o);
     ctx.fillStyle='#ffb52e';ctx.beginPath();ctx.arc(_o.x,_o.y,0.05,0,7);ctx.fill();
   }
-  for(const p of W.pieces)if(p.turnout&&p.geo&&p.glued){
+  for(const p of W.pieces)if(p.damaged&&p.geo){          // DAMAGED track: scorched ballast, broken rails
+    for(const g of p.geo){
+      ctx.lineWidth=0.46;ctx.strokeStyle='#2a1c14';ctx.stroke(g.b);
+      ctx.setLineDash([0.14,0.1]);ctx.lineWidth=rw+0.02;ctx.strokeStyle='#8f3a2b';ctx.stroke(g.r);ctx.setLineDash([]);
+    }
+    const pa=p.paths[0];posAt(pa,pa.len/2,_o);
+    const gr=ctx.createRadialGradient(_o.x,_o.y,0,_o.x,_o.y,0.55);gr.addColorStop(0,'rgba(0,0,0,.55)');gr.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(_o.x,_o.y,0.55,0,7);ctx.fill();
+    ctx.strokeStyle='#ff6a3a';ctx.lineWidth=0.04;ctx.beginPath();ctx.moveTo(_o.x-0.12,_o.y-0.12);ctx.lineTo(_o.x+0.12,_o.y+0.12);ctx.moveTo(_o.x+0.12,_o.y-0.12);ctx.lineTo(_o.x-0.12,_o.y+0.12);ctx.stroke();
+  }
+  for(const p of W.pieces)if(p.turnout&&p.geo&&p.glued&&!p.damaged){
     for(let i=0;i<2;i++){
       const act=p.state===i,g=p.geo[i];
       ctx.lineWidth=rw+0.02;ctx.strokeStyle=act?C.activeDark:C.railDark;ctx.stroke(g.r);
@@ -1402,6 +1498,13 @@ function render(tms){
   drawNight();
   // crash markers
   for(const c of W.crashes)drawCrash(c,T);
+  for(const r of W.repairs){                       // repair-crew progress bars
+    let x,y;
+    if(r.kind==='train'){const p=r.ref.poses[0];if(!p)continue;x=p.x;y=p.y;}else{const pa=r.ref.paths[0];posAt(pa,pa.len/2,_o);x=_o.x;y=_o.y;}
+    const k=clamp(r.t/r.dur,0,1);
+    ctx.fillStyle='#000b';ctx.fillRect(x-0.62,y-0.78,1.24,0.16);ctx.fillStyle='#3ddc84';ctx.fillRect(x-0.58,y-0.74,1.16*k,0.08);
+    label('Repairing '+Math.round(k*100)+'%',x,y-1.0,11,'#fff','#000a');
+  }
 }
 
 function drawBlades(p,rw){
@@ -1438,7 +1541,7 @@ function roundRect(x,y,w,h,r){
   ctx.beginPath();
   if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h);
 }
-function drawCar(c,pose,len,moving,tint){
+function drawCar(c,pose,len,moving,tint,wreck){
   const d=CARS[c.k],hl=len/2*0.95,w=0.15,col=c.col||d.color;
   ctx.save();ctx.translate(pose.x,pose.y);ctx.rotate(pose.a);
   if(c.face<0)ctx.scale(-1,1);
@@ -1495,13 +1598,21 @@ function drawCar(c,pose,len,moving,tint){
     ctx.strokeStyle=d.color2;ctx.lineWidth=0.025;
     for(let i=-2;i<=2;i++){ctx.beginPath();ctx.moveTo(i*hl*0.3,-w);ctx.lineTo(i*hl*0.3,w);ctx.stroke();}
   }
+  if(wreck){ctx.fillStyle='rgba(25,12,6,.42)';roundRect(-hl,-w,hl*2,w*2,0.05);ctx.fill();}   // soot
   if(tint){ctx.strokeStyle=tint;ctx.lineWidth=0.04;roundRect(-hl,-w,hl*2,w*2,0.05);ctx.stroke();}
   ctx.restore();
 }
 function drawTrain(t,alpha,selected,T,tint){
   ctx.globalAlpha=alpha;
   const moving=t.v>0.02;
-  for(let i=0;i<t.cars.length;i++)drawCar(t.cars[i],t.poses[i],CARS[t.cars[i].k].len,moving,tint||(t.crashed?'#ff3b30':selected?'#4ab3ff':null));
+  for(let i=0;i<t.cars.length;i++){
+    let p=t.poses[i];
+    if(t.crashed){                                // derailed: each car thrown off-line by a fixed random amount
+      const h=Math.sin((t.id*7.3+i*3.1)*12.9898)*43758.5453,f=h-Math.floor(h),h2=Math.sin((t.id*3.7+i*5.9)*78.233)*43758.5453,f2=h2-Math.floor(h2);
+      p={x:p.x-Math.sin(p.a)*(f-0.5)*0.34,y:p.y+Math.cos(p.a)*(f-0.5)*0.34,a:p.a+(f2-0.5)*0.8};
+    }
+    drawCar(t.cars[i],p,CARS[t.cars[i].k].len,moving,tint||(t.crashed?'#ff3b30':selected?'#4ab3ff':null),t.crashed);
+  }
   ctx.globalAlpha=1;
   if(t.crashed&&T!=null){                       // smoke
     const p=t.poses[0];
@@ -1882,6 +1993,12 @@ function updateHover(wx,wy){
         else{const err=trainFits(r.t);sim.ghost={type:'train',t:r.t,err};}
         hint=(sim.ghost.err||'Click to place the train (head at the arrow)')+'  •  R reverses facing';
       }else hint='Click on track to place the train';break;}
+    case'repair':{
+      const t=trainAt(wx,wy);
+      if(t&&t.crashed){sim.marks.push({x:t.poses[0].x,y:t.poses[0].y,r:0.6,col:'#ffb52e'});hint='Click to repair '+t.name+' (about '+REPAIR_TIME.train+' s)';break;}
+      const h=pickPath(wx,wy,0.45);
+      if(h&&h.path.piece.damaged){sim.markPiece=h.path.piece;sim.markCol='#ffb52e';hint='Click to repair this track (about '+REPAIR_TIME.piece+' s)';}
+      else hint='Click a wrecked train or scorched track to send the repair crew';break;}
     case'scenery':{
       const x=Math.round(wx*2)/2,y=Math.round(wy*2)/2,k=sim.item,ok=itemSpotOk(k,x,y);
       sim.itemGhost={k,x,y,rot:sim.irot,v:sim.iv,ok};
@@ -1970,6 +2087,12 @@ function onClick(wx,wy){
       else afterEdit();
       sim.sel={type:'train',id:t.id};ui.rebuildPanel=true;
       updateHover(wx,wy);return;}
+    case'repair':{
+      const t=trainAt(wx,wy);
+      if(t&&t.crashed){startRepair('train',t);return;}
+      const h=pickPath(wx,wy,0.45);
+      if(h&&h.path.piece.damaged){startRepair('piece',h.path.piece);return;}
+      toast('Nothing to repair here – look for wrecked trains or scorched track');return;}
     case'scenery':{
       const x=Math.round(wx*2)/2,y=Math.round(wy*2)/2,k=sim.item;
       if(!itemSpotOk(k,x,y)){toast('Too close to track or another item');return;}
@@ -2088,7 +2211,7 @@ cvs.addEventListener('wheel',e=>{
 },{passive:false});
 
 /* ---- keyboard ------------------------------------------------------ */
-const TOOLKEYS={v:'select',t:'track',u:'turnout',s:'signal',j:'joint',b:'buffer',n:'station',a:'train',d:'delete',g:'glue',y:'scenery'};
+const TOOLKEYS={v:'select',t:'track',u:'turnout',s:'signal',j:'joint',b:'buffer',n:'station',a:'train',d:'delete',g:'glue',y:'scenery',w:'repair'};
 let brakeHeld=null;
 function selTrain(){return sim.sel&&sim.sel.type==='train'?W.trains.find(t=>t.id===sim.sel.id)||null:null;}
 function setThrottle(t,v){t.throttle=clamp(v,0,1);if(t.mode!=='manual')t.mode='manual';ui.dirty=true;}
@@ -2261,7 +2384,7 @@ const ui={
     ui.syncTools();
     ui.buildPalette();
     $('sHint').textContent={select:'Click trains, turnouts and signals. Drag to pan, wheel/pinch to zoom.',
-      track:'Click to place loose track, or drag (Straight/Diagonal) to lay a run. Glue it when done.',glue:'Click loose track to glue it down.',scenery:'Pick a model item, then click to place it beside the track.',turnout:'Hover near a track end to snap a turnout.',
+      track:'Click to place loose track, or drag (Straight/Diagonal) to lay a run. Glue it when done.',glue:'Click loose track to glue it down.',repair:'Click a wrecked train or scorched track to repair it.',scenery:'Pick a model item, then click to place it beside the track.',turnout:'Hover near a track end to snap a turnout.',
       signal:'Click track near a joint to place/remove a signal.',joint:'Click a joint to insert an insulated rail joint.',
       buffer:'Click an open end to add/remove a buffer stop.',station:'Click on track to place a station.',
       train:'Choose a consist, then click on track to place it.',delete:'Click an object to delete it.'}[t];
@@ -2342,6 +2465,8 @@ const ui={
     $('sClock').textContent=fmtClock(W.clock);
     $('sSim').textContent=W.trains.length+' trains · '+W.blocks.length+' blocks · '+W.signals.length+' signals';
     const lc=$('looseChip');lc.textContent=W.loose?'◌ '+W.loose+' loose piece'+(W.loose>1?'s':'')+' – click to glue':'';
+    const wrecks=W.trains.filter(x=>x.crashed).length,dc=$('dmgChip');
+    dc.textContent=(wrecks||W.damaged)?'✖ '+wrecks+' wreck'+(wrecks===1?'':'s')+' · '+(W.damaged|0)+' damaged – Repair (W)':'';
     const wc=$('warnChip');wc.textContent=W.warn.length?'⚠ '+W.warn.length+' open end'+(W.warn.length>1?'s':'')+' (click to find)':'';
     $('sZoom').textContent=Math.round(cam.z/40*100)+'%';
     if(ui.rebuildPanel||(ui.dirty&&!(document.activeElement&&$('panel').contains(document.activeElement)&&/INPUT|SELECT/.test(document.activeElement.tagName)))){
@@ -2384,8 +2509,9 @@ function trainPanelHTML(t){
         '<div class="btnrow"><button data-act="ttadd">+ Add stop</button></div><div style="color:var(--dim)">The train routes itself through turnouts, stops for the dwell time, and waits for the departure clock time if set. Clock: <span id="ttClock"></span></div>';
     }
   }
+  const wreck=t.crashed?'<div class="btnrow"><button class="on" data-act="repair">Repair train ('+REPAIR_TIME.train+' s)</button></div><p style="color:var(--warn);margin:2px 0">Wrecked – it is blocking the line and the track under it is scorched. Repair both (Repair tool, W).</p>':'';
   return'<h3><input type="text" id="pName" value="'+esc(t.name)+'" style="width:72%"> <button data-act="close">×</button></h3>'+
-    '<div><span class="pill" id="pState"></span></div>'+
+    '<div><span class="pill" id="pState"></span></div>'+wreck+
     '<div class="bar"><i id="pSpdBar"></i><b id="pMax"></b></div>'+
     '<div class="kv"><span>Speed</span><span id="pSpd"></span><span>Direction</span><span id="pDir"></span>'+
     '<span>Braking dist.</span><span id="pBd"></span><span>Block(s)</span><span id="pBlk"></span><span>Ahead</span><span id="pAhead"></span>'+
@@ -2470,6 +2596,7 @@ panelEl.addEventListener('click',e=>{
   }
   if(!t)return;
   switch(act){
+    case'repair':startRepair('train',t);break;
     case'rev':reverseTrain(t);break;
     case'estop':emergencyStop(t);break;
     case'add':addCarTo(t,b.dataset.k);afterEdit();break;
@@ -2559,12 +2686,17 @@ $('bPanel').addEventListener('click',()=>{
   if(p.classList.contains('hidden')){ui.showSummary=true;p.classList.remove('hidden');ui.rebuildPanel=true;}
   else{ui.showSummary=false;sim.sel=null;p.classList.add('hidden');}
 });
+$('dmgChip').addEventListener('click',()=>{
+  const t=W.trains.find(x=>x.crashed),p=W.pieces.find(x=>x.damaged);
+  if(t&&t.poses[0]){cam.x=t.poses[0].x;cam.y=t.poses[0].y;}else if(p){cam.x=(p.minx+p.maxx)/2;cam.y=(p.miny+p.maxy)/2;}
+  ui.setTool('repair');
+});
 $('warnChip').addEventListener('click',()=>{if(W.warn.length){cam.x=W.warn[0].x;cam.y=W.warn[0].y;}});
 
 function buildHelp(){
   const rows=(a)=>a.map(([k,d])=>'<tr><td>'+k+'</td><td>'+d+'</td></tr>').join('');
   $('helpBox').innerHTML='<h2>Controls</h2><div class="twocol"><div><h4>Tools</h4><table>'+rows([
-    ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['G','Glue / unglue track (hammer sound; ⇧G = glue all)'],['Y','Model items: trees, houses, factory, church…'],['S','Signals (red/green)'],['J','Insulated joints'],
+    ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['G','Glue / unglue track (hammer sound; ⇧G = glue all)'],['W','Repair wrecks and scorched track'],['Y','Model items: trees, houses, factory, church…'],['S','Signals (red/green)'],['J','Insulated joints'],
     ['B','Buffer stops'],['N','Stations'],['A','Add train'],['D','Delete'],['R / Shift+R','Rotate ghost (or flip train facing)'],['F','Flip / mirror ghost'],['Esc','Cancel / deselect']])+
     '</table><h4>View</h4><table>'+rows([['Click a train','Opens the hand controller (knob = throttle)'],['Drag','Pan (mouse, touch); with Track+Straight: lay a run'],['Drag a handle','Resize loose straight track'],['Right/middle drag','Always pans'],['Wheel / pinch','Zoom'],['+ / −','Zoom'],['Shift+arrows','Pan'],['L','Show blocks overlay'],['K','Night / day'],['M','Train sounds on / off (Shift+M mutes everything)'],['O','Horn (selected train)']])+
     '</table></div><div><h4>Driving the selected train</h4><table>'+rows([['↑ / ↓','Throttle +10% / −10%'],['Space (hold)','Brake'],['X','Emergency stop'],['C','Reverse direction (when stopped)'],
@@ -2576,7 +2708,7 @@ function buildHelp(){
    11. EXAMPLE LAYOUTS (built with a small "turtle" that lays connected track)
    ===================================================================== */
 function clearWorld(){
-  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();W.items=[];W.nextItem=1;
+  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();W.items=[];W.nextItem=1;W.repairs=[];
   W.nextId=1;W.nextSig=1;W.nextSt=1;W.nextTrain=1;W.clock=8*3600;sim.sel=null;sim.started=false;
   rebuild(true);
 }
@@ -3147,80 +3279,111 @@ function drawMenuTrain(dt){
 }
 
 /* =====================================================================
-   11e. HAND CONTROLLER: click a train and a model-railway controller opens.
-   Knob = throttle, needle gauge = speed, direction switch, brake (hold),
-   horn, emergency stop and a manual/auto switch.
+   11e. HAND CONTROLLER, modelled on a real model-railway DC controller:
+     - analog voltmeter (track voltage 0-12 V) with a red over-voltage zone
+     - big speed dial and a smaller brake dial
+     - TRACK POWER rocker switch with a green LED (red = short circuit / wreck)
+     - 3-position DIRECTION slide switch REV / OFF / FWD
+       (OFF disconnects the motor: the train coasts; reversing needs a stop)
+     - horn push-button, red E-STOP mushroom button, manual/auto switch
+     - REPAIR button appears when the train is wrecked
    ===================================================================== */
-const CT={shown:false,drag:false,last:{}};
+const CT={shown:false,last:{},volt:0};
 const ctSet=(id,txt)=>{if(CT.last[id]!==txt){CT.last[id]=txt;$(id).textContent=txt;}};
+const ctCls=(id,cls,on)=>{const k=id+cls;if(CT.last[k]!==on){CT.last[k]=on;$(id).classList.toggle(cls,on);}};
 function ctrlRender(){
   const t=selTrain(),show=!!t&&!menuOpen;
   if(show!==CT.shown){$('ctrl').style.display=show?'block':'none';CT.shown=show;}
   if(!show)return;
-  ctSet('cName',t.name);ctSet('cState',t.state);
-  ctSet('cDir',t.rev?'REV':'FWD');ctSet('cMode',t.mode==='manual'?'MANUAL':'AUTO');
-  ctSet('cThr',Math.round(t.throttle*100)+'%');
-  $('cDir').disabled=!t.powered||t.v>0.05;
-  for(const id of['cBrake','cStop','cHorn'])$(id).disabled=!t.powered;
-  drawGauge(t);drawKnob(t);
+  const wreck=t.crashed,pw=t.power!==false;
+  ctSet('cName',t.name.toUpperCase());ctSet('cState',wreck?'SHORT CIRCUIT – train wrecked, repair it':t.state);
+  ctSet('cSpd',Math.round(t.v*KMH)+' km/h');ctSet('cMode',t.mode==='manual'?'MANUAL':'AUTO');
+  ctCls('cPower','on',pw);
+  const led=$('cLed'),lc=wreck?'r':(pw&&t.powered?'g':'');
+  if(CT.last.led!==lc){CT.last.led=lc;led.className='led'+(lc?' '+lc:'');}
+  const pos=t.neutral?'off':(t.rev?'rev':'fwd');
+  if(CT.last.pos!==pos){CT.last.pos=pos;$('cDirSw').className='slide '+pos;}
+  const rb=$('cRepair');if(CT.last.rep!==wreck){CT.last.rep=wreck;rb.style.display=wreck?'':'none';}
+  for(const id of['cHorn','cStop','cMode'])$(id).disabled=!t.powered||wreck;
+  const tgt=wreck||!pw||t.neutral?0:(t.mode==='manual'?t.throttle*12:clamp(t.v/(t.vmax||3),0,1)*12);
+  CT.volt+=(tgt-CT.volt)*0.18;
+  drawMeter(CT.volt);
+  drawDial($('cKnob'),t.throttle,{max:10,label:true});
+  drawDial($('cBrakeKnob'),t.brake,{max:10,label:true,small:true});
 }
-function drawGauge(t){
-  const cv=$('cGauge'),g=cv.getContext('2d'),S=cv.width,c=S/2;
-  g.clearRect(0,0,S,S);
-  const max=Math.max(40,Math.ceil((t.vmax||3)*KMH*1.05/20)*20);
-  g.fillStyle='#16130e';g.beginPath();g.arc(c,c,c-4,0,7);g.fill();
-  g.strokeStyle='#b89b5e';g.lineWidth=5;g.stroke();
-  g.fillStyle='#efe6d2';g.beginPath();g.arc(c,c,c-12,0,7);g.fill();
-  const ang=f=>(-225+270*f)*Math.PI/180;
-  g.strokeStyle='#2a2216';g.fillStyle='#2a2216';g.font='600 15px Georgia,serif';g.textAlign='center';g.textBaseline='middle';
-  for(let v=0;v<=max;v+=10){
-    const f=v/max,a=ang(f),big=v%20===0;
-    g.lineWidth=big?3:1.5;g.beginPath();g.moveTo(c+Math.cos(a)*(c-24),c+Math.sin(a)*(c-24));g.lineTo(c+Math.cos(a)*(c-(big?40:34)),c+Math.sin(a)*(c-(big?40:34)));g.stroke();
-    if(big)g.fillText(v,c+Math.cos(a)*(c-56),c+Math.sin(a)*(c-56));
+function drawMeter(v){
+  const cv=$('cGauge'),g=cv.getContext('2d'),W_=cv.width,H_=cv.height,cx=W_/2,cy=H_*0.9,R=H_*0.78;
+  g.clearRect(0,0,W_,H_);
+  g.fillStyle='#1a1a1a';g.beginPath();g.roundRect?g.roundRect(2,2,W_-4,H_-4,14):g.rect(2,2,W_-4,H_-4);g.fill();
+  const gr=g.createLinearGradient(0,0,0,H_);gr.addColorStop(0,'#f4ecd6');gr.addColorStop(1,'#d9cdae');
+  g.fillStyle=gr;g.beginPath();g.roundRect?g.roundRect(10,10,W_-20,H_-20,9):g.rect(10,10,W_-20,H_-20);g.fill();
+  const ang=f=>(-145+110*f)*Math.PI/180-Math.PI/2+Math.PI/2*0;   // fan from -145° to -35° (relative to +x)
+  const A=f=>(-Math.PI*0.84)+f*(Math.PI*0.68);
+  g.lineCap='butt';
+  g.strokeStyle='#b3261e';g.lineWidth=9;g.beginPath();g.arc(cx,cy,R-10,A(10/12),A(1));g.stroke();   // red zone 10–12 V
+  g.strokeStyle='#2a2216';g.fillStyle='#2a2216';g.font='700 17px Georgia,serif';g.textAlign='center';g.textBaseline='middle';
+  for(let i=0;i<=24;i++){
+    const f=i/24,a=A(f),big=i%4===0;
+    g.lineWidth=big?3:1.5;g.beginPath();g.moveTo(cx+Math.cos(a)*(R-(big?30:24)),cy+Math.sin(a)*(R-(big?30:24)));g.lineTo(cx+Math.cos(a)*(R-14),cy+Math.sin(a)*(R-14));g.stroke();
+    if(big)g.fillText(String(i/2),cx+Math.cos(a)*(R-48),cy+Math.sin(a)*(R-48));
   }
-  g.font='600 13px Georgia,serif';g.fillText('km/h',c,c+34);
-  const f=clamp(t.v*KMH/max,0,1),a=ang(f);
-  g.strokeStyle='#a3261f';g.lineWidth=4;g.lineCap='round';
-  g.beginPath();g.moveTo(c-Math.cos(a)*18,c-Math.sin(a)*18);g.lineTo(c+Math.cos(a)*(c-30),c+Math.sin(a)*(c-30));g.stroke();
-  g.fillStyle='#2a2216';g.beginPath();g.arc(c,c,8,0,7);g.fill();
+  g.font='700 15px Georgia,serif';g.fillText('VOLTS  DC',cx,H_*0.52);
+  const a=A(clamp(v/12,0,1));
+  g.strokeStyle='#111';g.lineWidth=3.5;g.lineCap='round';g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+Math.cos(a)*(R-8),cy+Math.sin(a)*(R-8));g.stroke();
+  g.fillStyle='#222';g.beginPath();g.arc(cx,cy,10,0,7);g.fill();
+  g.fillStyle='rgba(255,255,255,.12)';g.beginPath();g.moveTo(14,14);g.lineTo(W_-14,14);g.lineTo(W_-14,H_*0.42);g.quadraticCurveTo(W_/2,H_*0.3,14,H_*0.42);g.fill();   // glass glare
 }
-function drawKnob(t){
-  const cv=$('cKnob'),g=cv.getContext('2d'),S=cv.width,c=S/2;
+// A ribbed bakelite-style knob on a printed 0–10 scale.
+function drawDial(cv,val,o){
+  const g=cv.getContext('2d'),S=cv.width,c=S/2;
   g.clearRect(0,0,S,S);
-  const ang=f=>(-225+270*f)*Math.PI/180;
-  g.fillStyle='#16130e';g.beginPath();g.arc(c,c,c-4,0,7);g.fill();
-  g.strokeStyle='#efe6d2';g.fillStyle='#efe6d2';g.font='600 14px Georgia,serif';g.textAlign='center';g.textBaseline='middle';
+  const A=f=>(-225+270*f)*Math.PI/180;
+  g.fillStyle='#d8d1bd';g.font='700 '+(o.small?15:17)+'px "Courier New",monospace';g.textAlign='center';g.textBaseline='middle';
+  g.strokeStyle='#d8d1bd';g.lineCap='butt';
   for(let i=0;i<=10;i++){
-    const a=ang(i/10);g.lineWidth=i%5===0?3:1.5;
-    g.beginPath();g.moveTo(c+Math.cos(a)*(c-16),c+Math.sin(a)*(c-16));g.lineTo(c+Math.cos(a)*(c-26),c+Math.sin(a)*(c-26));g.stroke();
-    g.fillText(i,c+Math.cos(a)*(c-40),c+Math.sin(a)*(c-40));
+    const a=A(i/10);g.lineWidth=i%5===0?3:1.8;
+    g.beginPath();g.moveTo(c+Math.cos(a)*(c-12),c+Math.sin(a)*(c-12));g.lineTo(c+Math.cos(a)*(c-(o.small?22:26)),c+Math.sin(a)*(c-(o.small?22:26)));g.stroke();
+    g.fillText(String(i),c+Math.cos(a)*(c-(o.small?36:42)),c+Math.sin(a)*(c-(o.small?36:42)));
   }
-  const kr=c-56,gr=g.createRadialGradient(c-14,c-14,6,c,c,kr);
-  gr.addColorStop(0,'#d8c28a');gr.addColorStop(1,'#6f5a2a');
+  const kr=c-(o.small?50:60);
+  g.fillStyle='rgba(0,0,0,.5)';g.beginPath();g.arc(c+4,c+6,kr,0,7);g.fill();
+  const gr=g.createRadialGradient(c-kr*0.3,c-kr*0.35,kr*0.1,c,c,kr);gr.addColorStop(0,'#4a4a4c');gr.addColorStop(1,'#141416');
   g.fillStyle=gr;g.beginPath();g.arc(c,c,kr,0,7);g.fill();
-  g.strokeStyle='rgba(0,0,0,.35)';g.lineWidth=2;
-  for(let i=0;i<24;i++){const a=i/24*Math.PI*2;g.beginPath();g.moveTo(c+Math.cos(a)*(kr-9),c+Math.sin(a)*(kr-9));g.lineTo(c+Math.cos(a)*kr,c+Math.sin(a)*kr);g.stroke();}
-  const a=ang(t.throttle);
-  g.strokeStyle='#a3261f';g.lineWidth=6;g.lineCap='round';
-  g.beginPath();g.moveTo(c+Math.cos(a)*(kr*0.25),c+Math.sin(a)*(kr*0.25));g.lineTo(c+Math.cos(a)*(kr-5),c+Math.sin(a)*(kr-5));g.stroke();
+  g.strokeStyle='rgba(255,255,255,.14)';g.lineWidth=2;
+  for(let i=0;i<36;i++){const a=i/36*Math.PI*2;g.beginPath();g.moveTo(c+Math.cos(a)*(kr-10),c+Math.sin(a)*(kr-10));g.lineTo(c+Math.cos(a)*(kr-1),c+Math.sin(a)*(kr-1));g.stroke();}
+  g.fillStyle='#2c2c2f';g.beginPath();g.arc(c,c,kr*0.55,0,7);g.fill();
+  const a=A(clamp(val,0,1));
+  g.strokeStyle='#f4efe0';g.lineWidth=o.small?5:6;g.lineCap='round';
+  g.beginPath();g.moveTo(c+Math.cos(a)*kr*0.3,c+Math.sin(a)*kr*0.3);g.lineTo(c+Math.cos(a)*(kr-4),c+Math.sin(a)*(kr-4));g.stroke();
 }
-function knobSet(e){
-  const t=selTrain();if(!t||!t.powered)return;
-  const r=$('cKnob').getBoundingClientRect();
-  let ang=Math.atan2(e.clientX-(r.left+r.width/2),-(e.clientY-(r.top+r.height/2)))*180/Math.PI;   // 0 = up, clockwise +
-  if(ang<-135)ang=-135;else if(ang>135)ang=135;
-  // the dead zone at the bottom snaps to the nearest end stop
-  setThrottle(t,Math.round((ang+135)/270*100)/100);
+function bindKnob(id,apply){
+  const el=$(id);let drag=false;
+  const set=e=>{
+    const t=selTrain();if(!t||!t.powered||t.crashed)return;
+    const r=el.getBoundingClientRect();
+    let ang=Math.atan2(e.clientX-(r.left+r.width/2),-(e.clientY-(r.top+r.height/2)))*180/Math.PI;   // 0 = up, clockwise +
+    ang=clamp(ang,-135,135);                      // the dead zone at the bottom snaps to the nearest end stop
+    apply(t,Math.round((ang+135)/270*100)/100);
+  };
+  el.addEventListener('pointerdown',e=>{drag=true;try{el.setPointerCapture(e.pointerId);}catch(x){}set(e);e.preventDefault();});
+  el.addEventListener('pointermove',e=>{if(drag)set(e);});
+  for(const ev of['pointerup','pointercancel'])el.addEventListener(ev,()=>{drag=false;});
 }
-$('cKnob').addEventListener('pointerdown',e=>{CT.drag=true;try{e.target.setPointerCapture(e.pointerId);}catch(x){}knobSet(e);e.preventDefault();});
-$('cKnob').addEventListener('pointermove',e=>{if(CT.drag)knobSet(e);});
-for(const ev of['pointerup','pointercancel'])$('cKnob').addEventListener(ev,()=>{CT.drag=false;});
-$('cBrake').addEventListener('pointerdown',e=>{const t=selTrain();if(t&&t.powered){t.mode==='manual'||(t.mode='manual');t.brake=1;try{e.target.setPointerCapture(e.pointerId);}catch(x){}}});
-for(const ev of['pointerup','pointercancel','lostpointercapture'])$('cBrake').addEventListener(ev,()=>{const t=selTrain();if(t)t.brake=0;});
-$('cDir').addEventListener('click',()=>{const t=selTrain();if(t)reverseTrain(t);});
-$('cStop').addEventListener('click',()=>{const t=selTrain();if(t)emergencyStop(t);});
+bindKnob('cKnob',(t,v)=>setThrottle(t,v));
+bindKnob('cBrakeKnob',(t,v)=>{if(t.mode!=='manual')t.mode='manual';t.brake=v;ui.dirty=true;});
+$('cPower').addEventListener('click',()=>{const t=selTrain();if(t&&!t.crashed){t.power=t.power===false;toast(t.power?'Track power ON':'Track power OFF – coasting');}});
+$('cDirSw').addEventListener('click',e=>{
+  const t=selTrain();if(!t||!t.powered||t.crashed)return;
+  const r=e.currentTarget.getBoundingClientRect(),i=Math.min(2,Math.floor((e.clientX-r.left)/r.width*3));   // 0 REV, 1 OFF, 2 FWD
+  if(i===1){t.neutral=true;return;}
+  const wantRev=i===0;
+  if(wantRev!==t.rev){if(t.v>0.05){toast('Stop the train before switching direction');return;}t.neutral=false;reverseTrain(t);}
+  else t.neutral=false;
+});
 $('cHorn').addEventListener('pointerdown',()=>{const t=selTrain();if(t)sndHorn(t,true);});
+$('cStop').addEventListener('click',()=>{const t=selTrain();if(t)emergencyStop(t);});
 $('cMode').addEventListener('click',()=>{const t=selTrain();if(!t)return;t.mode=t.mode==='manual'?'auto':'manual';t.wait=0;t.tt.state='run';if(t.mode!=='manual')t.brake=0;ui.rebuildPanel=true;});
+$('cRepair').addEventListener('click',()=>{const t=selTrain();if(t&&t.crashed)startRepair('train',t);});
 $('cClose').addEventListener('click',()=>{sim.sel=null;ui.rebuildPanel=true;});
 
 /* =====================================================================
@@ -3239,7 +3402,7 @@ function frame(ts){
     s.lamp+=((s.red?0:1)-s.lamp)*Math.min(1,fdt*7);
   }
   for(const p of W.pieces)if(p.turnout)p.blade+=(p.state-p.blade)*Math.min(1,fdt*9);
-  W.crashes=W.crashes.filter(c=>c.age<600);
+  W.crashes=W.crashes.filter(c=>c.tids&&c.tids.some(id=>{const t=W.trains.find(x=>x.id===id);return t&&t.crashed;}));   // marker stays until its trains are repaired
   sim.nightV+=(sim.night-sim.nightV)*Math.min(1,fdt*2);
   updateParticles(fdt*(sim.paused?0:1));sndUpdate(fdt);
   const ft=W.trains.find(t=>t.follow&&sim.sel&&sim.sel.type==='train'&&sim.sel.id===t.id);
