@@ -24,15 +24,18 @@ other game. Audio is left as empty slots for **your own** sound ids.
 | Steer + lean | `A` `D` |
 | Wheelie | hold `Left Shift` with throttle in a low gear |
 | Shift down / up | `Z` / `X` (CVT moped ignores it) |
-| **Fuel tap** (Off > On > Reserve) | `F` |
-| **Ignition** | `I` |
-| **Choke** | `C` |
-| **Kickstart** (tap it!) | `K` |
-| **Electric starter** (Dachs 200 only) | `E` |
-| Ride / get on | `R` near the bike · jump to get off |
-| **Push the bike** (grab / let go of the bars) | `G` near the handlebars, then just walk |
-| Call your bike | `B` |
-| Prompts | walk around the bike: tap on the tank, key at the headstock, choke at the carb, kick lever on the right |
+| **Fuel tap** (Off > On > Reserve) | **click** the tap lever on the left of the tank |
+| **Ignition** | **click** the key at the headstock |
+| **Choke** | **click** the choke lever at the carburettor |
+| **Kickstart** (tap it!) | **click** the kick lever / pedal on the right, again and again |
+| **Electric starter** (Dachs 200 only) | **click** the red button on the handlebar |
+| Ride / get off | **click the seat** (or jump to get off) |
+| **Push the bike** | **click the handlebars**, then just walk. Click them again to let go |
+| Call your bike(s) | `B` |
+
+There are **no control keybinds**. Hover over a part of YOUR bike and it gets
+a yellow outline and a label with its state ("FUEL TAP [OFF] - click for ON");
+click it and it happens. You can click the controls while sitting on the bike.
 
 Gamepad: left stick steer, R2 throttle, L2 brake, A rear brake, X wheelie,
 bumpers shift.  Mobile touch controls are **not** included.
@@ -47,10 +50,10 @@ whichever bike you're riding, or the nearest one.
 
 ### Starting a bike (the loop)
 
-1. **Fuel tap** `F` - On. (Reserve gives you the last litre or so.)
-2. **Ignition** `I` - On.
-3. **Cold engine?** Choke `C` on. **Warm engine?** Choke off.
-4. **Kick** `K`. It may take a few kicks; the two-strokes are fussy, the
+1. **Fuel tap** - click it to On. (Reserve gives you the last litre or so.)
+2. **Ignition** - click the key to On.
+3. **Cold engine?** Click the choke on. **Warm engine?** Choke off.
+4. **Kick** - click the kick lever. It may take a few kicks; the two-strokes are fussy, the
    Kuckuck is friendly, the Dachs also has a starter button (battery drains on
    failed tries, recharges while running).
 5. Too many kicks with choke on a warm engine = **flooded**. Choke off and wait
@@ -124,7 +127,7 @@ roblox-moped/
    │   └─ Services/                      (Folder)
    │       ├─ DataService.lua            DataStore + pcall/retry + autosave + BindToClose
    │       ├─ EconomyService.lua         the ONLY thing that changes money
-   │       ├─ VehicleService.lua         spawn, start-up procedure, fuel, damage, push, prompts
+   │       ├─ VehicleService.lua         spawn, start-up procedure, fuel, damage, push, clickable control hotspots
    │       ├─ GarageService.lua          validated buy / equip / spawn
    │       ├─ StationService.lua         petrol station, workshop, garage door prompts
    │       ├─ MissionService.lua         delivery / checkpoint / cruise, server-judged
@@ -132,7 +135,8 @@ roblox-moped/
    │       ├─ Buildings.lua              houses, church, barn, shops, garage, petrol station, Gasthof
    │       └─ Props.lua                  trees, lamps, signs, cars, tractor, maibaum, fountain, power poles ...
    └─ StarterPlayerScripts/              (StarterPlayer > StarterPlayerScripts)
-       ├─ BikeClient.client.lua          LocalScript  input + physics for the bike you control
+       ├─ BikeClient.client.lua          LocalScript  driving input + physics for the bike you control
+       ├─ BikeControls.client.lua        LocalScript  hover outline + click on the bike's controls
        ├─ EffectsController.client.lua   LocalScript  sound, smoke, shake (cosmetic only)
        └─ UI/                            (Folder)
            ├─ UIKit.lua                  ModuleScript  UI helpers
@@ -221,7 +225,7 @@ Bike modes (`Mode` attribute): `Parked` (anchored, kickstand) → `Ride` (seated
 8. **Missions:** take each of the three types from the board.
 9. **Save:** buy something, stop the test, start again, confirm it persists.
 10. **Multiplayer:** Test tab → Local Server with 2+ players. Each player gets
-    their own bike; only the owner's prompts work; check you can hear/see
+    their own bike; only the owner can use its controls; check you can hear/see
     another player's engine and smoke.
 
 Testing the expensive bikes quickly: temporarily set
@@ -281,6 +285,13 @@ Requirements:
   `SeatPoint HandlebarPoint FuelTapPoint IgnitionPoint ChokePoint KickPoint
   StarterPoint ExhaustPoint`.
 - Parts with Attribute `Paint = "body"` or `"accent"` get the two colour options.
+- Clickable controls: the server adds invisible click hotspots at the Attachments
+  above. To make a specific part of your mesh the click target instead, add an
+  invisible part with the Attribute `Action` = `FuelTap`, `Ignition`, `Choke`,
+  `Kick`, `Starter`, `Ride` or `Grab` (CanQuery on); that replaces the default.
+- Wheels spin automatically if you give each wheel part the Attributes
+  `Wheel` (a name, e.g. "Front") and `WheelCenter` (Vector3 in chassis space)
+  and weld them to the Chassis with a `Weld`.
 - 1 stud ≈ 0.28 m; wheel radius 0.85-1.05, wheelbase 4-5 studs, rider seat
   roughly 2.6-3 studs above the ground.
 
@@ -310,7 +321,7 @@ play session.
 - Movement is client-simulated (network ownership), standard for Roblox
   vehicles. A cheating client could ignore its own physics; the server clamps
   speed and still owns money/fuel/health, so the economy can't be cheated.
-- Prompts show for everyone on a bike but only the owner can use them.
+- Controls are clickable only on your own bikes; the server re-checks ownership and distance on every click.
 - No traffic, police or engine/tyre/exhaust upgrades in v1. `VehicleData` is
   structured so upgrades can be added as extra stat multipliers.
 - Saves use `UpdateAsync` last-write-wins and no session lock; fine for one

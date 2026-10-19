@@ -76,25 +76,24 @@ local panel = make("Frame", {
 	Visible = false,
 }, { UIKit.corner(14), UIKit.padding(12) })
 
-label({ Parent = panel, Size = UDim2.new(1, 0, 0, 16), TextSize = 12, TextColor3 = T.muted, Text = "START-UP" })
+label({ Parent = panel, Size = UDim2.new(1, 0, 0, 16), TextSize = 12, TextColor3 = T.muted, Text = "START-UP  -  CLICK THE PARTS ON THE BIKE" })
 
 local rows = {}
 local function row(index: number, key: string, name: string)
 	local y = 20 + (index - 1) * 24
 	local dot = make("Frame", { Parent = panel, Position = UDim2.fromOffset(0, y + 5), Size = UDim2.fromOffset(12, 12), BackgroundColor3 = T.muted }, { UIKit.corner(6) })
-	label({ Parent = panel, Position = UDim2.fromOffset(20, y), Size = UDim2.fromOffset(28, 22), Font = Enum.Font.GothamBold, TextColor3 = T.accent, Text = key })
-	label({ Parent = panel, Position = UDim2.fromOffset(52, y), Size = UDim2.fromOffset(100, 22), Text = name })
+	label({ Parent = panel, Position = UDim2.fromOffset(22, y), Size = UDim2.fromOffset(120, 22), Text = name })
 	local value = label({
 		Parent = panel, Position = UDim2.new(1, 0, 0, y), AnchorPoint = Vector2.new(1, 0),
 		Size = UDim2.fromOffset(90, 22), TextXAlignment = Enum.TextXAlignment.Right, Font = Enum.Font.GothamBold, Text = "",
 	})
 	rows[name] = { dot = dot, value = value }
 end
-row(1, "F", "Fuel tap")
-row(2, "I", "Ignition")
-row(3, "C", "Choke")
-row(4, "K", "Kickstart")
-row(5, "E", "Starter")
+row(1, "", "Fuel tap")
+row(2, "", "Ignition")
+row(3, "", "Choke")
+row(4, "", "Kickstart")
+row(5, "", "Starter")
 row(6, "", "Engine")
 
 local function setRow(name: string, text: string, color: Color3)
@@ -215,7 +214,7 @@ RunService.RenderStepped:Connect(function()
 	setRow("Ignition", ign and "ON" or "OFF", ign and T.good or T.muted)
 	local choke = m:GetAttribute("Choke")
 	setRow("Choke", choke and "ON" or "OFF", choke and T.accent or T.muted)
-	setRow("Kickstart", "tap K", T.muted)
+	setRow("Kickstart", "kick lever", T.muted)
 	if vehicle.starting.electric then
 		local battery = m:GetAttribute("Battery")
 		setRow("Starter", ("%d%%"):format(battery * 100 + 0.5), battery > 0.2 and T.good or T.warn)
@@ -236,16 +235,16 @@ RunService.RenderStepped:Connect(function()
 	pushFrame.Visible = mode == "Push"
 	if mode == "Push" then
 		setEffort(ClientState.pushStrain * 0.6 + ClientState.pushLeash * 0.4, Color3.fromHSV(0.12 - 0.12 * ClientState.pushStrain, 0.85, 0.95))
-		hint.Text = "Walk to push. Heavy bikes are slower and drag you back.  G = let go"
+		hint.Text = "Walk to push. Heavy bikes are slower and drag you back. Click the handlebars to let go."
 	elseif mode == "Ride" then
 		if not running then
-			hint.Text = "Fuel tap (F) > ignition (I) > choke if cold (C) > kick (K)"
+			hint.Text = "Click: fuel tap > ignition key > choke (if cold) > kick lever"
 		elseif choke and m:GetAttribute("Warm") > 0.5 then
-			hint.Text = "Engine is warm - turn the choke off (C)"
+			hint.Text = "Engine is warm - click the choke lever to turn it off"
 		else
 			hint.Text = ""
 		end
 	else
-		hint.Text = "R ride   G push   walk around the bike to find the tap, key, choke and kick lever"
+		hint.Text = "Click the SEAT to ride, the HANDLEBARS to push. Fuel tap, key, choke and kick lever are clickable too."
 	end
 end)

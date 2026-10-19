@@ -105,6 +105,7 @@ function BikeFactory.build(vehicle, paintIndex: number): Model
 	chassis.Name = "Chassis"
 	chassis.Size = Vector3.new(0.8, 0.7, L * 0.7)
 	chassis.Transparency = 1
+	chassis.CanQuery = false -- invisible; mouse rays must pass through to the clickable controls
 	chassis.Material = Enum.Material.Metal
 	chassis.TopSurface = Enum.SurfaceType.Smooth
 	chassis.BottomSurface = Enum.SurfaceType.Smooth

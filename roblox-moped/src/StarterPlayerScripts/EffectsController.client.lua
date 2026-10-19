@@ -105,6 +105,22 @@ local function buildRig(model: Model)
 	sparks.Parent = chassis
 	rig.sparks = sparks
 
+	-- Wheels: every spinning part has a Weld; we turn each weld's C0 about the
+	-- axle every frame (local, visual only - physics never sees it)
+	local wheels = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local group = d:GetAttribute("Wheel")
+			local center = d:GetAttribute("WheelCenter")
+			local weld = group and d:FindFirstChildOfClass("Weld")
+			if weld and center then
+				wheels[group] = wheels[group] or { angle = 0, center = center, parts = {} }
+				table.insert(wheels[group].parts, { weld = weld, c0 = weld.C0 })
+			end
+		end
+	end
+	rig.wheels = wheels
+
 	rigs[model] = rig
 end
 
@@ -148,6 +164,23 @@ RunService.RenderStepped:Connect(function(dt)
 			local look = rig.chassis.CFrame.LookVector
 			local forward = math.max(rig.chassis.AssemblyLinearVelocity:Dot(look), 0)
 			local throttle = model:GetAttribute("Throttle") or 0
+
+			-- spin the wheels with the real rolling speed (cheap distance cull)
+			if camera and next(rig.wheels) and (rig.chassis.Position - camera.CFrame.Position).Magnitude < 260 then
+				local rolling = rig.chassis.AssemblyLinearVelocity:Dot(look)
+				if math.abs(rolling) > 0.05 or rig.wasRolling then
+					rig.wasRolling = math.abs(rolling) > 0.05
+					local radius = vehicle.geometry.wheelRadius
+					for _, w in pairs(rig.wheels) do
+						w.angle = (w.angle - rolling / radius * dt) % (math.pi * 2)
+						local c = w.center
+						local rot = CFrame.new(c) * CFrame.Angles(w.angle, 0, 0) * CFrame.new(-c)
+						for _, p in ipairs(w.parts) do
+							p.weld.C0 = rot * p.c0
+						end
+					end
+				end
+			end
 
 			local rpm = running and math.clamp(0.2 + 0.8 * forward / gearTop + throttle * 0.2, 0.2, 1.1) or 0
 			rig.smooth += (rpm - rig.smooth) * math.min(1, dt * 8)

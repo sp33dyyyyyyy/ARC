@@ -72,8 +72,8 @@ function BikeModels.moped(kit, v)
 	local L, R = g.wheelbase, g.wheelRadius
 	local zf, zr, ay = -L / 2, L / 2, -0.25
 
-	kit:wheel("Front", V3(0, ay, zf), R, 0.42, { spokes = 12, drum = true, drumSide = 0.26 })
-	kit:wheel("Rear", V3(0, ay, zr), R, 0.5, { spokes = 12, drum = true, drumSide = -0.3 })
+	kit:wheel("Front", V3(0, ay, zf), R, 0.42, { spokes = 9, drum = true, drumSide = 0.26, rimRatio = 0.72 })
+	kit:wheel("Rear", V3(0, ay, zr), R, 0.5, { spokes = 9, drum = true, drumSide = -0.3, rimRatio = 0.72 })
 
 	-- steering: fork from the front axle up to the head, with rake
 	local headTop = V3(0, 1.85, zf + 0.62)
@@ -222,8 +222,8 @@ function BikeModels.scooter(kit, v)
 	local zf, zr, ay = -L / 2, L / 2, -0.25
 	local body = v.colours[1].body
 
-	kit:wheel("Front", V3(0, ay, zf), R, 0.46, { spokes = 10, drum = true, drumSide = 0.28, rimColor = C.chrome })
-	kit:wheel("Rear", V3(0, ay, zr), R, 0.56, { spokes = 10, drum = true, drumSide = 0.3, rimColor = C.chrome })
+	kit:wheel("Front", V3(0, ay, zf), R, 0.5, { cast = true, drum = true, drumSide = 0.3, rimColor = C.alu, rimRatio = 0.7 })
+	kit:wheel("Rear", V3(0, ay, zr), R, 0.6, { cast = true, drum = true, drumSide = 0.32, rimColor = C.alu, rimRatio = 0.7 })
 
 	-- single-sided leading-link style fork, shrouded
 	local headTop = V3(0, 1.75, zf + 0.55)
@@ -309,8 +309,8 @@ function BikeModels.supermoto(kit, v)
 	local body, accent = v.colours[1].body, v.colours[1].accent
 	local twoStroke = v.engineType == "Two-stroke"
 
-	kit:wheel("Front", V3(0, ay, zf), R, 0.46, { spokes = 14, disc = true, discSide = 0.2, rimColor = C.gold })
-	kit:wheel("Rear", V3(0, ay, zr), R, 0.62, { spokes = 14, disc = true, discSide = -0.22, rimColor = C.gold })
+	kit:wheel("Front", V3(0, ay, zf), R, 0.5, { spokes = 12, disc = true, discSide = 0.22, caliper = -0.5, rimColor = C.gold, rimRatio = 0.8 })
+	kit:wheel("Rear", V3(0, ay, zr), R, 0.66, { spokes = 12, disc = true, discSide = -0.24, caliper = 0.9, rimColor = C.gold, rimRatio = 0.8 })
 
 	-- upside-down fork (gold sliders), tall and steep
 	local headTop = V3(0, 2.35, zf + 0.8)
@@ -319,7 +319,6 @@ function BikeModels.supermoto(kit, v)
 		local off = V3(s * 0.34, 0, 0)
 		kit:tube("ForkSlider", axle + off, axle:Lerp(headTop, 0.5) + off, 0.2, C.gold, M.Metal)
 		kit:tube("ForkTube", axle:Lerp(headTop, 0.46) + off, axle:Lerp(headTop, 0.98) + off, 0.26, C.alu, M.Metal)
-		kit:box("Caliper", V3(0.14, 0.34, 0.26), CF(axle + V3(s * 0.4, 0.2, -0.3)), C.dark, M.Metal)
 	end)
 	kit:box("TopYoke", V3(1.0, 0.14, 0.5), CF(headTop + V3(0, 0.0, 0.0)), C.dark, M.Metal)
 	kit:box("BottomYoke", V3(0.9, 0.16, 0.5), CF(axle:Lerp(headTop, 0.86)), C.dark, M.Metal)

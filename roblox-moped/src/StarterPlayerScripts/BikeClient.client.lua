@@ -12,13 +12,13 @@
 	  Left Shift    wheelie (throttle + low gear)
 	  Z / X         shift down / up  (manual bikes; CVT mopeds ignore it)
 
-	Start procedure (works while seated, or walk up and use the bike's prompts)
-	  F  fuel tap  Off > On > Reserve      I  ignition      C  choke
-	  K  kickstart (tap it!)               E  electric starter (if fitted)
+	Start procedure: CLICK the parts on the bike (handled by BikeControls)
+	  fuel tap lever, ignition key, choke lever, kick lever, starter button.
+	  Click the seat to ride / get off, the handlebars to push / let go.
 
 	Other
-	  B  bring your bike to you    R  ride    G  grab/let go of the handlebars
-	Pushing: grab the bars, then just WALK. Heavier bike = slower and harder.
+	  B  bring your bike(s) to you
+	Pushing: click the handlebars, then just WALK. Heavier bike = slower.
 	Gamepad: left stick steer, R2 throttle, L2 brake, A rear brake,
 	         X wheelie, bumpers shift.
 ]]
@@ -42,7 +42,6 @@ local player = Players.LocalPlayer
 local PUSH = GameConfig.Push
 
 local bikeInput = Remotes.event("BikeInput")
-local bikeAction = Remotes.event("BikeAction")
 
 local sim: any = nil
 local simModel: Model? = nil
@@ -157,20 +156,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 
 	if ClientState.mode ~= "Ride" then
-		return -- standing next to the bike? use its prompts instead
+		return
 	end
 
-	if key == Enum.KeyCode.F then
-		bikeAction:FireServer("FuelTap")
-	elseif key == Enum.KeyCode.I then
-		bikeAction:FireServer("Ignition")
-	elseif key == Enum.KeyCode.C then
-		bikeAction:FireServer("Choke")
-	elseif key == Enum.KeyCode.K then
-		bikeAction:FireServer("Kick")
-	elseif key == Enum.KeyCode.E then
-		bikeAction:FireServer("Starter")
-	elseif key == Enum.KeyCode.X or key == Enum.KeyCode.ButtonR1 then
+	if key == Enum.KeyCode.X or key == Enum.KeyCode.ButtonR1 then
 		if sim then
 			sim:shift(1)
 		end

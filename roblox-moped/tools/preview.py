@@ -256,6 +256,14 @@ P.powerPole(root, CFrame.new(60,0,0)); P.turbine(root, CFrame.new(90,0,0)); P.ha
 local TB = require('TownBuilder')
 TB.build()
 """,
+  "wheels": """
+local MK = require('ModelKit')
+local root = Instance.new('Folder'); root.Parent = workspace
+local kit = MK.new(root, nil, CFrame.new(0,0,0), true)
+kit:wheel('Wire', Vector3.new(0,1.1,0), 0.85, 0.5, {spokes = 9, drum = true, drumSide = 0.3, rimRatio = 0.72})
+kit:wheel('Cast', Vector3.new(4,1.1,0), 0.9, 0.55, {cast = true, drum = true, drumSide = 0.32, rimColor = Color3.fromRGB(176,180,186), rimRatio = 0.7})
+kit:wheel('Moto', Vector3.new(8,1.3,0), 1.05, 0.55, {spokes = 12, disc = true, discSide = 0.24, caliper = -0.5, rimColor = Color3.fromRGB(214,168,58), rimRatio = 0.8})
+""",
   "petrol": "local B = require('Buildings'); local root = Instance.new('Folder'); root.Parent = workspace; B.petrolStation(root, CFrame.new(0,0,0), {})",
 }
 

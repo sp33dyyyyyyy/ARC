@@ -7,9 +7,10 @@
 	  * fuel burn, carb-bowl stalling, reserve tap, flooding, engine warm-up
 	  * crash damage, rider ejection, tip-overs, wrecked bikes
 	  * mounting (Seat) and PUSHING the bike by hand (walk speed set from weight)
-	  * ProximityPrompts on the bike itself, so you walk around it and use the
-	    real controls: tap on the left of the tank, key at the headstock, choke
-	    at the carburettor, kick lever on the right...
+	  * CLICKABLE controls on the bike itself: invisible hotspots sit on the fuel
+	    tap, ignition key, choke lever, kick lever, starter button, seat and
+	    handlebars. The client (BikeControls) highlights the one under the mouse
+	    and sends BikeAction(action, bike) when you click it.
 
 	Bike state lives in Attributes on the Model, so every client can read it
 	(HUD, engine sound, smoke) without any extra remotes:
@@ -42,7 +43,7 @@ local CRASH = GameConfig.Crash
 local PUSH = GameConfig.Push
 
 local TICK = 0.1
-local INTERACT_DISTANCE = 14
+local INTERACT_DISTANCE = 22
 
 local VehicleService = {}
 
@@ -366,7 +367,7 @@ local function mount(rec, player: Player)
 end
 
 ----------------------------------------------------------------------------
--- Player actions (shared by ProximityPrompts and key presses)
+-- Player actions (a click on one of the bike's controls, see buildControls)
 ----------------------------------------------------------------------------
 local TAP_NEXT = { Off = "On", On = "Reserve", Reserve = "Off" }
 
@@ -444,7 +445,15 @@ local function handleAction(player: Player, action: string, target: any?)
 			releasePush(rec, "You let go of the bike.")
 		end
 	elseif action == "Ride" then
-		mount(rec, player)
+		-- clicking the seat: get on, or get off if you are already riding
+		if m:GetAttribute("Rider") == player.UserId then
+			local _, hum = character(player)
+			if hum then
+				hum.Sit = false
+			end
+		else
+			mount(rec, player)
+		end
 	elseif action == "Dismount" then
 		if m:GetAttribute("Rider") == player.UserId then
 			local _, hum = character(player)
@@ -456,72 +465,58 @@ local function handleAction(player: Player, action: string, target: any?)
 end
 
 ----------------------------------------------------------------------------
--- Prompts on the bike
+-- Clickable controls: invisible hotspot parts on the bike
+--   Part (Transparency 1, CanQuery true) with Attribute Action = <action>
+-- The client raycasts from the mouse, highlights the hotspot and fires
+-- BikeAction when you click. To make your OWN model's parts clickable, add a
+-- part with the Attribute `Action` yourself (FuelTap, Ignition, Choke, Kick,
+-- Starter, Ride, Grab); any missing one is created at the bike's Attachment.
 ----------------------------------------------------------------------------
-local PROMPT_DEFS = {
-	-- name, attachment, action, key, distance
-	{ "Ride", "SeatPoint", "Ride", Enum.KeyCode.R, 6 },
-	{ "Grab", "HandlebarPoint", "Grab", Enum.KeyCode.G, 5 },
-	{ "FuelTap", "FuelTapPoint", "FuelTap", Enum.KeyCode.F, 4 },
-	{ "Ignition", "IgnitionPoint", "Ignition", Enum.KeyCode.I, 4 },
-	{ "Choke", "ChokePoint", "Choke", Enum.KeyCode.C, 4 },
-	{ "Kick", "KickPoint", "Kick", Enum.KeyCode.K, 4 },
-	{ "Starter", "StarterPoint", "Starter", Enum.KeyCode.E, 4 },
+local HOTSPOTS = {
+	-- action, attachment, size
+	{ "FuelTap", "FuelTapPoint", Vector3.new(1.3, 1.3, 1.3) },
+	{ "Ignition", "IgnitionPoint", Vector3.new(1.1, 1.1, 1.1) },
+	{ "Choke", "ChokePoint", Vector3.new(1.2, 1.2, 1.2) },
+	{ "Kick", "KickPoint", Vector3.new(1.5, 1.2, 1.5) },
+	{ "Starter", "StarterPoint", Vector3.new(1.1, 1.1, 1.1) },
+	{ "Ride", "SeatPoint", Vector3.new(1.4, 0.8, 2.4) },
+	{ "Grab", "HandlebarPoint", Vector3.new(2.8, 0.9, 1.0) },
 }
 
-local function buildPrompts(rec)
-	for _, def in ipairs(PROMPT_DEFS) do
-		local name, attName, action, key, dist = def[1], def[2], def[3], def[4], def[5]
-		if name ~= "Starter" or rec.vehicle.starting.electric then
-			local att = rec.chassis:FindFirstChild(attName)
+local function buildControls(rec)
+	local chassis = rec.chassis
+	local existing = {}
+	for _, d in ipairs(rec.model:GetDescendants()) do
+		local action = d:IsA("BasePart") and d:GetAttribute("Action")
+		if action then
+			existing[action] = true
+		end
+	end
+	for _, def in ipairs(HOTSPOTS) do
+		local action, attName, size = def[1], def[2], def[3]
+		if (action ~= "Starter" or rec.vehicle.starting.electric) and not existing[action] then
+			local att = chassis:FindFirstChild(attName) :: Attachment?
 			if att then
-				local p = Instance.new("ProximityPrompt")
-				p.Name = name
-				p.ObjectText = rec.vehicle.displayName
-				p.ActionText = name
-				p.KeyboardKeyCode = key
-				p.HoldDuration = 0
-				p.MaxActivationDistance = dist
-				p.RequiresLineOfSight = false
-				p.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
-				p.Parent = att
-				p.Triggered:Connect(function(who)
-					if who.UserId ~= rec.model:GetAttribute("Owner") then
-						notify(who, "That's not your bike.", "warn")
-						return
-					end
-					handleAction(who, action, rec)
-				end)
-				rec.prompts[name] = p
+				local part = Instance.new("Part")
+				part.Name = "Hotspot_" .. action
+				part.Size = size
+				part.Transparency = 1
+				part.CanCollide = false
+				part.CanTouch = false
+				part.CanQuery = true -- the client's mouse ray must hit it
+				part.CastShadow = false
+				part.Massless = true
+				part:SetAttribute("Action", action)
+				part.CFrame = chassis.CFrame * CFrame.new(att.Position)
+				part.Parent = rec.model
+				local weld = Instance.new("Weld")
+				weld.Part0 = chassis
+				weld.Part1 = part
+				weld.C0 = CFrame.new(att.Position)
+				weld.Parent = part
 			end
 		end
 	end
-end
-
-local function refreshPrompts(rec)
-	local m = rec.model
-	local mode = m:GetAttribute("Mode")
-	local free = mode == "Parked" or mode == "Coast"
-	local pushing = mode == "Push"
-	local function set(name: string, enabled: boolean, text: string?)
-		local p = rec.prompts[name]
-		if not p then
-			return
-		end
-		if p.Enabled ~= enabled then
-			p.Enabled = enabled
-		end
-		if text and p.ActionText ~= text then
-			p.ActionText = text
-		end
-	end
-	set("Ride", free, "Ride")
-	set("Grab", free or pushing, pushing and "Let go" or "Push / grab handlebars")
-	set("FuelTap", free, ("Fuel tap [%s]"):format(m:GetAttribute("FuelTap")))
-	set("Ignition", free, ("Ignition [%s]"):format(m:GetAttribute("Ignition") and "ON" or "OFF"))
-	set("Choke", free, ("Choke [%s]"):format(m:GetAttribute("Choke") and "ON" or "OFF"))
-	set("Kick", free, "Kickstart")
-	set("Starter", free, "Starter button")
 end
 
 ----------------------------------------------------------------------------
@@ -568,7 +563,7 @@ local function placeBike(player: Player, vehicle, paintIndex: number, position: 
 		return nil, "Bike model has no Seat"
 	end
 	local seatPart = seat :: Seat
-	seatPart.CanTouch = false -- no accidental sitting; mounting is via the prompt
+	seatPart.CanTouch = false -- no accidental sitting; mounting is by clicking the seat
 
 	local saved = profile and profile.bikeState[vehicle.id]
 	local fuel = fuelOverride or (saved and saved.fuel) or vehicle.stats.fuelCapacityL * 0.5
@@ -600,13 +595,13 @@ local function placeBike(player: Player, vehicle, paintIndex: number, position: 
 		player = player, model = model, chassis = chassis, seat = seatPart, vehicle = vehicle,
 		throttle = 0, brake = 0, bowl = 0, lastKick = 0, failures = 0,
 		runningSince = 0, speedHistory = {}, lastCrash = 0, tipTimer = 0, coastTimer = 0,
-		lastSave = os.clock(), prompts = {}, conns = {}, pushConns = {}, noCollide = {},
+		lastSave = os.clock(), conns = {}, pushConns = {}, noCollide = {},
 		sputtered = false,
 	}
 	fleets[player] = fleets[player] or {}
 	table.insert(fleets[player], rec)
 	bikes[player] = rec
-	buildPrompts(rec)
+	buildControls(rec)
 
 	table.insert(rec.conns, seatPart:GetPropertyChangedSignal("Occupant"):Connect(function()
 		if seatPart.Occupant == nil and model:GetAttribute("Mode") == "Ride" then
@@ -907,7 +902,6 @@ local function tickBike(rec, dt: number)
 		end
 	end
 
-	refreshPrompts(rec)
 end
 
 ----------------------------------------------------------------------------
@@ -942,10 +936,25 @@ function VehicleService.init(dataService, economyService)
 		rec.model:SetAttribute("Gear", math.clamp(math.floor(gear), 1, #rec.vehicle.drivetrain.gears))
 	end)
 
-	Remotes.event("BikeAction").OnServerEvent:Connect(function(player, action)
-		if typeof(action) == "string" then
-			handleAction(player, action)
+	-- click on a control: BikeAction(action, bikeModel). Only the player's own
+	-- bikes are considered, so you can never operate someone else's.
+	Remotes.event("BikeAction").OnServerEvent:Connect(function(player, action, bikeModel)
+		if typeof(action) ~= "string" then
+			return
 		end
+		local target
+		if typeof(bikeModel) == "Instance" then
+			for _, candidate in ipairs(fleets[player] or {}) do
+				if candidate.model == bikeModel then
+					target = candidate
+					break
+				end
+			end
+			if not target then
+				return
+			end
+		end
+		handleAction(player, action, target)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)

@@ -233,55 +233,127 @@ function ModelKit:arc(name, center: Vector3, radius: number, a0: number, a1: num
 end
 
 ----------------------------------------------------------------------------
--- spoked wheel; axle along X through `center`
+-- Wheel; axle along X through `center`. Every part gets the attributes
+--   Wheel = <name>   WheelCenter = <Vector3 in kit space>
+-- so the client can spin the whole wheel around its axle while rolling.
+--
+-- options o:  cast (alloy 5-spoke) | spokes (per set, wire wheel)
+--             rimColor  rimRatio (rim radius / tyre radius)
+--             drum / drumSide   disc / discSide / caliper (angle in radians)
 ----------------------------------------------------------------------------
 function ModelKit:wheel(name: string, center: Vector3, radius: number, width: number, o: { [string]: any }?)
 	o = o or {}
 	local rubber = Color3.fromRGB(24, 24, 26)
-	local metal = o.rimColor or Color3.fromRGB(190, 194, 200)
-	-- tyre: main tread + slightly narrower shoulders for a rounded profile
-	self:cyl(name .. "Tyre", width, radius * 2, radius * 2, CF(center), rubber, Enum.Material.Rubber)
-	for _, s in ipairs({ -1, 1 }) do
-		self:cyl(name .. "TyreSide", width * 0.18, radius * 2 - 0.1, radius * 2 - 0.1, CF(center + V3(s * width * 0.46, 0, 0)), rubber, Enum.Material.Rubber)
+	local metal = o.rimColor or Color3.fromRGB(196, 200, 206)
+	local dark = Color3.fromRGB(48, 50, 56)
+	local steel = Color3.fromRGB(170, 172, 178)
+	local rimR = radius * (o.rimRatio or 0.76)
+	local hubR = o.hubRadius or 0.22
+
+	local function mark(p: BasePart): BasePart
+		p:SetAttribute("Wheel", name)
+		p:SetAttribute("WheelCenter", center)
+		return p
 	end
-	if o.knobs then
-		-- off-road style tread blocks
-		local n = 22
-		for i = 0, n - 1 do
-			local a = i / n * math.pi * 2
-			local dirv = V3(0, math.cos(a), math.sin(a))
-			local cf = CFrame.lookAt(center + dirv * radius, center + dirv * (radius + 1)) * CFrame.Angles(0, 0, 0)
-			self:box(name .. "Knob", V3(width * 0.9, 0.1, 0.16), cf, rubber, Enum.Material.Rubber)
+	-- spinning parts carry the Wheel attribute; "fixed" parts (axle, brake
+	-- plate, caliper) belong to the bike and never turn
+	local function disc(label: string, len: number, dia: number, x: number, color: Color3, material: Enum.Material)
+		return mark(self:cyl(name .. label, len, dia, dia, CF(center + V3(x, 0, 0)), color, material))
+	end
+	local function fixedDisc(label: string, len: number, dia: number, x: number, color: Color3, material: Enum.Material)
+		return self:cyl(name .. label, len, dia, dia, CF(center + V3(x, 0, 0)), color, material)
+	end
+	local function bar(label: string, a: Vector3, b: Vector3, thick: number, color: Color3, material: Enum.Material)
+		return mark(self:strut(name .. label, center + a, center + b, thick, color, material))
+	end
+	local function fixedBar(label: string, a: Vector3, b: Vector3, thick: number, color: Color3, material: Enum.Material)
+		return self:strut(name .. label, center + a, center + b, thick, color, material)
+	end
+
+	-- TYRE: solid cylinders can't have a hole, so the whole tyre lives inside
+	-- |x| <= width/2 and the rim, spokes and brakes sit just OUTSIDE it, in
+	-- front of the sidewall. A flat tread with ribs plus stepped shoulders.
+	local half = width / 2
+	disc("Tread", width * 0.64, radius * 2, 0, rubber, Enum.Material.Rubber)
+	for _, k in ipairs({ -0.2, 0, 0.2 }) do
+		disc("Rib", width * 0.09, radius * 2 + 0.07, k * width, Color3.fromRGB(34, 34, 37), Enum.Material.Rubber)
+	end
+	for _, s in ipairs({ -1, 1 }) do
+		disc("Shoulder", width * 0.15, radius * 2 - 0.1, s * width * 0.395, rubber, Enum.Material.Rubber)
+		disc("Sidewall", width * 0.06, radius * 2 - 0.42, s * (half - width * 0.03), Color3.fromRGB(30, 30, 33), Enum.Material.Rubber)
+	end
+
+	-- RIM (outside the tyre faces): barrel through the tyre, bright ring,
+	-- dark well
+	disc("RimBarrel", width + 0.1, rimR * 2, 0, metal, Enum.Material.Metal)
+	for _, s in ipairs({ -1, 1 }) do
+		disc("RimRing", 0.06, rimR * 2 + 0.12, s * (half + 0.03), metal, Enum.Material.Metal)
+		disc("RimWell", 0.04, rimR * 2 - 0.32, s * (half + 0.065), dark, Enum.Material.Metal)
+	end
+
+	-- HUB + AXLE
+	disc("Hub", width + 0.3, hubR * 2, 0, metal, Enum.Material.Metal)
+	fixedDisc("Axle", width + 1.0, 0.17, 0, dark, Enum.Material.Metal)
+	for _, s in ipairs({ -1, 1 }) do
+		disc("Flange", 0.07, hubR * 2.9, s * (half + 0.1), metal, Enum.Material.Metal)
+		fixedDisc("AxleNut", 0.17, 0.36, s * (half + 0.46), dark, Enum.Material.Metal)
+	end
+
+	-- SPOKES
+	if o.cast then
+		-- five-spoke alloy: thick spokes over a dark dish
+		for _, s in ipairs({ -1, 1 }) do
+			disc("Dish", 0.04, rimR * 2 - 0.5, s * (half + 0.085), dark, Enum.Material.Metal)
+			for i = 0, 4 do
+				local a = i / 5 * math.pi * 2 + 0.31
+				local x = s * (half + 0.15)
+				local p0 = V3(x, hubR * 1.2 * math.cos(a), hubR * 1.2 * math.sin(a))
+				local p1 = V3(x, (rimR - 0.16) * math.cos(a + 0.12), (rimR - 0.16) * math.sin(a + 0.12))
+				bar("Spoke", p0, p1, 0.24, metal, Enum.Material.Metal)
+			end
+		end
+	else
+		-- wire wheel: two crossing sets per side (3-cross lacing)
+		local n = o.spokes or 9
+		local twist = (2 * math.pi / n) * 1.5
+		for _, s in ipairs({ -1, 1 }) do
+			for _, k in ipairs({ -1, 1 }) do
+				for i = 0, n - 1 do
+					local a = i / n * math.pi * 2 + (k == 1 and 0 or math.pi / n)
+					local x0 = s * (half + 0.1 + (k == 1 and 0.03 or 0))
+					local x1 = s * (half + 0.09 + (k == 1 and 0.03 or 0))
+					local p0 = V3(x0, hubR * 1.4 * math.cos(a), hubR * 1.4 * math.sin(a))
+					local p1 = V3(x1, (rimR - 0.1) * math.cos(a + k * twist), (rimR - 0.1) * math.sin(a + k * twist))
+					bar("Spoke", p0, p1, 0.045, steel, Enum.Material.Metal)
+				end
+			end
 		end
 	end
-	local rimR = radius * 0.78
-	-- rim: a bright ring on each side of the tyre, a dark well inside it
-	self:cyl(name .. "Rim", width * 0.5, rimR * 2, rimR * 2, CF(center), metal, Enum.Material.Metal)
-	for _, s in ipairs({ -1, 1 }) do
-		self:cyl(name .. "RimFace", 0.04, rimR * 2, rimR * 2, CF(center + V3(s * (width / 2 + 0.012), 0, 0)), metal, Enum.Material.Metal)
-		self:cyl(name .. "RimWell", 0.04, rimR * 2 - 0.2, rimR * 2 - 0.2, CF(center + V3(s * (width / 2 + 0.03), 0, 0)), Color3.fromRGB(58, 60, 66), Enum.Material.Metal)
-	end
-	-- hub + spokes
-	local hubR = o.hubRadius or 0.2
-	self:cyl(name .. "Hub", width + 0.2, hubR * 2, hubR * 2, CF(center), metal, Enum.Material.Metal)
-	local spokes = o.spokes or 12
-	local spokeR = rimR - 0.08
-	for _, s in ipairs({ -1, 1 }) do
-		for i = 0, spokes - 1 do
-			local a = i / spokes * math.pi * 2
-			local tw = (s * 0.42)
-			local p0 = center + V3(s * (width / 2 + 0.06), hubR * math.cos(a), hubR * math.sin(a))
-			local p1 = center + V3(s * (width / 2 + 0.05), spokeR * math.cos(a + tw), spokeR * math.sin(a + tw))
-			self:strut(name .. "Spoke", p0, p1, 0.05, metal, Enum.Material.Metal)
-		end
-	end
+
+	-- valve stem pointing in from the rim
+	local va = 0.9
+	bar("Valve", V3(half + 0.1, (rimR - 0.02) * math.cos(va), (rimR - 0.02) * math.sin(va)), V3(half + 0.1, (rimR - 0.55) * math.cos(va), (rimR - 0.55) * math.sin(va)), 0.08, dark, Enum.Material.Metal)
+
+	-- BRAKES (always on the outside, clear of the tyre)
 	if o.drum then
-		self:cyl(name .. "Drum", 0.2, hubR * 5, hubR * 5, CF(center + V3(o.drumSide or 0.3, 0, 0)), Color3.fromRGB(150, 152, 158), Enum.Material.Metal)
+		local sign = (o.drumSide or 1) >= 0 and 1 or -1
+		local x = sign * (half + 0.3)
+		fixedDisc("DrumPlate", 0.26, hubR * 3.9, x, steel, Enum.Material.Metal)
+		fixedDisc("DrumRing", 0.07, hubR * 4.3, x + sign * 0.1, dark, Enum.Material.Metal)
+		fixedBar("BrakeArm", V3(x + sign * 0.1, 0, 0.1), V3(x + sign * 0.1, -hubR * 2.5, hubR * 1.6), 0.1, dark, Enum.Material.Metal)
 	end
 	if o.disc then
-		local side = o.discSide or 0.2
-		self:cyl(name .. "Disc", 0.03, radius * 1.15, radius * 1.15, CF(center + V3(side, 0, 0)), Color3.fromRGB(176, 178, 184), Enum.Material.Metal)
-		self:cyl(name .. "DiscHub", 0.05, hubR * 3, hubR * 3, CF(center + V3(side, 0, 0)), Color3.fromRGB(60, 60, 64), Enum.Material.Metal)
+		local sign = (o.discSide or 1) >= 0 and 1 or -1
+		local x = sign * (half + 0.34)
+		local discR = rimR * 0.8
+		disc("Disc", 0.05, discR * 2, x, steel, Enum.Material.Metal)
+		disc("DiscHat", 0.08, hubR * 3.6, x, dark, Enum.Material.Metal)
+		for i = 0, 7 do
+			local a = i / 8 * math.pi * 2
+			mark(self:cyl(name .. "DiscHole", 0.07, 0.16, 0.16, CF(center + V3(x + sign * 0.01, discR * 0.7 * math.cos(a), discR * 0.7 * math.sin(a))), dark, Enum.Material.Metal))
+		end
+		local ca = o.caliper or -0.7
+		self:box(name .. "Caliper", V3(0.24, 0.5, 0.36), CF(center + V3(x + sign * 0.06, discR * 0.88 * math.cos(ca), discR * 0.88 * math.sin(ca))) * CFrame.Angles(ca, 0, 0), dark, Enum.Material.Metal)
 	end
 end
 

@@ -6,8 +6,8 @@
 
 	Client -> server
 	  BikeInput(throttle, brake, gear)   10 Hz while controlling a bike
-	  BikeAction(action, arg?)           "FuelTap" "Ignition" "Choke" "Kick"
-	                                     "Starter" "Grab" "Release" "Dismount"
+	  BikeAction(action, bikeModel)      a click on a control: "FuelTap" "Ignition"
+	                                     "Choke" "Kick" "Starter" "Ride" "Grab"
 	  MissionAbandon()
 	  GarageBuy / GarageEquip / GarageSpawn / MissionStart   (RemoteFunctions)
 
