@@ -68,7 +68,7 @@ def static_part(cls, name, size, pos, rgb):
 def build():
     rs = item("ReplicatedStorage", "ReplicatedStorage",
               item("Folder", "Shared", folder_items(SRC / "ReplicatedStorage/Shared")) +
-              item("Folder", "VehicleModels"))
+              item("Folder", "VehicleModels") + item("Folder", "TownModels"))
     sss = item("ServerScriptService", "ServerScriptService", folder_items(SRC / "ServerScriptService"))
     sps = item("StarterPlayerScripts", "StarterPlayerScripts", folder_items(SRC / "StarterPlayerScripts"))
     sp = item("StarterPlayer", "StarterPlayer", sps + item("StarterCharacterScripts", "StarterCharacterScripts"))
