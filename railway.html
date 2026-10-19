@@ -110,7 +110,10 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
 .card input[type=checkbox]{width:16px;height:16px;accent-color:#a3261f}
 .card input.rn{width:100%;font:700 16px Rockwell,Georgia,serif}
 .empty{padding:30px 10px;color:#a9a18c;font-style:italic;font-family:Georgia,serif;border-bottom:1px solid #3a3628}
-#palette{max-width:230px}
+#palette{max-width:250px;max-height:calc(100% - 16px);overflow:auto}
+#palette .tiles.t3{grid-template-columns:repeat(3,72px)}
+#palette .tiles.t3 .tile{width:72px}
+#palette .tiles.t3 canvas{width:58px;height:58px}
 #palette .gl{color:var(--dim);font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin:8px 0 3px}
 #palette .tiles{display:grid;grid-template-columns:repeat(2,92px);gap:6px}
 #palette .tile{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 4px 4px;background:#0f1318;border:1px solid #3a4553;border-radius:6px;font-size:11px;color:#c9d1d9;white-space:normal;line-height:1.1}
@@ -149,6 +152,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-a
       <button data-tool="buffer">Buffer<kbd>B</kbd></button>
       <button data-tool="station">Station<kbd>N</kbd></button>
       <button data-tool="glue">Glue<kbd>G</kbd></button>
+      <button data-tool="scenery">Scenery<kbd>Y</kbd></button>
       <button data-tool="train">Train<kbd>A</kbd></button>
       <button data-tool="delete" class="danger">Delete<kbd>D</kbd></button>
     </div>
@@ -246,7 +250,7 @@ const sim={            // UI / simulation flags
 };
 const W={               // the world / layout
   pieces:[],byId:new Map(),nextId:1,signals:[],joints:[],jointSet:new Set(),stations:[],trains:[],
-  blocks:[],nodeMap:new Map(),warn:[],crashes:[],clock:8*3600,ver:0,nextTrain:1,nextSt:1,nextSig:1,sep:new Set()
+  blocks:[],nodeMap:new Map(),warn:[],crashes:[],clock:8*3600,ver:0,nextTrain:1,nextSt:1,nextSig:1,sep:new Set(),items:[],nextItem:1
 };
 let _pathUid=0;
 let menuOpen=false;   // main menu overlay visible
@@ -575,12 +579,13 @@ function serialize(){
     joints:W.joints.slice(),buffers,
     stations:W.stations.map(s=>({id:s.id,n:s.name,p:s.pid,i:s.pi,s:+s.s.toFixed(3),side:s.side})),
     trains:W.trains.map(serTrain),
+    items:W.items.map(i=>({k:i.k,x:i.x,y:i.y,r:i.rot,v:i.v})),
     clock:W.clock,cam:{x:cam.x,y:cam.y,z:cam.z}
   };
 }
 function deserialize(o,keepCam){
   if(!o||o.app!=='railsim'||!Array.isArray(o.pieces))throw new Error('Not a railway layout file');
-  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();
+  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();W.items=[];
   W.nextId=1;W.nextSig=1;W.nextSt=1;W.nextTrain=1;
   for(const q of o.pieces){if(!TPL[q.t])continue;addPiece(q.t,q.r|0,q.m|0,q.x|0,q.y|0,q.s|0,q.id,q.g!==0);}
   for(const s of o.signals||[])W.signals.push({id:W.nextSig++,pid:s.p,e:s.e,hold:!!s.h,lamp:0});
@@ -593,6 +598,7 @@ function deserialize(o,keepCam){
   }
   rebuild();
   for(const t of o.trains||[]){const tr=deserTrain(t);if(tr)W.trains.push(tr);}
+  W.items=(o.items||[]).filter(i=>ITEMS[i.k]).map(i=>({id:W.nextItem++,k:i.k,x:i.x,y:i.y,rot:i.r||0,v:i.v|0}));
   W.clock=o.clock||8*3600;
   if(!keepCam&&o.cam){cam.x=o.cam.x;cam.y=o.cam.y;cam.z=o.cam.z;}
   sim.sel=null;sim.started=false;
@@ -621,7 +627,7 @@ function resetSim(){
   if(JSON.stringify(cur.pieces.map(p=>[p.id,p.t,p.r,p.m,p.x,p.y]))!==JSON.stringify(base.pieces.map(p=>[p.id,p.t,p.r,p.m,p.x,p.y]))){
     // Track was edited after the run began: keep the new track, restore trains that still fit.
     const ids=new Set(cur.pieces.map(p=>p.id));
-    base.pieces=cur.pieces;base.signals=cur.signals;base.joints=cur.joints;base.buffers=cur.buffers;base.stations=cur.stations;
+    base.pieces=cur.pieces;base.signals=cur.signals;base.joints=cur.joints;base.buffers=cur.buffers;base.stations=cur.stations;base.items=cur.items;
     base.trains=base.trains.filter(t=>t.trail.every(e=>ids.has(e.p)));
   }
   deserialize(base,true);sim.started=false;ui.refresh();toast('Reset to start of run');
@@ -1361,6 +1367,8 @@ function render(tms){
     }
     if(cam.z>=22)for(const e of W.warn)label('!',e.x,e.y,13,'#ff9f1a');
   }
+  // model items (scenery), back to front
+  for(const it of W.items.slice().sort((a,b)=>a.y-b.y))drawItem(ctx,it.k,it.x,it.y,itemAng(it.rot),it.v);
   // signals
   for(const s of W.signals)drawSignal(s);
   // trains
@@ -1522,6 +1530,11 @@ function drawOverlays(T){
       if(g.err)label(g.err,p.x,p.y-0.6,11,'#fff','#b3261e');
     }
   }
+  const ig=sim.itemGhost;
+  if(ig){
+    ctx.globalAlpha=0.7;drawItem(ctx,ig.k,ig.x,ig.y,itemAng(ig.rot),ig.v);ctx.globalAlpha=1;
+    ctx.lineWidth=0.04;ctx.strokeStyle=ig.ok?'#3ddc84':'#ff4d4d';ctx.beginPath();ctx.arc(ig.x,ig.y,ITEMS[ig.k].r*0.85,0,7);ctx.stroke();
+  }
   const dp=sim.dragPreview;
   if(dp&&dp.k>0){
     ctx.lineCap='round';
@@ -1544,6 +1557,113 @@ function drawOverlays(T){
     ctx.lineCap='round';
     for(const pa of sim.markPiece.paths)strokePathLine(pa,0.4,sim.markCol||'#ff4d4d',0.45);
   }
+}
+
+
+/* =====================================================================
+   8b. SCENERY / MODEL ITEMS: trees, buildings and details drawn top-down.
+   Each draw function works in local units (cells) around (0,0); the item's
+   rotation is applied by drawItem.  `lights` are [x,y,radius,alpha] glows
+   used by night mode.
+   ===================================================================== */
+const ITEMS={
+  oak:{label:'Oak tree',group:'Trees',r:0.42,draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.beginPath();g.arc(0.08,0.1,0.4,0,7);g.fill();
+    const c=['#3f7d34','#4c8f3b','#357029'][v%3];
+    g.fillStyle=c;for(const[x,y,r]of[[0,0,0.38],[-0.17,-0.1,0.24],[0.18,0.1,0.22],[0.05,-0.2,0.2]]){g.beginPath();g.arc(x,y,r,0,7);g.fill();}
+    g.fillStyle='rgba(255,255,255,.12)';g.beginPath();g.arc(-0.1,-0.12,0.16,0,7);g.fill();}},
+  pine:{label:'Pine tree',group:'Trees',r:0.36,draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.beginPath();g.arc(0.07,0.09,0.32,0,7);g.fill();
+    for(const[R,col]of[[0.34,'#1f4d2b'],[0.25,'#2a6338'],[0.14,'#3b7a49']]){
+      g.fillStyle=col;g.beginPath();for(let i=0;i<16;i++){const a=i/16*Math.PI*2,r=i%2?R*0.55:R;g.lineTo(Math.cos(a)*r,Math.sin(a)*r);}g.closePath();g.fill();}}},
+  bush:{label:'Bush',group:'Trees',r:0.22,draw(g,v){
+    g.fillStyle='rgba(0,0,0,.22)';g.beginPath();g.arc(0.05,0.06,0.2,0,7);g.fill();
+    g.fillStyle=['#4f8a3c','#5b9a45','#6a8f3a'][v%3];for(const[x,y]of[[-0.08,0],[0.08,0.02],[0,-0.09]]){g.beginPath();g.arc(x,y,0.13,0,7);g.fill();}}},
+  house:{label:'House',group:'Buildings',r:0.62,lights:[[-0.2,0.38,0.35,0.5],[0.25,0.38,0.35,0.5]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.5,-0.33,1.1,0.8);
+    g.fillStyle='#d9cdb4';g.fillRect(-0.55,-0.4,1.1,0.8);
+    const roof=['#a5432e','#6b6f78','#7b5a3a'][v%3];
+    g.fillStyle=roof;g.fillRect(-0.6,-0.42,1.2,0.84);
+    g.fillStyle='rgba(255,255,255,.14)';g.fillRect(-0.6,-0.42,1.2,0.42);g.fillStyle='rgba(0,0,0,.18)';g.fillRect(-0.6,0,1.2,0.42);
+    g.strokeStyle='rgba(0,0,0,.4)';g.lineWidth=0.02;g.beginPath();g.moveTo(-0.6,0);g.lineTo(0.6,0);g.stroke();
+    g.fillStyle='#6b2f22';g.fillRect(0.28,-0.3,0.12,0.12);}},
+  cottage:{label:'Cottage',group:'Buildings',r:0.5,lights:[[0,0.3,0.3,0.5]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.36,-0.22,0.8,0.62);
+    g.fillStyle='#e8dcc0';g.fillRect(-0.4,-0.3,0.8,0.6);
+    g.fillStyle=['#b99a52','#9a5a3a','#7a7f86'][v%3];g.fillRect(-0.45,-0.32,0.9,0.64);
+    g.fillStyle='rgba(255,255,255,.14)';g.fillRect(-0.45,-0.32,0.9,0.32);g.fillStyle='rgba(0,0,0,.2)';g.fillRect(-0.45,0,0.9,0.32);
+    g.fillStyle='#5a3a2a';g.fillRect(-0.28,-0.26,0.1,0.1);}},
+  shop:{label:'Shop',group:'Buildings',r:0.62,lights:[[0.5,0,0.4,0.6]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.5,-0.3,1.1,0.8);
+    g.fillStyle='#b8b0a0';g.fillRect(-0.55,-0.4,1.1,0.8);
+    g.fillStyle='#8c857a';g.fillRect(-0.5,-0.35,0.95,0.7);
+    const sc=['#b3261e','#1f5fa8','#2e8b57'][v%3];
+    for(let i=0;i<6;i++){g.fillStyle=i%2?'#f3ede0':sc;g.fillRect(0.45,-0.4+i*0.133,0.14,0.134);}}},
+  factory:{label:'Factory',group:'Buildings',r:1.0,lights:[[0.2,0.5,0.4,0.4],[-0.3,0.5,0.4,0.4]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.8,-0.45,1.7,1.0);
+    g.fillStyle='#8d8f93';g.fillRect(-0.85,-0.5,1.7,1.0);
+    for(let i=0;i<5;i++){g.fillStyle=i%2?'#a4a7ab':'#6f7276';g.fillRect(-0.85+i*0.34,-0.5,0.34,1.0);}
+    g.fillStyle='#7a3b2e';g.beginPath();g.arc(0.62,-0.28,0.1,0,7);g.fill();g.fillStyle='#2a2a2a';g.beginPath();g.arc(0.62,-0.28,0.055,0,7);g.fill();}},
+  church:{label:'Church',group:'Buildings',r:0.8,lights:[[0.3,0,0.4,0.5]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.55,-0.22,1.4,0.58);g.fillRect(-0.15,-0.5,0.5,1.0);
+    g.fillStyle='#6d6a63';g.fillRect(-0.65,-0.28,1.4,0.56);g.fillRect(-0.25,-0.5,0.5,1.0);
+    g.fillStyle='rgba(255,255,255,.12)';g.fillRect(-0.65,-0.28,1.4,0.28);g.fillRect(-0.25,-0.5,0.25,1.0);
+    g.fillStyle='#8a847a';g.fillRect(-0.8,-0.18,0.3,0.36);
+    g.strokeStyle='#4a463f';g.lineWidth=0.02;g.beginPath();g.moveTo(-0.8,-0.18);g.lineTo(-0.5,0.18);g.moveTo(-0.8,0.18);g.lineTo(-0.5,-0.18);g.stroke();}},
+  tower:{label:'Water tower',group:'Details',r:0.4,draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.beginPath();g.ellipse(0.12,0.12,0.36,0.3,0,0,7);g.fill();
+    g.strokeStyle='#4a4f56';g.lineWidth=0.04;for(const[x,y]of[[-0.28,-0.28],[0.28,-0.28],[-0.28,0.28],[0.28,0.28]]){g.beginPath();g.moveTo(0,0);g.lineTo(x,y);g.stroke();}
+    g.fillStyle='#7a7f86';g.beginPath();g.arc(0,0,0.3,0,7);g.fill();g.strokeStyle='#555a60';g.lineWidth=0.03;g.beginPath();g.arc(0,0,0.22,0,7);g.stroke();
+    g.fillStyle='#9aa0a8';g.beginPath();g.arc(-0.06,-0.06,0.1,0,7);g.fill();}},
+  stationbldg:{label:'Station building',group:'Buildings',r:1.1,lights:[[-0.6,0.36,0.4,0.5],[0,0.36,0.4,0.5],[0.6,0.36,0.4,0.5]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.95,-0.22,2.0,0.62);
+    g.fillStyle='#d6c9a6';g.fillRect(-1.0,-0.3,2.0,0.6);
+    g.fillStyle='#8a5a3a';g.fillRect(-1.05,-0.33,2.1,0.66);
+    g.fillStyle='rgba(255,255,255,.14)';g.fillRect(-1.05,-0.33,2.1,0.33);g.fillStyle='rgba(0,0,0,.2)';g.fillRect(-1.05,0,2.1,0.33);
+    g.fillStyle='#efe6d2';g.beginPath();g.arc(0,0,0.1,0,7);g.fill();g.strokeStyle='#2a2216';g.lineWidth=0.015;g.beginPath();g.arc(0,0,0.1,0,7);g.moveTo(0,0);g.lineTo(0,-0.07);g.moveTo(0,0);g.lineTo(0.05,0.02);g.stroke();}},
+  sigbox:{label:'Signal box',group:'Buildings',r:0.35,lights:[[0.2,0,0.3,0.7]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.2,-0.16,0.5,0.4);
+    g.fillStyle='#ececec';g.fillRect(-0.25,-0.2,0.5,0.4);g.fillStyle='#555';g.fillRect(-0.28,-0.23,0.56,0.46);
+    g.fillStyle='#9fc4de';g.fillRect(0.12,-0.16,0.12,0.32);}},
+  lamp:{label:'Lamp post',group:'Details',r:0.12,lights:[[0,0,0.9,0.5]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.beginPath();g.arc(0.03,0.03,0.07,0,7);g.fill();
+    g.fillStyle='#222';g.beginPath();g.arc(0,0,0.05,0,7);g.fill();g.fillStyle='#ffe9a0';g.beginPath();g.arc(0,0,0.03,0,7);g.fill();}},
+  fence:{label:'Fence',group:'Details',r:0.6,draw(g,v){
+    g.strokeStyle='#8a6b45';g.lineWidth=0.03;g.beginPath();g.moveTo(-0.6,0);g.lineTo(0.6,0);g.stroke();
+    g.fillStyle='#6f5436';for(let i=-3;i<=3;i++)g.fillRect(i*0.2-0.025,-0.04,0.05,0.08);}},
+  pond:{label:'Pond',group:'Details',r:0.6,draw(g,v){
+    g.fillStyle='#3a6b2c';g.beginPath();g.ellipse(0,0,0.66,0.46,0,0,7);g.fill();
+    g.fillStyle='#3d7fa6';g.beginPath();g.ellipse(0,0,0.58,0.38,0,0,7);g.fill();
+    g.fillStyle='rgba(255,255,255,.22)';g.beginPath();g.ellipse(-0.15,-0.1,0.2,0.08,-0.4,0,7);g.fill();}},
+  cow:{label:'Cow',group:'Details',r:0.2,draw(g,v){
+    g.fillStyle='rgba(0,0,0,.2)';g.beginPath();g.ellipse(0.04,0.04,0.2,0.1,0,0,7);g.fill();
+    g.fillStyle='#f4f1ea';g.beginPath();g.ellipse(0,0,0.19,0.1,0,0,7);g.fill();
+    g.fillStyle='#2a2a2a';g.beginPath();g.ellipse(-0.04,0.02,0.06,0.04,0.3,0,7);g.fill();g.beginPath();g.ellipse(0.06,-0.03,0.04,0.03,0,0,7);g.fill();
+    g.fillStyle='#e8d8d0';g.beginPath();g.arc(0.2,0,0.055,0,7);g.fill();}},
+  car:{label:'Car',group:'Details',r:0.25,lights:[[0.22,-0.06,0.3,0.6],[0.22,0.06,0.3,0.6]],draw(g,v){
+    g.fillStyle='rgba(0,0,0,.25)';g.fillRect(-0.18,-0.08,0.42,0.22);
+    g.fillStyle=['#b3261e','#1f5fa8','#e0b43a','#2e8b57','#e8e8e8'][v%5];g.fillRect(-0.21,-0.11,0.42,0.22);
+    g.fillStyle='rgba(20,30,40,.7)';g.fillRect(-0.06,-0.08,0.14,0.16);g.fillStyle='rgba(255,255,255,.2)';g.fillRect(-0.21,-0.11,0.42,0.05);}},
+  bench:{label:'Bench',group:'Details',r:0.2,draw(g,v){
+    g.fillStyle='#6f5436';g.fillRect(-0.16,-0.05,0.32,0.1);g.fillStyle='#4a3826';g.fillRect(-0.16,-0.06,0.32,0.02);}}
+};
+function drawItem(g,k,x,y,rot,v){g.save();g.translate(x,y);g.rotate(rot);ITEMS[k].draw(g,v||0);g.restore();}
+const itemAng=r=>r*Math.PI/2;
+function itemAt(wx,wy){
+  for(let i=W.items.length-1;i>=0;i--){const it=W.items[i];if(Math.hypot(wx-it.x,wy-it.y)<Math.max(0.28,ITEMS[it.k].r*0.8))return it;}
+  return null;
+}
+// legal spot for a model item: clear of track and of other items
+function itemSpotOk(k,x,y,except){
+  const r=ITEMS[k].r;
+  if(pickPath(x,y,r*0.75+0.2))return false;
+  for(const o of W.items)if(o!==except&&Math.hypot(o.x-x,o.y-y)<(ITEMS[o.k].r+r)*0.55)return false;
+  return true;
+}
+function drawItemIcon(cv,k){
+  const g=cv.getContext('2d'),S=cv.width;g.clearRect(0,0,S,S);
+  const sc=Math.min(S*0.78/(ITEMS[k].r*2.1),S*0.55);
+  g.save();g.translate(S/2,S/2);g.scale(sc,sc);ITEMS[k].draw(g,1);g.restore();
 }
 
 /* ---- particles & night lighting ------------------------------------ */
@@ -1606,6 +1726,11 @@ function drawNight(){
         const lx=k*hl2/3,ly=sd*0.125;ctx.fillRect(p.x+lx*c-ly*s-0.03,p.y+lx*s+ly*c-0.03,0.06,0.06);
       }
     }
+  }
+  for(const it of W.items){
+    const L=ITEMS[it.k].lights;if(!L)continue;
+    const a=itemAng(it.rot),c=Math.cos(a),s=Math.sin(a);
+    for(const[lx,ly,r,al]of L)glow(it.x+lx*c-ly*s,it.y+lx*s+ly*c,r,'255,214,120',al);
   }
   for(const s of W.signals){const m=signalPos(s);glow(m[0],m[1],0.5,s.lamp<0.5?'255,50,40':'60,255,120',0.7);}
   for(const st of W.stations){
@@ -1712,7 +1837,7 @@ function openEndNear(wx,wy,r){
 
 /* ---- hover / ghost update per tool --------------------------------- */
 function updateHover(wx,wy){
-  sim.ghost=null;sim.marks=[];sim.markPiece=null;sim.hoverW=[wx,wy];
+  sim.ghost=null;sim.itemGhost=null;sim.marks=[];sim.markPiece=null;sim.hoverW=[wx,wy];
   cvs.style.cursor=((sim.tool==='select'||sim.tool==='track')&&handleAt(wx,wy))?'grab':'default';
   let hint='';
   switch(sim.tool){
@@ -1746,6 +1871,10 @@ function updateHover(wx,wy){
         else{const err=trainFits(r.t);sim.ghost={type:'train',t:r.t,err};}
         hint=(sim.ghost.err||'Click to place the train (head at the arrow)')+'  •  R reverses facing';
       }else hint='Click on track to place the train';break;}
+    case'scenery':{
+      const x=Math.round(wx*2)/2,y=Math.round(wy*2)/2,k=sim.item,ok=itemSpotOk(k,x,y);
+      sim.itemGhost={k,x,y,rot:sim.irot,v:sim.iv,ok};
+      hint=ok?'Click to place: '+ITEMS[k].label+'  •  R rotates':'Too close to track or another item';break;}
     case'glue':{
       const h=pickPath(wx,wy,0.4);
       if(h){sim.markPiece=h.path.piece;sim.markCol=h.path.piece.glued?'#ff9f1a':'#3ddc84';
@@ -1758,6 +1887,7 @@ function updateHover(wx,wy){
       const j=jointAt(wx,wy);if(j){const e=W.nodeMap.get(j)[0];sim.marks.push({x:e.x,y:e.y,r:0.3,col:'#ff4d4d'});hint='Remove joint';break;}
       const b=bufferAt(wx,wy);if(b){sim.marks.push({x:b.x,y:b.y,r:0.3,col:'#ff4d4d'});hint='Remove buffer stop';break;}
       const st=stationAt(wx,wy);if(st){posAt(st.path,st.s,_o);sim.marks.push({x:_o.x,y:_o.y,r:0.5,col:'#ff4d4d'});hint='Remove '+st.name;break;}
+      const it=itemAt(wx,wy);if(it){sim.marks.push({x:it.x,y:it.y,r:Math.max(0.3,ITEMS[it.k].r),col:'#ff4d4d'});hint='Click to remove '+ITEMS[it.k].label;break;}
       const h=pickPath(wx,wy,0.3);
       if(h){sim.markPiece=h.path.piece;sim.markCol='#ff4d4d';hint='Click to delete this track piece';}
       else hint='Click something to delete it';break;}
@@ -1829,10 +1959,15 @@ function onClick(wx,wy){
       else afterEdit();
       sim.sel={type:'train',id:t.id};ui.rebuildPanel=true;
       updateHover(wx,wy);return;}
+    case'scenery':{
+      const x=Math.round(wx*2)/2,y=Math.round(wy*2)/2,k=sim.item;
+      if(!itemSpotOk(k,x,y)){toast('Too close to track or another item');return;}
+      pushUndo();W.items.push({id:W.nextItem++,k,x,y,rot:sim.irot,v:sim.iv});
+      sim.iv=Math.floor(Math.random()*5);afterEdit();sndPlace();updateHover(wx,wy);return;}
     case'glue':{
       const h=pickPath(wx,wy,0.4);if(!h)return;
       const p=h.path.piece;pushUndo();
-      if(setGlue(p,!p.glued)){afterEdit();sndPlace();toast(p.glued?'Glued':'Unglued – drag its end handles to reshape');}else UNDO.pop();
+      if(setGlue(p,!p.glued)){afterEdit();if(p.glued)sndHammer(1);else sndPlace();toast(p.glued?'Glued':'Unglued – drag its end handles to reshape');}else UNDO.pop();
       updateHover(wx,wy);return;}
     case'delete':{
       const t=trainAt(wx,wy);
@@ -1846,6 +1981,8 @@ function onClick(wx,wy){
       const st=stationAt(wx,wy);
       if(st){pushUndo();W.stations=W.stations.filter(x=>x!==st);for(const t of W.trains)t.tt.stops=t.tt.stops.filter(x=>x.st!==st.id);
         if(sim.sel&&sim.sel.type==='station')sim.sel=null;rebuild();afterEdit();ui.rebuildPanel=true;return;}
+      const it=itemAt(wx,wy);
+      if(it){pushUndo();W.items=W.items.filter(x=>x!==it);afterEdit();updateHover(wx,wy);return;}
       const h=pickPath(wx,wy,0.3);
       if(h){pushUndo();removePiece(h.path.piece);afterEdit();sim.markPiece=null;updateHover(wx,wy);}
       return;}
@@ -1867,6 +2004,10 @@ cvs.addEventListener('pointerdown',e=>{
       const h=(sim.tool==='select'||sim.tool==='track')?handleAt(wx,wy):null;
       if(h){down.mode='resize';down.E=h;}                 // grab an end of loose track
       else if(isLineTool())down.mode='draw';              // drag to lay a straight run
+      else if(sim.tool==='select'){                       // drag a model item to move it
+        const it=itemAt(wx,wy);
+        if(it&&!trainAt(wx,wy)&&!signalAt(wx,wy)&&!stationAt(wx,wy)){down.mode='item';down.item=it;}
+      }
     }
   }else if(ptrs.size===2){
     const[a,b]=[...ptrs.values()];
@@ -1893,8 +2034,16 @@ cvs.addEventListener('pointermove',e=>{
     if(!down.moved&&Math.hypot(dx,dy)>(down.type==='touch'?9:5))down.moved=true;
     if(down.moved&&down.mode){
       const[wx,wy]=s2w(p.x,p.y);
-      if(!DRAG){down.mode==='resize'?startResize(down.E):startDraw(...s2w(down.x,down.y));}
-      if(DRAG)DRAG.kind==='resize'?updateResize(wx,wy):updateDraw(wx,wy);
+      if(!DRAG){
+        if(down.mode==='item'){pushUndo();DRAG={kind:'item',item:down.item,moved:false};}
+        else down.mode==='resize'?startResize(down.E):startDraw(...s2w(down.x,down.y));
+      }
+      if(DRAG){
+        if(DRAG.kind==='item'){
+          const x=Math.round(wx*2)/2,y=Math.round(wy*2)/2,it=DRAG.item;
+          if((x!==it.x||y!==it.y)&&itemSpotOk(it.k,x,y,it)){it.x=x;it.y=y;DRAG.moved=true;}
+        }else DRAG.kind==='resize'?updateResize(wx,wy):updateDraw(wx,wy);
+      }
     }else if(down.moved){cam.x=down.cx-dx/cam.z;cam.y=down.cy-dy/cam.z;{const st=selTrain();if(st&&st.follow){st.follow=false;ui.dirty=true;}}}
   }
   if(e.pointerType!=='touch'&&!(down&&down.moved)){const[wx,wy]=s2w(p.x,p.y);updateHover(wx,wy);}
@@ -1928,7 +2077,7 @@ cvs.addEventListener('wheel',e=>{
 },{passive:false});
 
 /* ---- keyboard ------------------------------------------------------ */
-const TOOLKEYS={v:'select',t:'track',u:'turnout',s:'signal',j:'joint',b:'buffer',n:'station',a:'train',d:'delete',g:'glue'};
+const TOOLKEYS={v:'select',t:'track',u:'turnout',s:'signal',j:'joint',b:'buffer',n:'station',a:'train',d:'delete',g:'glue',y:'scenery'};
 let brakeHeld=null;
 function selTrain(){return sim.sel&&sim.sel.type==='train'?W.trains.find(t=>t.id===sim.sel.id)||null:null;}
 function setThrottle(t,v){t.throttle=clamp(v,0,1);if(t.mode!=='manual')t.mode='manual';ui.dirty=true;}
@@ -1958,7 +2107,9 @@ window.addEventListener('keydown',e=>{
   if(k==='g'&&e.shiftKey){doGlueAll();return;}
   if(TOOLKEYS[k]){ui.setTool(TOOLKEYS[k]);return;}
   switch(k){
-    case'r':sim.rot=(sim.rot+(e.shiftKey?7:1))&7;if(sim.tool==='train'){sim.trainFlip=!sim.trainFlip;}refreshGhost();break;
+    case'r':if(sim.tool==='scenery')sim.irot=(sim.irot+(e.shiftKey?3:1))&3;
+      else{sim.rot=(sim.rot+(e.shiftKey?7:1))&7;if(sim.tool==='train'){sim.trainFlip=!sim.trainFlip;}}
+      refreshGhost();break;
     case'f':sim.mir^=1;refreshGhost();break;
     case'p':ui.togglePause();break;
     case'1':ui.setSpeed(1);break;case'2':ui.setSpeed(2);break;case'3':ui.setSpeed(5);break;
@@ -2062,6 +2213,8 @@ function finishDrag(){
     for(let i=0;i<D.k;i++)addPiece('straight',D.d,0,D.S[0]+DV[D.d][0]*i,D.S[1]+DV[D.d][1]*i,0,null,false);
     rebuild();afterEdit();sndPlace();
     toast('Laid '+D.k+' loose piece'+(D.k>1?'s':'')+' – drag an end handle to resize, then glue (G)');
+  }else if(D.kind==='item'){
+    if(D.moved){afterEdit();sndPlace();}else UNDO.pop();
   }else{
     if(D.changed)afterEdit();else UNDO.pop();
   }
@@ -2069,7 +2222,7 @@ function finishDrag(){
 }
 function doGlueAll(){
   pushUndo();const n=glueAll();
-  if(n){afterEdit();toast('Glued '+n+' piece'+(n>1?'s':''));}else{UNDO.pop();toast('Nothing loose to glue');}
+  if(n){afterEdit();sndHammer(n);toast('Glued '+n+' piece'+(n>1?'s':''));}else{UNDO.pop();toast('Nothing loose to glue');}
 }
 
 /* =====================================================================
@@ -2097,7 +2250,7 @@ const ui={
     ui.syncTools();
     ui.buildPalette();
     $('sHint').textContent={select:'Click trains, turnouts and signals. Drag to pan, wheel/pinch to zoom.',
-      track:'Click to place loose track, or drag (Straight/Diagonal) to lay a run. Glue it when done.',glue:'Click loose track to glue it down.',turnout:'Hover near a track end to snap a turnout.',
+      track:'Click to place loose track, or drag (Straight/Diagonal) to lay a run. Glue it when done.',glue:'Click loose track to glue it down.',scenery:'Pick a model item, then click to place it beside the track.',turnout:'Hover near a track end to snap a turnout.',
       signal:'Click track near a joint to place/remove a signal.',joint:'Click a joint to insert an insulated rail joint.',
       buffer:'Click an open end to add/remove a buffer stop.',station:'Click on track to place a station.',
       train:'Choose a consist, then click on track to place it.',delete:'Click an object to delete it.'}[t];
@@ -2127,6 +2280,12 @@ const ui={
         '<div class="row"><button data-pact="rot">Rotate (R)</button><button data-pact="flip">Flip (F)</button></div>'+
         '<div class="row"><button data-pact="glueall">Glue all (⇧G)</button></div>'+
         '<div class="hintp">New track is <b>loose</b> (amber). Drag with Straight/Diagonal to lay a run; drag an amber handle to resize; then <b>glue</b> it.</div>';
+    }else if(t==='scenery'){
+      const groups={};for(const[k,v]of Object.entries(ITEMS))(groups[v.group]=groups[v.group]||[]).push(k);
+      h='<h4>Model items</h4>'+Object.entries(groups).map(([gn,ks])=>'<div class="gl">'+gn+'</div><div class="tiles t3">'+
+        ks.map(k=>'<button class="tile'+(sim.item===k?' sel':'')+'" data-item="'+k+'" title="'+ITEMS[k].label+'"><canvas width="112" height="112" data-item-icon="'+k+'"></canvas><span>'+ITEMS[k].label+'</span></button>').join('')+'</div>').join('')+
+        '<div class="row"><button data-pact="irot">Rotate (R)</button></div>'+
+        '<div class="hintp">Click to place. Items can\'t sit on track. In Select, drag an item to move it; Delete removes it.</div>';
     }else if(t==='glue'){
       h='<h4>Glue / nail</h4><div class="hintp">Click loose (amber) track to glue it down. Click glued track to unglue it for editing.</div><div class="row"><button data-pact="glueall">Glue all (⇧G)</button></div>';
     }else if(t==='train'){
@@ -2140,6 +2299,7 @@ const ui={
     }
     el.innerHTML=h;el.style.display=h?'block':'none';
     el.querySelectorAll('canvas[data-icon]').forEach(c=>drawPieceIcon(c,c.dataset.icon));
+    el.querySelectorAll('canvas[data-item-icon]').forEach(c=>drawItemIcon(c,c.dataset.itemIcon));
   },
 
   /* ---- side panel ---- */
@@ -2336,7 +2496,9 @@ panelEl.addEventListener('change',e=>{
 });
 $('palette').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.piece){sim.piece=b.dataset.piece;sim.rot=PIECES[sim.piece].rot;sim.mir=PIECES[sim.piece].mir||0;ui.syncTools();ui.buildPalette();}
+  if(b.dataset.item){sim.item=b.dataset.item;ui.buildPalette();}
+  else if(b.dataset.pact==='irot'){sim.irot=(sim.irot+1)&3;}
+  else if(b.dataset.piece){sim.piece=b.dataset.piece;sim.rot=PIECES[sim.piece].rot;sim.mir=PIECES[sim.piece].mir||0;ui.syncTools();ui.buildPalette();}
   else if(b.dataset.pact==='rot'){sim.rot=(sim.rot+1)&7;}
   else if(b.dataset.pact==='flip'){sim.mir^=1;}
   else if(b.dataset.pact==='tflip'){sim.trainFlip=!sim.trainFlip;}
@@ -2391,7 +2553,7 @@ $('warnChip').addEventListener('click',()=>{if(W.warn.length){cam.x=W.warn[0].x;
 function buildHelp(){
   const rows=(a)=>a.map(([k,d])=>'<tr><td>'+k+'</td><td>'+d+'</td></tr>').join('');
   $('helpBox').innerHTML='<h2>Controls</h2><div class="twocol"><div><h4>Tools</h4><table>'+rows([
-    ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['G','Glue / unglue track (⇧G = glue all)'],['S','Signals (red/green)'],['J','Insulated joints'],
+    ['V','Select / click trains, turnouts, signals'],['T','Track pieces'],['U','Turnouts (left / right)'],['G','Glue / unglue track (hammer sound; ⇧G = glue all)'],['Y','Model items: trees, houses, factory, church…'],['S','Signals (red/green)'],['J','Insulated joints'],
     ['B','Buffer stops'],['N','Stations'],['A','Add train'],['D','Delete'],['R / Shift+R','Rotate ghost (or flip train facing)'],['F','Flip / mirror ghost'],['Esc','Cancel / deselect']])+
     '</table><h4>View</h4><table>'+rows([['Click a train','Opens the hand controller (knob = throttle)'],['Drag','Pan (mouse, touch); with Track+Straight: lay a run'],['Drag a handle','Resize loose straight track'],['Right/middle drag','Always pans'],['Wheel / pinch','Zoom'],['+ / −','Zoom'],['Shift+arrows','Pan'],['L','Show blocks overlay'],['K','Night / day'],['M','Train sounds on / off (Shift+M mutes everything)'],['O','Horn (selected train)']])+
     '</table></div><div><h4>Driving the selected train</h4><table>'+rows([['↑ / ↓','Throttle +10% / −10%'],['Space (hold)','Brake'],['X','Emergency stop'],['C','Reverse direction (when stopped)'],
@@ -2403,7 +2565,7 @@ function buildHelp(){
    11. EXAMPLE LAYOUTS (built with a small "turtle" that lays connected track)
    ===================================================================== */
 function clearWorld(){
-  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();
+  W.pieces=[];W.signals=[];W.joints=[];W.stations=[];W.trains=[];W.crashes=[];W.sep.clear();W.items=[];W.nextItem=1;
   W.nextId=1;W.nextSig=1;W.nextSt=1;W.nextTrain=1;W.clock=8*3600;sim.sel=null;sim.started=false;
   rebuild(true);
 }
@@ -2544,10 +2706,40 @@ function exTerminus(){
   bt.tt.stops=[{st:stH.id,dwell:6,depart:null},{st:stP1.id,dwell:12,depart:null}];
   void stP2;
 }
+// Dress an example with scenery: a station building beside each platform, then scattered trees,
+// houses and details (deterministic for a given seed), kept clear of track, stations and signals.
+function autoDecorate(seed,count){
+  if(!W.pieces.length)return;
+  let s=seed;const rnd=()=>(s=(s*16807)%2147483647)/2147483647;
+  const add=(k,x,y,rot,v)=>W.items.push({id:W.nextItem++,k,x,y,rot,v});
+  const clearOfStations=(x,y,r)=>W.stations.every(st=>{posAt(st.path,st.s,_o);return Math.hypot(_o.x-x,_o.y-y)>r;});
+  const clearOfSignals=(x,y)=>W.signals.every(sg=>{const m=signalPos(sg);return Math.hypot(m[0]-x,m[1]-y)>0.7;});
+  for(const st of W.stations){
+    posAt(st.path,st.s,_o);
+    const q=Math.round(_o.a/(Math.PI/2));if(Math.abs(_o.a-q*Math.PI/2)>0.05)continue;
+    const n=[-Math.sin(_o.a)*st.side,Math.cos(_o.a)*st.side];
+    const x=Math.round((_o.x+n[0]*1.2)*2)/2,y=Math.round((_o.y+n[1]*1.2)*2)/2;
+    if(itemSpotOk('stationbldg',x,y))add('stationbldg',x,y,((q%2)+2)%2,0);
+  }
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const p of W.pieces){x0=Math.min(x0,p.minx);x1=Math.max(x1,p.maxx);y0=Math.min(y0,p.miny);y1=Math.max(y1,p.maxy);}
+  x0-=3;y0-=3;x1+=3;y1+=3;
+  const kinds=[['oak',6],['pine',6],['bush',5],['house',1.3],['cottage',1.6],['shop',0.5],['pond',0.6],['cow',0.9],['fence',0.6],['tower',0.3],['church',0.25],['factory',0.35],['car',0.5],['lamp',0.4],['bench',0.3]];
+  const total=kinds.reduce((a,k)=>a+k[1],0),unique=new Set(['church','factory','tower']);
+  let placed=0;
+  for(let i=0;i<count*14&&placed<count;i++){
+    let r=rnd()*total,k=kinds[0][0];for(const[n,w]of kinds){if((r-=w)<=0){k=n;break;}}
+    if(unique.has(k)&&W.items.some(o=>o.k===k))continue;
+    const x=Math.round((x0+rnd()*(x1-x0))*2)/2,y=Math.round((y0+rnd()*(y1-y0))*2)/2;
+    if(!itemSpotOk(k,x,y)||!clearOfStations(x,y,2.2)||!clearOfSignals(x,y))continue;
+    add(k,x,y,Math.floor(rnd()*4),Math.floor(rnd()*5));placed++;
+  }
+}
+const DECOR={oval:[11,40],eight:[7,50],terminus:[3,55],twin:[5,55]};
 const EXAMPLES={oval:exOval,eight:exEight,terminus:exTerminus,twin:exTwin,blank:()=>{clearWorld();}};
 function loadExample(name,silent){
   if(!silent)pushUndo();
-  try{EXAMPLES[name]();}catch(err){console.error(err);toast('Example failed: '+err.message);return;}
+  try{EXAMPLES[name]();if(DECOR[name]){rebuild();autoDecorate(DECOR[name][0],DECOR[name][1]);}}catch(err){console.error(err);toast('Example failed: '+err.message);return;}
   rebuild();computeOccupancy();
   for(const t of W.trains)updateGeometry(t);
   for(const s of W.signals)s.lamp=0;
@@ -2628,6 +2820,26 @@ function sndUiClick(){
 function sndPlace(){
   if(!SND.ui||!sndReady())return;
   sndTone(230,110,0.07,0.07);sndBurst(500,0.8,0.05,0.05,'lowpass');
+}
+// Hammering a nail: a few knocks, each a wooden click + dull thud + a short metallic ping.
+function sndHammer(n){
+  if(!SND.ui||!sndReady())return;
+  const ac=SND.ac,taps=Math.min(9,Math.max(3,Math.round(2+n/3)));
+  const osc=(type,f0,f1,vol,t,dur)=>{
+    const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f0,t);if(f1)o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0005,t+dur);o.connect(g);g.connect(SND.master);o.start(t);o.stop(t+dur+0.02);
+  };
+  let t=ac.currentTime+0.01;
+  for(let i=0;i<taps;i++){
+    const p=0.92+Math.random()*0.16,v=i===taps-1?1.3:1;
+    const nz=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();
+    nz.buffer=SND.noise;f.type='bandpass';f.frequency.value=2200*p;f.Q.value=2.5;
+    g.gain.setValueAtTime(0.3*v,t);g.gain.exponentialRampToValueAtTime(0.0005,t+0.035);
+    nz.connect(f);f.connect(g);g.connect(SND.master);nz.start(t,Math.random(),0.06);
+    osc('sine',210*p,80,0.24*v,t,0.1);
+    osc('sine',3300*p,null,0.05*v,t,0.18);osc('sine',5100*p,null,0.025*v,t,0.12);
+    t+=0.11+Math.random()*0.035;
+  }
 }
 function sndChuff(vol){if(SND.ac)sndBurst(380,0.6,vol,0.13);}
 function sndHorn(t,force){
