@@ -281,7 +281,9 @@ function MissionService.init(economyService, vehicleService)
 				finish(player, m, false, nil, "Job failed: out of time.")
 			else
 				local pos = rec.chassis.Position
-				if m.def.type == "Delivery" then
+				if Vehicles.warpedRecently(rec) then
+					-- the bike was moved impossibly fast: no progress counts
+				elseif m.def.type == "Delivery" then
 					checkDelivery(player, m, pos, rec)
 				elseif m.def.type == "Checkpoint" then
 					checkCheckpoints(player, m, pos)

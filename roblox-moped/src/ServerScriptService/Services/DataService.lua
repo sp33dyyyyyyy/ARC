@@ -43,6 +43,7 @@ local function getStore()
 end
 local profiles: { [Player]: any } = {}
 local beforeSave: { (Player) -> () } = {}
+local saving: { [Player]: boolean } = {}
 
 -- Other services register here to write their live state (e.g. fuel in the bike
 -- you are riding) into the profile right before it is saved.
@@ -189,17 +190,26 @@ function DataService.save(player: Player, final: boolean?)
 	if not profile or profile.volatile then
 		return
 	end
+	-- one save per player at a time: a slow autosave must never land after the final one
+	while saving[player] do
+		task.wait(0.2)
+		if not profiles[player] then
+			return
+		end
+	end
+	saving[player] = true
 	for _, fn in ipairs(beforeSave) do
 		pcall(fn, player)
 	end
 	savingInFlight += 1
-	local snapshot = table.clone(profile)
 	local ok = withRetry("save " .. player.Name, function()
+		local snapshot = table.clone(profile) -- taken fresh on every attempt
 		getStore():UpdateAsync(keyFor(player), function()
 			return snapshot -- full overwrite; this server owns the profile
 		end)
 	end)
 	savingInFlight -= 1
+	saving[player] = nil
 	if not ok then
 		warn("[DataService] Could not save " .. player.Name)
 	end
@@ -222,8 +232,19 @@ function DataService.init()
 	task.spawn(function()
 		while true do
 			task.wait(CFG.AutosaveSeconds)
+			local list = {}
 			for player in pairs(profiles) do
-				task.spawn(DataService.save, player, false)
+				table.insert(list, player) -- snapshot: we yield while walking it
+			end
+			for _, player in ipairs(list) do
+				if profiles[player] then
+					task.spawn(function()
+						local ok, err = pcall(DataService.save, player, false)
+						if not ok then
+							warn("[DataService] autosave: " .. tostring(err))
+						end
+					end)
+				end
 				task.wait(0.5) -- spread requests out
 			end
 		end

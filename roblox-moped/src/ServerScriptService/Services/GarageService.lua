@@ -16,14 +16,16 @@ local Remotes = require(Shared.Remotes)
 local GarageService = {}
 local Data, Economy, Vehicles
 
-local lastCall: { [Player]: number } = {}
+local lastCall: { [Player]: { [string]: number } } = {}
 
-local function rateLimited(player: Player, seconds: number): boolean
+local function rateLimited(player: Player, key: string, seconds: number): boolean
 	local now = os.clock()
-	if lastCall[player] and now - lastCall[player] < seconds then
+	lastCall[player] = lastCall[player] or {}
+	local last = lastCall[player][key]
+	if last and now - last < seconds then
 		return true
 	end
-	lastCall[player] = now
+	lastCall[player][key] = now
 	return false
 end
 
@@ -35,7 +37,7 @@ local function validPaint(vehicle, paint): number?
 end
 
 local function buy(player: Player, id, paint)
-	if rateLimited(player, 0.4) then
+	if rateLimited(player, "buy", 0.4) then
 		return { ok = false, reason = "Slow down" }
 	end
 	local profile = Data.get(player)
@@ -65,7 +67,7 @@ local function buy(player: Player, id, paint)
 end
 
 local function equip(player: Player, id, paint)
-	if rateLimited(player, 0.4) then
+	if rateLimited(player, "equip", 1.5) then
 		return { ok = false, reason = "Slow down" }
 	end
 	local profile = Data.get(player)
@@ -83,7 +85,7 @@ local function equip(player: Player, id, paint)
 end
 
 local function spawnBike(player: Player)
-	if rateLimited(player, 3) then
+	if rateLimited(player, "spawn", 3) then
 		return { ok = false, reason = "Wait a moment" }
 	end
 	local ok, reason = Vehicles.spawn(player)

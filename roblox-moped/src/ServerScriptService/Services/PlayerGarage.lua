@@ -583,6 +583,9 @@ local function buildCrate(g, order, cf: CFrame)
 	crate.PrimaryPart = box
 	crate.Parent = g.model
 	clickable(box, 18, ownerOnly(g, function(player)
+		if crate:GetAttribute("Ready") ~= true then
+			return -- still being carried in
+		end
 		Parts.unpack(player, order.id)
 	end))
 	plate(box, "AUF", Enum.NormalId.Top, rgb(60, 40, 20))
@@ -597,6 +600,7 @@ function PlayerGarage.placeCrate(player: Player, order)
 	end
 	local slot = firstFreeCrateSlot(g)
 	local crate = buildCrate(g, order, g.cf * CF(crateSlot(slot)))
+	crate:SetAttribute("Ready", true)
 	g.crates[order.id] = { model = crate, slot = slot }
 end
 
@@ -703,6 +707,7 @@ function PlayerGarage.deliver(player: Player, order)
 		tweenCrate(crate, g.cf * CF(5, 1.1, -24.5), 0.8) -- clear of the van
 		tweenCrate(crate, g.cf * CF(5, 1.1, crateSlot(slot).Z), 2.0) -- through the open door
 		tweenCrate(crate, g.cf * CF(crateSlot(slot)), 0.8)
+		crate:SetAttribute("Ready", true)
 		notify(player, "Your parcel is in the garage: click the crate to unpack it.", "good")
 
 		-- van leaves (back the way it came)
@@ -802,6 +807,13 @@ function PlayerGarage.init(dataService, economyService, vehicleService, partsSer
 		folder.Name = "Garagenreihe"
 		folder.Parent = Workspace
 	end
+
+	Vehicles.onDespawn(function(player)
+		local g = garages[player]
+		if g and g.standRec then
+			standBikeOf(g) -- notices the bike is going and lowers the stand / closes the workshop
+		end
+	end)
 
 	Remotes.event("GarageAction").OnServerEvent:Connect(function(player, action)
 		if action == "Release" then

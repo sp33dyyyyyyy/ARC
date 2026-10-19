@@ -14,6 +14,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VehicleData = require(Shared:WaitForChild("VehicleData"))
 local PartsData = require(Shared:WaitForChild("PartsData"))
+local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local ClientState = require(Shared:WaitForChild("ClientState"))
 local UIKit = require(script.Parent:WaitForChild("UIKit"))
@@ -224,7 +225,7 @@ RunService.RenderStepped:Connect(function()
 		setRow("Starter", "none", T.muted)
 	end
 	local running = m:GetAttribute("EngineRunning")
-	local flooded = m:GetAttribute("Flooded") >= 2.5
+	local flooded = m:GetAttribute("Flooded") >= GameConfig.Engine.FloodLimit
 	if m:GetAttribute("Wrecked") then
 		setRow("Engine", "WRECKED", T.warn)
 	elseif flooded then

@@ -13,8 +13,8 @@
 local CollectionService = game:GetService("CollectionService")
 local TweenService = game:GetService("TweenService")
 
-local closedCF: { [BasePart]: CFrame } = {}
-local running: { [BasePart]: Tween } = {}
+local closedCF: { [BasePart]: CFrame } = setmetatable({}, { __mode = "k" })
+local running: { [BasePart]: Tween } = setmetatable({}, { __mode = "k" })
 
 local function slatsOf(door: Instance): { BasePart }
 	local list = {}

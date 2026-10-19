@@ -293,6 +293,7 @@ function PartsService.init(dataService, economyService, vehicleService, garageSv
 	Remotes.func("PartsRemove").OnServerInvoke = remove
 	Remotes.func("GarageTeleport").OnServerInvoke = garageTeleport
 	Remotes.event("OrdersChanged").OnServerEvent:Connect(function(player)
+		Data.push(player) -- the client asks once at start-up; the first push at load is usually missed
 		PartsService.pushOrders(player)
 	end)
 	Players.PlayerRemoving:Connect(function(player)

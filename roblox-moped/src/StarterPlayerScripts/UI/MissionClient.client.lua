@@ -51,7 +51,7 @@ local markerFolder = make("Folder", { Name = "MissionMarkers", Parent = Workspac
 local function pillar(size: number, transparency: number): Part
 	return make("Part", {
 		Parent = markerFolder, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
-		Size = Vector3.new(size, 90, size), Material = Enum.Material.Neon, Color = T.accent,
+		Size = Vector3.new(90, size, size), Material = Enum.Material.Neon, Color = T.accent,
 		Transparency = transparency, Shape = Enum.PartType.Cylinder,
 	})
 end

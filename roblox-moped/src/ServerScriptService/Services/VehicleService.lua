@@ -51,6 +51,9 @@ local VehicleService = {}
 local Data, Economy -- injected in init()
 local bikesFolder: Folder
 local bikes: { [Player]: any } = {} -- player -> the bike they used last ("active")
+local lastInput: { [Player]: number } = {}
+local lastAction: { [Player]: number } = {}
+local despawnHooks: { (Player) -> () } = {}
 local fleets: { [Player]: { any } } = {} -- player -> every bike they have spawned
 
 local bikeEvent: RemoteEvent
@@ -403,12 +406,12 @@ local function handleAction(player: Player, action: string, target: any?)
 	if not rec or not rec.model.Parent then
 		return
 	end
-	bikes[player] = rec -- this is now the bike the player is dealing with
 	local m = rec.model
 	local mode = m:GetAttribute("Mode")
 	if not nearBike(player, rec) then
 		return
 	end
+	bikes[player] = rec -- this is now the bike the player is dealing with
 	if m:GetAttribute("OnStand") and (action == "Ride" or action == "Grab" or action == "Kick" or action == "Starter") then
 		notify(player, "The bike is on the stand - lower it first (click the stand).", "hint")
 		return
@@ -550,6 +553,9 @@ function VehicleService.despawn(player: Player)
 		for _, rec in ipairs(list) do
 			destroyRec(player, rec)
 		end
+	end
+	for _, fn in ipairs(despawnHooks) do
+		pcall(fn, player) -- e.g. lower the garage stand now that its bike is gone
 	end
 end
 
@@ -737,6 +743,7 @@ function VehicleService.dock(player: Player, rec, cf: CFrame)
 		end
 	end
 	releasePush(rec)
+	rec.lastPos = nil
 	m:SetAttribute("Rider", 0)
 	m:SetAttribute("Ignition", false)
 	m:SetAttribute("FuelTap", "Off")
@@ -747,7 +754,16 @@ function VehicleService.dock(player: Player, rec, cf: CFrame)
 	bikes[player] = rec
 end
 
+function VehicleService.warpedRecently(rec): boolean
+	return rec.warpedAt ~= nil and os.clock() - rec.warpedAt < 20
+end
+
+function VehicleService.onDespawn(fn: (Player) -> ())
+	table.insert(despawnHooks, fn)
+end
+
 function VehicleService.undock(rec)
+	rec.lastPos = nil
 	rec.model:SetAttribute("OnStand", false)
 end
 
@@ -917,6 +933,18 @@ local function tickBike(rec, dt: number)
 
 		-- server-side speed sanity (a hacked client can still drive, but not warp)
 		local cap = vehicle.stats.topSpeedKmh * GameConfig.StudsPerKmh * CRASH.SpeedSanityMultiplier + 10
+		local pos = chassis.Position
+		if rec.lastPos then
+			local limit = cap * dt * 2 + 14 -- generous: lag spikes, jumps, falls
+			if (pos - rec.lastPos).Magnitude > limit then
+				-- impossible jump: put the bike back and flag it (missions ignore flagged bikes for a while)
+				rec.warpedAt = os.clock()
+				chassis.AssemblyLinearVelocity = Vector3.zero
+				chassis.CFrame = CFrame.new(rec.lastPos) * (chassis.CFrame - chassis.CFrame.Position)
+				pos = rec.lastPos
+			end
+		end
+		rec.lastPos = pos
 		if speed > cap then
 			chassis.AssemblyLinearVelocity = Vector3.new(vel.X, vel.Y, vel.Z) * (cap / speed)
 		end
@@ -989,6 +1017,14 @@ function VehicleService.init(dataService, economyService)
 
 	-- 10 Hz client input: throttle / brake / gear. Only the controlling player counts.
 	Remotes.event("BikeInput").OnServerEvent:Connect(function(player, throttle, brake, gear)
+		local now = os.clock()
+		if now - (lastInput[player] or 0) < 0.04 then
+			return
+		end
+		lastInput[player] = now
+		if throttle ~= throttle or brake ~= brake or gear ~= gear or math.abs(tonumber(gear) or 0) == math.huge then
+			return -- NaN / inf would poison the replicated attributes
+		end
 		local rec
 		for _, candidate in ipairs(fleets[player] or {}) do
 			if candidate.model.Parent and candidate.model:GetAttribute("Controller") == player.UserId then
@@ -1013,6 +1049,11 @@ function VehicleService.init(dataService, economyService)
 		if typeof(action) ~= "string" then
 			return
 		end
+		local now = os.clock()
+		if now - (lastAction[player] or 0) < 0.12 then
+			return -- no click-flooding
+		end
+		lastAction[player] = now
 		local target
 		if typeof(bikeModel) == "Instance" then
 			for _, candidate in ipairs(fleets[player] or {}) do
@@ -1029,6 +1070,7 @@ function VehicleService.init(dataService, economyService)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
+		lastInput[player], lastAction[player] = nil, nil
 		VehicleService.despawn(player)
 	end)
 
