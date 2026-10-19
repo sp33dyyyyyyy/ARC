@@ -147,17 +147,28 @@ local myBike: Model? = nil
 local lastSearch = 0
 local lastToast = nil
 
+-- The bike you're controlling, otherwise the nearest of yours (test mode has several).
 local function findMyBike(): Model?
 	local folder = Workspace:FindFirstChild("Bikes")
 	if not folder then
 		return nil
 	end
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local best, bestDistance = nil, math.huge
 	for _, m in ipairs(folder:GetChildren()) do
 		if m:GetAttribute("Owner") == player.UserId then
-			return m
+			if m:GetAttribute("Controller") == player.UserId then
+				return m
+			end
+			local root = m:IsA("Model") and m.PrimaryPart
+			local d = (hrp and root) and (hrp.Position - root.Position).Magnitude or math.huge
+			if best == nil or d < bestDistance then
+				best, bestDistance = m, d
+			end
 		end
 	end
-	return nil
+	return best
 end
 
 local TAP_COLOR = { Off = T.warn, On = T.good, Reserve = T.accent }

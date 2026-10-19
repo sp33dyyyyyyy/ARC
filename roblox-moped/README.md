@@ -37,6 +37,14 @@ other game. Audio is left as empty slots for **your own** sound ids.
 Gamepad: left stick steer, R2 throttle, L2 brake, A rear brake, X wheelie,
 bumpers shift.  Mobile touch controls are **not** included.
 
+### Test fleet
+
+`GameConfig.TestFleet = true` (the default for now) spawns **all four bikes in a
+line in front of you**, full tanks, owned or not, so you can try each one
+straight away. Pressing `B` re-spawns the line. Set it to `false` for the normal
+one-equipped-bike game. In test mode the HUD and the station prompts use
+whichever bike you're riding, or the nearest one.
+
 ### Starting a bike (the loop)
 
 1. **Fuel tap** `F` - On. (Reserve gives you the last litre or so.)

@@ -88,6 +88,10 @@ GameConfig.Data = {
 	AutosaveSeconds = 90,
 }
 
+-- TEST MODE: spawning puts every bike (owned or not, full tanks) in a line in
+-- front of you. Set false for the normal "one equipped bike" game.
+GameConfig.TestFleet = true
+
 -- Builds the bundled village at start. Set false (or add your own Workspace/Town
 -- folder) to use your own map.
 GameConfig.GenerateTown = true

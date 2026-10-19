@@ -48,7 +48,8 @@ local VehicleService = {}
 
 local Data, Economy -- injected in init()
 local bikesFolder: Folder
-local bikes: { [Player]: any } = {} -- player -> record
+local bikes: { [Player]: any } = {} -- player -> the bike they used last ("active")
+local fleets: { [Player]: { any } } = {} -- player -> every bike they have spawned
 
 local bikeEvent: RemoteEvent
 local function fireBikeEvent(rec, kind: string, data: any?)
@@ -369,11 +370,38 @@ end
 ----------------------------------------------------------------------------
 local TAP_NEXT = { Off = "On", On = "Reserve", Reserve = "Off" }
 
-local function handleAction(player: Player, action: string)
-	local rec = bikes[player]
+-- Which of the player's bikes does an action mean? The one they ride or push,
+-- otherwise the nearest one within reach.
+local function pickBike(player: Player)
+	local list = fleets[player]
+	if not list then
+		return nil
+	end
+	local _, _, hrp = character(player)
+	local best, bestDistance = nil, INTERACT_DISTANCE
+	for _, rec in ipairs(list) do
+		if rec.model.Parent then
+			local m = rec.model
+			if m:GetAttribute("Rider") == player.UserId or m:GetAttribute("Pusher") == player.UserId then
+				return rec
+			end
+			if hrp then
+				local d = (hrp.Position - rec.chassis.Position).Magnitude
+				if d < bestDistance then
+					best, bestDistance = rec, d
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function handleAction(player: Player, action: string, target: any?)
+	local rec = target or pickBike(player)
 	if not rec or not rec.model.Parent then
 		return
 	end
+	bikes[player] = rec -- this is now the bike the player is dealing with
 	local m = rec.model
 	local mode = m:GetAttribute("Mode")
 	if not nearBike(player, rec) then
@@ -462,7 +490,7 @@ local function buildPrompts(rec)
 						notify(who, "That's not your bike.", "warn")
 						return
 					end
-					handleAction(who, action)
+					handleAction(who, action, rec)
 				end)
 				rec.prompts[name] = p
 			end
@@ -499,12 +527,7 @@ end
 ----------------------------------------------------------------------------
 -- Spawning
 ----------------------------------------------------------------------------
-function VehicleService.despawn(player: Player)
-	local rec = bikes[player]
-	if not rec then
-		return
-	end
-	bikes[player] = nil
+local function destroyRec(player: Player, rec)
 	local profile = Data.get(player)
 	if profile and rec.model.Parent then
 		profile.bikeState[rec.vehicle.id] = {
@@ -519,38 +542,37 @@ function VehicleService.despawn(player: Player)
 	rec.model:Destroy()
 end
 
-function VehicleService.spawn(player: Player): (boolean, string?)
+function VehicleService.despawn(player: Player)
+	local list = fleets[player]
+	fleets[player] = nil
+	bikes[player] = nil
+	if list then
+		for _, rec in ipairs(list) do
+			destroyRec(player, rec)
+		end
+	end
+end
+
+-- Builds one bike, places it, registers it. Returns the record or nil, reason.
+local function placeBike(player: Player, vehicle, paintIndex: number, position: Vector3, facing: Vector3, ignore: Instance, fuelOverride: number?)
 	local profile = Data.get(player)
-	if not profile then
-		return false, "Profile not loaded"
-	end
-	local char, _, hrp = character(player)
-	if not (char and hrp) then
-		return false, "No character"
-	end
-	local vehicle = VehicleData.byId[profile.equipped]
-	local owned = profile.owned[profile.equipped]
-	if not (vehicle and owned) then
-		return false, "No bike equipped"
-	end
-
-	VehicleService.despawn(player)
-
-	local model = BikeFactory.create(vehicle.id, owned.paint)
+	local model = BikeFactory.create(vehicle.id, paintIndex)
 	if not model then
-		return false, "Model missing"
+		return nil, "Model missing"
 	end
 	BikeFactory.setupPhysics(model, vehicle)
 	local chassis = model.PrimaryPart :: BasePart
 	local seat = model:FindFirstChildWhichIsA("Seat", true)
 	if not seat then
-		return false, "Bike model has no Seat"
+		model:Destroy()
+		return nil, "Bike model has no Seat"
 	end
-	(seat :: Seat).CanTouch = false -- no accidental sitting; mounting is via the prompt
+	local seatPart = seat :: Seat
+	seatPart.CanTouch = false -- no accidental sitting; mounting is via the prompt
 
-	local saved = profile.bikeState[vehicle.id]
-	local fuel = saved and saved.fuel or vehicle.stats.fuelCapacityL * 0.5
-	local health = saved and saved.health or 100
+	local saved = profile and profile.bikeState[vehicle.id]
+	local fuel = fuelOverride or (saved and saved.fuel) or vehicle.stats.fuelCapacityL * 0.5
+	local health = fuelOverride and 100 or (saved and saved.health) or 100
 
 	local attrs = {
 		Owner = player.UserId, VehicleId = vehicle.id, Rider = 0, Pusher = 0, Controller = 0,
@@ -562,38 +584,86 @@ function VehicleService.spawn(player: Player): (boolean, string?)
 		model:SetAttribute(k, v)
 	end
 
-	-- drop it on the ground a few studs in front of the player
-	local flat = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
-	flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1)
-	local pos = hrp.Position + flat * 7
+	-- drop it on the ground at `position`, facing `facing`
 	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = { char, bikesFolder }
+	params.FilterDescendantsInstances = { ignore, bikesFolder }
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	local hit = Workspace:Raycast(pos + Vector3.new(0, 25, 0), Vector3.new(0, -80, 0), params)
-	local groundY = hit and hit.Position.Y or (hrp.Position.Y - 3)
+	local hit = Workspace:Raycast(position + Vector3.new(0, 25, 0), Vector3.new(0, -80, 0), params)
+	local groundY = hit and hit.Position.Y or (position.Y - 3)
 	local height = vehicle.geometry.wheelRadius + 0.25 + 0.3
-	model:PivotTo(CFrame.lookAt(Vector3.new(pos.X, groundY + height, pos.Z), Vector3.new(pos.X, groundY + height, pos.Z) + flat))
+	local at = Vector3.new(position.X, groundY + height, position.Z)
+	model:PivotTo(CFrame.lookAt(at, at + facing))
 	chassis.Anchored = true
 	model.Parent = bikesFolder
 
 	local rec = {
-		player = player, model = model, chassis = chassis, seat = seat, vehicle = vehicle,
+		player = player, model = model, chassis = chassis, seat = seatPart, vehicle = vehicle,
 		throttle = 0, brake = 0, bowl = 0, lastKick = 0, failures = 0,
 		runningSince = 0, speedHistory = {}, lastCrash = 0, tipTimer = 0, coastTimer = 0,
 		lastSave = os.clock(), prompts = {}, conns = {}, pushConns = {}, noCollide = {},
 		sputtered = false,
 	}
+	fleets[player] = fleets[player] or {}
+	table.insert(fleets[player], rec)
 	bikes[player] = rec
 	buildPrompts(rec)
 
-	table.insert(rec.conns, seat:GetPropertyChangedSignal("Occupant"):Connect(function()
-		if seat.Occupant == nil and model:GetAttribute("Mode") == "Ride" then
+	table.insert(rec.conns, seatPart:GetPropertyChangedSignal("Occupant"):Connect(function()
+		if seatPart.Occupant == nil and model:GetAttribute("Mode") == "Ride" then
 			local rider = Players:GetPlayerByUserId(model:GetAttribute("Rider"))
 			setArmPose(rider and rider.Character, nil)
 			startCoast(rec)
 		end
 	end))
+	return rec
+end
 
+function VehicleService.spawn(player: Player): (boolean, string?)
+	local profile = Data.get(player)
+	if not profile then
+		warn("[VehicleService] spawn: no profile for " .. player.Name)
+		return false, "Profile not loaded"
+	end
+	local char, _, hrp = character(player)
+	if not (char and hrp) then
+		return false, "No character"
+	end
+
+	VehicleService.despawn(player)
+
+	local look = hrp.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1)
+
+	if GameConfig.TestFleet then
+		-- TEST MODE: every bike, side by side in a line in front of the player,
+		-- full tanks, owned or not. Turn off with GameConfig.TestFleet = false.
+		local right = flat:Cross(Vector3.yAxis)
+		local count = #VehicleData.list
+		for i, vehicle in ipairs(VehicleData.list) do
+			local owned = profile.owned[vehicle.id]
+			local lateral = (i - (count + 1) / 2) * 7
+			local pos = hrp.Position + flat * 12 + right * lateral
+			local rec, why = placeBike(player, vehicle, owned and owned.paint or 1, pos, flat, char, vehicle.stats.fuelCapacityL)
+			if not rec then
+				warn(("[VehicleService] could not spawn %s: %s"):format(vehicle.id, tostring(why)))
+			end
+		end
+		bikes[player] = fleets[player] and fleets[player][1] or nil
+		notify(player, "Test fleet out: all bikes are in a line in front of you.", "info")
+		return fleets[player] ~= nil
+	end
+
+	local vehicle = VehicleData.byId[profile.equipped]
+	local owned = profile.owned[profile.equipped]
+	if not (vehicle and owned) then
+		return false, "No bike equipped"
+	end
+	local rec, why = placeBike(player, vehicle, owned.paint, hrp.Position + flat * 7, flat, char)
+	if not rec then
+		warn("[VehicleService] spawn failed: " .. tostring(why))
+		return false, why
+	end
 	return true
 end
 
@@ -605,7 +675,26 @@ function VehicleService.getBike(player: Player)
 	if rec and rec.model.Parent then
 		return rec
 	end
+	for _, other in ipairs(fleets[player] or {}) do
+		if other.model.Parent then
+			return other
+		end
+	end
 	return nil
+end
+
+-- Nearest of the player's bikes to a point (petrol stations, workshops).
+function VehicleService.getBikeNear(player: Player, position: Vector3, range: number)
+	local best, bestDistance = nil, range
+	for _, rec in ipairs(fleets[player] or {}) do
+		if rec.model.Parent then
+			local d = (rec.chassis.Position - position).Magnitude
+			if d <= bestDistance then
+				best, bestDistance = rec, d
+			end
+		end
+	end
+	return best
 end
 
 function VehicleService.fuelMissing(rec): number
@@ -835,8 +924,14 @@ function VehicleService.init(dataService, economyService)
 
 	-- 10 Hz client input: throttle / brake / gear. Only the controlling player counts.
 	Remotes.event("BikeInput").OnServerEvent:Connect(function(player, throttle, brake, gear)
-		local rec = bikes[player]
-		if not rec or rec.model:GetAttribute("Controller") ~= player.UserId then
+		local rec
+		for _, candidate in ipairs(fleets[player] or {}) do
+			if candidate.model.Parent and candidate.model:GetAttribute("Controller") == player.UserId then
+				rec = candidate
+				break
+			end
+		end
+		if not rec then
 			return
 		end
 		if typeof(throttle) ~= "number" or typeof(brake) ~= "number" or typeof(gear) ~= "number" then
@@ -865,9 +960,11 @@ function VehicleService.init(dataService, economyService)
 		end
 		local step = acc
 		acc = 0
-		for _, rec in pairs(bikes) do
-			if rec.model.Parent then
-				tickBike(rec, step)
+		for _, list in pairs(fleets) do
+			for _, rec in ipairs(list) do
+				if rec.model.Parent then
+					tickBike(rec, step)
+				end
 			end
 		end
 	end)

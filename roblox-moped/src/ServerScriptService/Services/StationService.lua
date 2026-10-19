@@ -38,13 +38,9 @@ local function addPrompt(part: BasePart, action: string, object: string, hold: n
 end
 
 local function bikeNear(player: Player, part: BasePart, range: number)
-	local rec = Vehicles.getBike(player)
+	local rec = Vehicles.getBikeNear(player, part.Position, range)
 	if not rec then
-		Economy.notify(player, "You need your bike here. Press B to call it.", "hint")
-		return nil
-	end
-	if (rec.chassis.Position - part.Position).Magnitude > range then
-		Economy.notify(player, "Bring the bike closer.", "hint")
+		Economy.notify(player, "Bring your bike closer (press B to call it).", "hint")
 		return nil
 	end
 	return rec
