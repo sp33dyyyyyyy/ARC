@@ -25,6 +25,13 @@ button.danger{border-color:#7a3333;color:#ff9c9c}
 #topbar button:hover,#topbar select:hover{background:#2a3340;border-color:#8fa0b6}
 #topbar button.on{background:var(--acc);border-color:var(--acc);color:#1a1405}
 #topbar button.danger{border-color:#8a4545}
+#topbar button,#topbar select{transition:transform .09s ease,background .12s,border-color .12s,box-shadow .2s;position:relative;overflow:hidden}
+#topbar button:active{transform:scale(.93) translateY(1px);background:#3a4656}
+#topbar button.on:active{background:#d9a23f}
+#topbar button .rip{position:absolute;border-radius:50%;background:rgba(255,255,255,.45);transform:scale(0);pointer-events:none;animation:rip .45s ease-out forwards}
+@keyframes rip{to{transform:scale(1);opacity:0}}
+@keyframes pop{0%{transform:scale(.93)}55%{transform:scale(1.05)}100%{transform:scale(1)}}
+#topbar button.pop{animation:pop .22s ease-out}
 kbd{font:10px monospace;background:#0006;border:1px solid #fff2;border-radius:3px;padding:0 3px;margin-left:3px;color:var(--dim)}
 button.on kbd{color:#4a3a10;border-color:#0003;background:#0002}
 #stage{position:relative;flex:1;min-height:0}
@@ -2891,6 +2898,14 @@ function sndUpdate(dt){
   v.rumble.gain.setTargetAtTime(r,now,0.12);v.dies.gain.setTargetAtTime(d,now,0.12);v.whine.gain.setTargetAtTime(e,now,0.12);
   v.hum.gain.setTargetAtTime(h,now,0.12);v.hiss.gain.setTargetAtTime(s,now,0.12);
 }
+// small click animation on top-bar buttons: a ripple from the press point and a quick pop
+document.getElementById('topbar').addEventListener('pointerdown',e=>{
+  const b=e.target.closest('button');if(!b||b.disabled)return;
+  const r=b.getBoundingClientRect(),d=Math.max(r.width,r.height)*1.6,s=document.createElement('span');
+  s.className='rip';s.style.cssText='width:'+d+'px;height:'+d+'px;left:'+(e.clientX-r.left-d/2)+'px;top:'+(e.clientY-r.top-d/2)+'px';
+  b.appendChild(s);setTimeout(()=>s.remove(),480);
+  b.classList.remove('pop');void b.offsetWidth;b.classList.add('pop');
+});
 // every button press gets a soft click
 document.addEventListener('pointerdown',e=>{const b=e.target.closest&&e.target.closest('button');if(b&&!b.disabled)sndUiClick();},true);
 
