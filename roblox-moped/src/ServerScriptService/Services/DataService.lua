@@ -25,6 +25,7 @@ local RunService = game:GetService("RunService")
 
 local GameConfig = require(game.ReplicatedStorage.Shared.GameConfig)
 local Remotes = require(game.ReplicatedStorage.Shared.Remotes)
+local VehicleData = require(game.ReplicatedStorage.Shared.VehicleData)
 
 local CFG = GameConfig.Data
 local PROFILE_VERSION = 1
@@ -41,14 +42,21 @@ local function getStore()
 	return store
 end
 local profiles: { [Player]: any } = {}
+local beforeSave: { (Player) -> () } = {}
+
+-- Other services register here to write their live state (e.g. fuel in the bike
+-- you are riding) into the profile right before it is saved.
+function DataService.onBeforeSave(fn: (Player) -> ())
+	table.insert(beforeSave, fn)
+end
 local savingInFlight = 0
 
 local function defaultProfile()
 	return {
 		version = PROFILE_VERSION,
 		money = GameConfig.Economy.StartingMoney,
-		owned = { spatz50 = { paint = 1 } }, -- the free starter moped
-		equipped = "spatz50",
+		owned = { aerox50 = { paint = 1 } }, -- the free starter scooter
+		equipped = "aerox50",
 		jobs = 0,
 		earned = 0,
 		bikeState = {},
@@ -128,6 +136,31 @@ end
 ----------------------------------------------------------------------------
 -- Load / save
 ----------------------------------------------------------------------------
+-- Saves from older versions may mention bikes that no longer exist.
+function DataService.sanitize(profile)
+	for id in pairs(profile.owned) do
+		if not VehicleData.byId[id] then
+			profile.owned[id] = nil
+		end
+	end
+	for id in pairs(profile.parts) do
+		if not VehicleData.byId[id] then
+			profile.parts[id] = nil
+		end
+	end
+	for i = #profile.orders, 1, -1 do
+		if not VehicleData.byId[profile.orders[i].bikeId] then
+			table.remove(profile.orders, i)
+		end
+	end
+	if not profile.owned.aerox50 and next(profile.owned) == nil then
+		profile.owned.aerox50 = { paint = 1 }
+	end
+	if not (profile.equipped and profile.owned[profile.equipped]) then
+		profile.equipped = next(profile.owned)
+	end
+end
+
 function DataService.load(player: Player)
 	local ok, data = withRetry("load " .. player.Name, function()
 		return getStore():GetAsync(keyFor(player))
@@ -136,6 +169,7 @@ function DataService.load(player: Player)
 	local profile
 	if ok then
 		profile = reconcile(type(data) == "table" and data or {}, defaultProfile())
+		DataService.sanitize(profile)
 	else
 		profile = defaultProfile()
 		profile.volatile = true -- never saved
@@ -154,6 +188,9 @@ function DataService.save(player: Player, final: boolean?)
 	local profile = profiles[player]
 	if not profile or profile.volatile then
 		return
+	end
+	for _, fn in ipairs(beforeSave) do
+		pcall(fn, player)
 	end
 	savingInFlight += 1
 	local snapshot = table.clone(profile)

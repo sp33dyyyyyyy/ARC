@@ -268,6 +268,7 @@ RunService.Heartbeat:Connect(function(dt)
 	ClientState.skidding = t.skidding
 	ClientState.grounded = t.grounded
 	ClientState.throttle = input.throttle
+	ClientState.steer = input.steer
 	ClientState.brake = input.brake
 
 	-- 10 Hz: tell the server throttle/brake/gear (fuel burn + engine sound)

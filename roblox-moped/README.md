@@ -1,7 +1,7 @@
 # Moped Days - a Roblox moped & supermoto cruiser (Luau)
 
-A relaxed, slightly comedic village-cruising game: four original bikes
-(50-200cc), a proper **start-up procedure** (fuel tap, ignition, choke,
+A relaxed, slightly comedic village-cruising game: two bikes (an Aerox 50
+scooter and a Supermoto 80, built from the supplied .glb models), a proper **start-up procedure** (fuel tap, ignition, choke,
 kickstart / starter), **pushing the bike by hand** where weight matters, jobs
 for money, fuel and repair costs, and a garage.
 
@@ -28,7 +28,7 @@ other game. Audio is left as empty slots for **your own** sound ids.
 | **Ignition** | **click** the key at the headstock |
 | **Choke** | **click** the choke lever at the carburettor |
 | **Kickstart** (tap it!) | **click** the kick lever / pedal on the right, again and again |
-| **Electric starter** (Dachs 200 only) | **click** the red button on the handlebar |
+| **Electric starter** (Aerox 50 only) | **click** the red button on the handlebar |
 | Ride / get off | **click the seat** (or jump to get off) |
 | **Push the bike** | **click the handlebars**, then just walk. Click them again to let go |
 | Call your bike(s) | `B` |
@@ -42,7 +42,7 @@ bumpers shift.  Mobile touch controls are **not** included.
 
 ### Test fleet
 
-`GameConfig.TestFleet = true` (the default for now) spawns **all four bikes in a
+`GameConfig.TestFleet = true` (the default for now) spawns **both bikes in a
 line in front of you**, full tanks, owned or not, so you can try each one
 straight away. Pressing `B` re-spawns the line. Set it to `false` for the normal
 one-equipped-bike game. In test mode the HUD and the station prompts use
@@ -54,8 +54,8 @@ whichever bike you're riding, or the nearest one.
 2. **Ignition** - click the key to On.
 3. **Cold engine?** Click the choke on. **Warm engine?** Choke off.
 4. **Kick** - click the kick lever. It may take a few kicks; the two-strokes are fussy, the
-   Kuckuck is friendly, the Dachs also has a starter button (battery drains on
-   failed tries, recharges while running).
+   Aerox is friendlier and also has a starter button (battery drains on
+   failed tries, recharges while running). The kick lever swings every time.
 5. Too many kicks with choke on a warm engine = **flooded**. Choke off and wait
    ~8 s per flood point.
 6. Leave the choke on and it wastes fuel and robs power.
@@ -74,10 +74,8 @@ walk too far and you let go.
 
 | Bike | kg (half tank) | walk speed while pushing | shove accel |
 |---|---|---|---|
-| Spatz 50 | 86.5 | 13.1 studs/s | 15.0 |
-| Kuckuck 100 | 107.2 | 11.9 | 12.1 |
-| Wiesel 125 | 97.6 | 12.5 | 13.3 |
-| Dachs 200 | 138.5 | 9.9 | 9.4 |
+| Aerox 50 | 100.0 | 12.3 studs/s | 13.0 |
+| Supermoto 80 | 90.4 | 12.9 | 14.4 |
 
 Uphill is naturally harder (gravity does that part).
 
@@ -92,13 +90,11 @@ health point.
 
 | Bike | Class | Engine | Top | Accel | Brake | Handling | Weight | Tank | Price | Unlock | Colours |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Spatz 50 | Moped | 50cc 2-stroke | 45 km/h | 35 | 30 | 55 | 85 kg | 4.0 L | free | - | Butter Yellow / Fern Green |
-| Kuckuck 100 | Moped | 100cc 4-stroke (CVT) | 70 | 50 | 45 | 70 | 105 | 6.0 | 3,000 | own Spatz + 5 jobs | Brick Red / Alpine White |
-| Wiesel 125 | Supermoto | 125cc 2-stroke, 5 gears | 105 | 75 | 80 | 85 | 95 | 7.0 | 4,200 | EUR 4,000 earned | Signal Orange / Slate Blue |
-| Dachs 200 | Supermoto | 200cc 4-stroke, 5 gears | 135 | 85 | 95 | 70 | 135 | 9.5 | 8,500 | own Wiesel + 20 jobs | Racing Black / Rapeseed Yellow |
+| Aerox 50 | Scooter | 50cc 2-stroke (CVT, kick + electric start) | 62 km/h | 52 | 48 | 66 | 98 kg | 5.5 L | free | - | Cobalt Blue / Signal Red |
+| Supermoto 80 | Supermoto | 80cc 2-stroke, 4 gears (kick only) | 98 | 74 | 78 | 88 | 88 | 6.5 | 2,100 | own Aerox + 4 jobs | Satin Black / Safety Orange |
 
 Two-strokes have a narrow power band (weak low down, snappy near `peak`) and
-burn more fuel. The Wiesel lifts its front wheel easily (`wheelie = 0.9`).
+burn more fuel. The Supermoto lifts its front wheel easily (`wheelie = 0.8`).
 
 To add a bike: copy one entry in `VehicleData.lua`, change the numbers, done -
 garage, physics, fuel, start-up and prices all follow.
@@ -146,6 +142,9 @@ roblox-moped/
    │   ├─ ModelKit.lua                   ModuleScript  part-building toolkit (tubes, arcs, spoked wheels ...)
    │   ├─ BikeModels.lua                 ModuleScript  the detailed moped / scooter / supermoto bodies
    │   ├─ BikeFactory.lua                ModuleScript  builds a bike (or loads YOUR model) + physics setup
+   │   ├─ BikeImport.lua                 ModuleScript  turns your imported .glb meshes into a scaled, rigged bike
+   │   ├─ BikeRig.lua                    ModuleScript  animated groups: steering, stand, kick lever, tap, key, choke
+   │   ├─ ImportedModels.lua             ModuleScript  GENERATED from assets/models/*.glb (tools/glb_to_lua.py)
    │   ├─ BikePhysics.lua                ModuleScript  raycast-wheel two-wheeler solver
    │   ├─ PartsData.lua                  ModuleScript  <- aftermarket parts catalogue + stat maths
    │   ├─ ClientState.lua                ModuleScript  client-only shared telemetry
@@ -188,7 +187,7 @@ tagged props (`GarageDoor`, `Workshop`, `PetrolStation`, `MissionBoard`) ·
 `Bikes/` (created at runtime).
 
 **ReplicatedStorage/VehicleModels/** is an empty folder for your imported bike
-models, named by vehicle id (`spatz50`, `kuckuck100`, `wiesel125`, `dachs200`).
+models, named by vehicle id (`aerox50`, `supermoto80`).
 Empty = the blocky placeholder bikes are generated instead.
 
 ### Architecture in one paragraph
@@ -238,17 +237,17 @@ Bike modes (`Mode` attribute): `Parked` (anchored, kickstand) → `Ride` (seated
    job board, garage and Werkstatt. Your bike appears in front of you.
 
 ### Testing checklist
-1. **Start-up:** walk to your Spatz. Try the Ride prompt (`R`) *before*
+1. **Start-up:** walk to your Aerox. Try the Ride prompt (`R`) *before*
    starting it - the throttle should do nothing. Then: tap on, ignition on,
    choke on (cold), kick until it catches. Confirm HUD rows go green.
 2. **Failure modes:** turn the tap off while running → sputter → stall after
    ~4 s. Kick a warm engine with choke on 4+ times → "Flooded". Set tap to On
    and ride until fuel passes the reserve line → sputter → switch to Reserve.
 3. **Pushing:** with the engine off press `G` at the bars and walk. Compare
-   the Spatz (light) against the Dachs (buy it by cheating money, see below):
-   the Dachs should be visibly slower and drag you back sooner. Let go and
+   the Aerox against the Supermoto (buy it by cheating money, see below):
+   the heavier one should be slower and drag you back sooner. Let go and
    watch it roll to a stop and park itself.
-4. **Riding:** gears (`Z`/`X`), wheelie on the Wiesel (`Shift`), skid with
+4. **Riding:** gears (`Z`/`X`), wheelie on the Supermoto (`Shift`), skid with
    `Space`+`S`, lean in corners, ride off the kerb.
 5. **Crash:** hit a wall at speed. Health drops, harder = rider ejected, engine
    stalls, 0 health = wrecked until repaired.
@@ -279,17 +278,34 @@ starting money to apply - use a new `StoreName` while testing.)
 **Map - done for you.** `TownBuilder.lua` generates an original map (zones,
 roads, buildings, trees, tagged props and every mission spot). Landmarks:
 Kleindorf main street (z=0, x -300..300) with Baeckerei, Dorfladen, Garage,
-Werkstatt and Tankstelle Sued; Marktplatz (0,-150) with fountain, church and
-Gasthof; Schnellstrasse east along z=0 to x=2400 then north (Tankstelle Nord at
-x=1500); Hofweg farm lane south at x=1200; Waldweg loop west/north through pine
-forest; Huegeldorf on a plateau up a ramp road at the end of the highway.
-Roads are long on purpose - a moped does ~45 studs/s, a Dachs ~130.
+Werkstatt and Tankstelle Sued; the Garagenreihe (personal garages) south of it;
+Marktplatz (0,-150) with fountain, church and Gasthof; Schnellstrasse east
+along z=0 to x=2400 then north (Tankstelle Nord at x=1500); Hofweg farm lane
+south at x=1200; Waldweg loop west/north through pine forest; Huegeldorf on a
+plateau up a ramp road at the end of the highway.
+
+**New: Eichenbach and the backroads.** A second town in the south-west
+(-800, 1000): church with square and fountain, Gasthof, Metzgerei, Apotheke,
+petrol station, Werkstatt, houses on both sides. It is joined to the world by
+**gravel backroads**: the Eichenweg (over a creek bridge) runs south from the
+Landstrasse at x=-900, the Feldweg runs east along z=1000 to the farm lane, the
+Waldweg now continues south to the town's west end, and a dirt Muehlenweg loops
+round a lake (pier, mill). So there are big circuits that never touch the
+highway. New jobs use it: Wurst fuer den Gasthof, Post nach Eichenbach,
+Feldweg-Runde, Zur Muehle. The whole map is about 21,000 parts; if a computer
+struggles lower `GameConfig.TownDetail` (trees) or enable `StreamingEnabled`.
+
+**Signs, not floating text.** There are no floating name labels any more:
+mission spots have a painted wooden sign on two posts, and the garage controls
+carry their lettering on the objects themselves.
+
+Roads are long on purpose - a scooter does ~60 studs/s, a Supermoto ~100.
 
 To use YOUR OWN map instead: set `GameConfig.GenerateTown = false` (or put your
 map in a Folder called `Town`), then tag props (`GarageDoor`, `Workshop`,
 `PetrolStation`, `MissionBoard` - any BasePart) and make
 `Workspace/MissionSpots` parts named `Spot_Bakery`, `Spot_Gasthof`, `Spot_Farm`,
-`Spot_Dorfladen`, `Spot_Huegeldorf`, `CP_Forest1`..`CP_Forest5`. Wheels raycast,
+`Spot_Dorfladen`, `Spot_Huegeldorf`, `Spot_Eichenbach`, `Spot_Metzgerei`, `Spot_Muehle`, `CP_Forest1`..`CP_Forest5`, `CP_Back1`..`CP_Back5`. Wheels raycast,
 so ground parts must have CanQuery on; keep slopes under ~35 degrees. Missions
 whose spots are missing simply aren't offered.
 
@@ -312,9 +328,29 @@ to change, because both the bikes and the buildings have override slots:
   tool (Home > Generate), or model in Blender and import with the 3D Importer.
   Import in Studio - they have to be uploaded to YOUR Roblox account.
 
-**Bike meshes (optional - the generated bikes work)** - import your own and drop a
-Model named after each vehicle id into `ReplicatedStorage/VehicleModels`.
-Requirements:
+**YOUR bike models (the two .glb files).** They are in `assets/models/`
+(`aerox50.glb`, `supermoto80.glb`). Roblox can only show meshes that are
+uploaded to a Roblox account, so this one step is yours:
+
+1. Studio: **Avatar tab > Import 3D** (or Asset Manager > Bulk Import), pick
+   `assets/models/aerox50.glb`, import. You get a Model full of MeshParts.
+2. Rename that Model to exactly **`aerox50`** and drag it into
+   `ReplicatedStorage/VehicleModels`. Do the same for `supermoto80`.
+3. Press Play. `BikeImport.lua` does the rest at runtime: scales the model so
+   its tyres match `VehicleData.geometry`, works out which way is forward,
+   builds the invisible Chassis, welds everything, applies the colours and the
+   two paint options, and builds the animated parts below. Until you import,
+   the built-in part-built bikes are used (same animations).
+
+Animated on both: **handlebar + front wheel steer** (follows your input; other
+players' bikes steer from their yaw rate), **kickstand** folds up when you get
+on and drops when parked, **kick lever** swings on every kick, and on the
+imported models also the **fuel tap, ignition key and choke** turn to match
+their state. If you change the models keep the node names (see
+`tools/glb_to_lua.py`, which regenerates `ImportedModels.lua` from the files).
+
+**Other meshes / fully hand-prepared bike models** (optional) - a Model that
+already has a `Chassis` PrimaryPart is used as it is. Requirements:
 - `PrimaryPart` = a part named **Chassis**. Axes: **-Z forward, +X right, +Y up**.
 - Wheel centres at chassis-local `(0, -0.25, ±wheelbase/2)`, wheel radius from
   `VehicleData.geometry`. (So bottom of the tyre is `radius + 0.25` below the
@@ -382,10 +418,10 @@ Rojo needed. `tools/preview.py` runs the real model-building code under a mock
 Roblox runtime and renders it to a PNG, so models can be checked without Studio:
 
 ```
-python3 tools/preview.py bike spatz50 out.png        # one bike, four views
+python3 tools/preview.py bike aerox50 out.png        # one bike, four views
 python3 tools/preview.py scene houses out.png        # houses | church | barn | shops | petrol | props | garage | van
 HIDE=Roof,Parapet python3 tools/preview.py scene garage out.png 5   # cut-away view of a personal garage
-DRIVER=bikemods python3 tools/preview.py bike wiesel125 out.png 1  # a bike with parts fitted
+DRIVER=bikemods python3 tools/preview.py bike supermoto80 out.png 1  # a bike with parts fitted
 python3 tools/preview.py scene partslogic out.png    # logic test of ordering / installing parts
 python3 tools/preview.py region out.png -330 -300 330 90 0   # a region of the full town
 ```

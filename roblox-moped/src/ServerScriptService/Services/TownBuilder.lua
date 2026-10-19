@@ -19,6 +19,11 @@
 	  Waldweg loop    narrow lanes west/north: (-1500,0) (-1500,-1200) (0,-1200)
 	                  through fir forest (the checkpoint run)
 	  Huegeldorf      hill hamlet on a 36-stud plateau up a ramp road
+	  Eichenbach      second town in the south-west (-800,1000): church + square, Gasthof,
+	                  Metzgerei, Apotheke, petrol station, Werkstatt, a lake with a pier
+	  Backroads       gravel Feldwege link it to the farm lane (east) and to the Waldweg
+	                  (west), Eichenweg runs north to the Landstrasse, a mill track
+	                  loops round the lake: a big circuit that never needs the highway
 
 	It only runs when GameConfig.GenerateTown is true AND Workspace has no
 	"Town" folder. To use your own map: put it in a Folder named "Town", tag
@@ -61,6 +66,8 @@ local C = {
 	cobble = rgb(150, 138, 120),
 	marking = rgb(236, 236, 228),
 	yellow = rgb(240, 200, 60),
+	gravel = rgb(150, 138, 118),
+	dirt = rgb(126, 104, 78),
 }
 
 ----------------------------------------------------------------------------
@@ -96,23 +103,16 @@ local function blocked(x: number, z: number, r: number): boolean
 	return false
 end
 
-local function label(part: BasePart, text: string, lift: number?)
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(200, 36)
-	gui.StudsOffset = V3(0, lift or (part.Size.Y / 2 + 3), 0)
-	gui.AlwaysOnTop = false
-	gui.MaxDistance = 350
-	gui.Parent = part
-	local t = Instance.new("TextLabel")
-	t.Size = UDim2.fromScale(1, 1)
-	t.BackgroundTransparency = 1
-	t.Text = text
-	t.TextColor3 = Color3.new(1, 1, 1)
-	t.TextStrokeTransparency = 0.25
-	t.TextScaled = true
-	t.Font = Enum.Font.GothamBold
-	t.Parent = gui
-end
+local SPOT_SIGNS = {
+	Spot_Bakery = "BAECKEREI - Abholung",
+	Spot_Dorfladen = "DORFLADEN - Lieferung",
+	Spot_Gasthof = "GASTHOF - Lieferung",
+	Spot_Farm = "BAUERNHOF - Abholung",
+	Spot_Huegeldorf = "HUEGELDORF",
+	Spot_Eichenbach = "EICHENBACH - Ankunft",
+	Spot_Metzgerei = "METZGEREI - Abholung",
+	Spot_Muehle = "MUEHLE",
+}
 
 local function tag(inst: Instance, name: string)
 	CollectionService:AddTag(inst, name)
@@ -139,7 +139,7 @@ local function road(x1: number, z1: number, x2: number, z2: number, width: numbe
 	local len = horizontal and math.abs(x2 - x1) or math.abs(z2 - z1)
 	local cx, cz = (x1 + x2) / 2, (z1 + z2) / 2
 	local size = horizontal and V3(len, 0.4, width) or V3(width, 0.4, len)
-	mk(roads, "Road", size, CF(cx, level - 0.2, cz), o.color or C.asphalt, M.Asphalt)
+	mk(roads, "Road", size, CF(cx, level - 0.2, cz), o.color or C.asphalt, o.material or M.Asphalt)
 	addRect(cx - size.X / 2, cz - size.Z / 2, cx + size.X / 2, cz + size.Z / 2)
 	local function strip(offset: number, w: number, color: Color3)
 		local sz = horizontal and V3(len - 2, 0.1, w) or V3(w, 0.1, len - 2)
@@ -280,6 +280,32 @@ function TownBuilder.build()
 		road(40, 12, 40, 100, 12, 0.24, { color = C.lane })
 		addRect(-300, 92, 300, 190)
 
+		-- Eichenbach + the backroads (gravel Feldwege). Everything joins up into loops.
+		local gravel = { color = C.gravel, material = M.Pebble }
+		local dirt = { color = C.dirt, material = M.Ground }
+		road(-900, 0, -900, 1000, 12, 0.24, { color = C.lane }) -- Eichenweg: Landstrasse -> Eichenbach
+		road(-1250, 1000, -350, 1000, 22, 0.26, { dashed = true }) -- Eichenstrasse (the town's main street)
+		road(-350, 1000, 1200, 1000, 12, 0.22, gravel) -- Feldweg east to the farm lane
+		road(1200, 640, 1200, 1000, 12, 0.22, gravel)
+		road(-1500, 0, -1500, 1000, 12, 0.22, gravel) -- Waldweg south
+		road(-1500, 1000, -1250, 1000, 12, 0.22, gravel)
+		road(-800, 1000, -800, 1500, 10, 0.2, dirt) -- the lake loop: Muehlenweg ...
+		road(-800, 1500, -300, 1500, 10, 0.2, dirt)
+		road(-300, 1500, -300, 1000, 10, 0.2, dirt) -- ... and back up to the Feldweg
+		for _, c in ipairs({ { 1200, 1000 }, { -1500, 1000 }, { -800, 1500 }, { -300, 1500 } }) do
+			local col = (c[1] == 1200 or c[1] == -1500) and gravel.color or dirt.color
+			mk(roads, "Corner", V3(12, 0.4, 12), CF(c[1], 0.02, c[2]), col, M.Pebble)
+		end
+		addRect(-700, 1100, -400, 1400) -- the lake
+
+		-- creek under the Eichenweg with a little bridge
+		local creek = mk(town, "Bach", V3(500, 0.3, 18), CF(-900, 0.12, 460), rgb(88, 142, 176), M.Glass)
+		creek.Transparency = 0.25
+		creek.CanCollide = false
+		for _, sx in ipairs({ -1, 1 }) do
+			mk(roads, "BridgeRail", V3(0.8, 1.6, 22), CF(-900 + sx * 6.2, 0.9, 460), rgb(150, 146, 138), M.Granite)
+		end
+
 		-- Marktplatz
 		mk(town, "Marktplatz", V3(150, 0.5, 130), CF(0, 0.05, -150), C.cobble, M.Cobblestone)
 		mk(town, "MarktplatzRim", V3(154, 0.4, 134), CF(0, 0.02, -150), rgb(120, 114, 104), M.Granite)
@@ -317,6 +343,14 @@ function TownBuilder.build()
 			Spot_Gasthof = V3(0, 0.6, -200),
 			Spot_Farm = V3(1200, 0.6, 570),
 			Spot_Huegeldorf = V3(2400, rise + 0.6, z1 - 250),
+			Spot_Eichenbach = V3(-950, 0.6, 1000),
+			Spot_Metzgerei = V3(-1100, 0.6, 1000),
+			Spot_Muehle = V3(-800, 0.6, 1440),
+			CP_Back1 = V3(1200, 0.6, 800),
+			CP_Back2 = V3(500, 0.6, 1000),
+			CP_Back3 = V3(-300, 0.6, 1250),
+			CP_Back4 = V3(-800, 0.6, 1250),
+			CP_Back5 = V3(-1500, 0.6, 500),
 			CP_Forest1 = V3(-900, 0.6, 0),
 			CP_Forest2 = V3(-1500, 0.6, -300),
 			CP_Forest3 = V3(-1500, 0.6, -1000),
@@ -329,7 +363,17 @@ function TownBuilder.build()
 			p.CanCollide = false
 			p.CanQuery = false
 			p.Transparency = 0.55
-			label(p, (name:gsub("^%a+_", "")), 6)
+			local sign = SPOT_SIGNS[name]
+			if sign then
+				-- a painted wooden sign on two posts beside the spot (readable from both sides)
+				local at = pos + V3(0, 0, 9)
+				for _, sx in ipairs({ -3.2, 3.2 }) do
+					mk(spots, "SpotPost", V3(0.5, 6, 0.5), CF(at.X + sx, 3, at.Z), rgb(86, 58, 40), M.Wood)
+				end
+				local board = mk(spots, "SpotSign", V3(8, 2.2, 0.3), CF(at.X, 5.2, at.Z), rgb(236, 226, 196), M.WoodPlanks)
+				ModelKit.signText(board, sign, Enum.NormalId.Front, rgb(60, 36, 24), Enum.Font.GothamBlack)
+				ModelKit.signText(board, sign, Enum.NormalId.Back, rgb(60, 36, 24), Enum.Font.GothamBlack)
+			end
 		end
 	end)
 
@@ -612,6 +656,155 @@ function TownBuilder.buildScenery(z0: number, z1: number, rise: number)
 		Props.busStop(scenery, CF(-1000, 0, 22) * CFrame.Angles(0, math.pi, 0), "Waldrand")
 		Props.roadSign(scenery, CF(-700, 0, 14), "curve")
 		Props.roadSign(scenery, CF(-1488, 0, -1180) * CFrame.Angles(0, math.pi / 2, 0), "curve")
+	end)
+
+	----------------------------------------------------------------------
+	-- Eichenbach: the second town
+	----------------------------------------------------------------------
+	step("Eichenbach", function()
+		local Z = 1000 -- main street centre line
+		-- the special buildings first, so the houses can fill the gaps
+		local _, cr = Buildings.church(houses, CF(-800, 0, Z - 66), { rng = rng })
+		addRect(-800 - cr, Z - 66 - cr, -800 + cr, Z - 66 + cr)
+		mk(roads, "Kirchplatz", V3(70, 0.4, 30), CF(-800, 0.05, Z - 28), C.cobble, M.Cobblestone)
+		Props.fountain(scenery, CF(-800, 0.3, Z - 28))
+		local _, gr = Buildings.gasthof(houses, CF(-1030, 0, Z + 44) * CFrame.Angles(0, math.pi, 0), { rng = rng })
+		addRect(-1030 - gr, Z + 44 - gr, -1030 + gr, Z + 44 + gr)
+		local _, mr, mbody = Buildings.shop(houses, CF(-1100, 0, Z - 42), { rng = rng, name = "Metzgerei", text = "METZGEREI", wall = rgb(238, 212, 206), roof = ROOF_STYLES[2][1], awning = { rgb(170, 40, 40), rgb(246, 244, 238) }, hangText = "Wurst" })
+		addRect(-1100 - 24, Z - 66, -1100 + 24, Z - 18)
+		Buildings.shop(houses, CF(-660, 0, Z + 42) * CFrame.Angles(0, math.pi, 0), { rng = rng, name = "Apotheke", text = "APOTHEKE", wall = rgb(222, 236, 226), roof = ROOF_STYLES[4][1], awning = { rgb(40, 130, 90), rgb(246, 244, 238) }, hangText = "Rx" })
+		addRect(-660 - 24, Z + 18, -660 + 24, Z + 66)
+		local _, pr = Buildings.petrolStation(houses, CF(-530, 0, Z - 46), { rng = rng, name = "TankstelleEichenbach", color = rgb(46, 116, 190) })
+		addRect(-530 - pr, Z - 46 - pr, -530 + pr, Z - 46 + pr)
+		local werk, wr, wbody = Buildings.garage(houses, CF(-430, 0, Z + 40) * CFrame.Angles(0, math.pi, 0), { rng = rng, name = "WerkstattEichenbach", text = "KFZ-WERKSTATT" })
+		tag(wbody, "Workshop")
+		addRect(-430 - wr, Z + 40 - wr, -430 + wr, Z + 40 + wr)
+		yield()
+
+		-- pavements (gap at the Eichenweg junction), crossings
+		for _, s in ipairs({ -1, 1 }) do
+			Props.sidewalk(roads, V3(-1250, 0, Z + s * 15), V3(-912, 0, Z + s * 15), 6, -s)
+			Props.sidewalk(roads, V3(-888, 0, Z + s * 15), V3(-350, 0, Z + s * 15), 6, -s)
+		end
+		Props.crosswalk(roads, CF(-800, 0, Z) * CFrame.Angles(0, math.pi / 2, 0), 22)
+		Props.crosswalk(roads, CF(-1000, 0, Z) * CFrame.Angles(0, math.pi / 2, 0), 22)
+
+		-- houses along both sides wherever the lot is free
+		local styles = { "putz", "brick", "stone", "putz", "fachwerk" }
+		for x = -1230, -380, 46 do
+			for _, side in ipairs({ -1, 1 }) do
+				local z = Z + side * 42
+				if not blocked(x, z, 26) then
+					placeHouse(x + rng:NextInteger(-4, 4), z, side == -1 and 0 or math.pi, styles[rng:NextInteger(1, #styles)])
+				end
+			end
+			yield()
+		end
+		for x = -1200, -420, 52 do
+			for _, side in ipairs({ -1, 1 }) do
+				local z = Z + side * 92
+				if not blocked(x, z, 24) and rng:NextNumber() < 0.7 then
+					placeHouse(x + rng:NextInteger(-5, 5), z, side == -1 and 0 or math.pi, styles[rng:NextInteger(1, #styles)], 0, { fancy = false })
+				end
+			end
+			yield()
+		end
+
+		-- street furniture
+		for x = -1230, -380, 45 do
+			Props.lamp(scenery, CF(x, 0, Z - 19) * CFrame.Angles(0, math.pi, 0))
+			Props.lamp(scenery, CF(x + 22, 0, Z + 19))
+		end
+		local carColors = { rgb(60, 110, 170), rgb(190, 60, 52), rgb(230, 200, 70), rgb(240, 238, 230), rgb(70, 120, 84) }
+		for i, x in ipairs({ -1200, -1120, -980, -740, -600, -480 }) do
+			local side = (i % 2 == 0) and 1 or -1
+			Props.car(scenery, CF(x, 0, Z + side * 9.6) * CFrame.Angles(0, side * math.pi / 2, 0), (i % 3 == 0) and "bubble" or "estate", carColors[(i - 1) % #carColors + 1])
+		end
+		Props.busStop(scenery, CF(-860, 0, Z + 20) * CFrame.Angles(0, math.pi, 0), "Eichenbach Markt")
+		Props.postBox(scenery, CF(-770, 0, Z + 17))
+		Props.litfass(scenery, CF(-960, 0, Z - 17))
+		Props.bench(scenery, CF(-830, 0, Z - 33))
+		Props.bench(scenery, CF(-770, 0, Z - 33))
+		for x = -1220, -400, 52 do
+			if not blocked(x, Z - 21, 4) then
+				Props.tree(scenery, V3(x + rng:NextNumber(-5, 5), 0, Z - 21), rng, "oak")
+			end
+		end
+		Props.roadSign(scenery, CF(-1262, 0, Z + 19) * CFrame.Angles(0, -math.pi / 2, 0), "ortsschild", "EICHENBACH")
+		Props.roadSign(scenery, CF(-338, 0, Z - 19) * CFrame.Angles(0, math.pi / 2, 0), "ortsschild", "EICHENBACH")
+		Props.roadSign(scenery, CF(-1290, 0, Z + 17) * CFrame.Angles(0, -math.pi / 2, 0), "limit", "50")
+		Props.roadSign(scenery, CF(-310, 0, Z - 17) * CFrame.Angles(0, math.pi / 2, 0), "limit", "50")
+		Props.roadSign(scenery, CF(-912, 0, 24) * CFrame.Angles(0, math.pi, 0), "ortsschild", "EICHENBACH 1 km")
+		Props.roadSign(scenery, CF(-894, 0, 1000 - 26), "vorfahrt")
+		yield()
+	end)
+
+	step("backroads", function()
+		-- the lake inside the Muehlenweg loop, with a pier and rocks
+		local lake = mk(town, "See", V3(0.5, 190, 190), CF(-550, 0.12, 1250) * CFrame.Angles(0, 0, math.pi / 2), rgb(80, 138, 176), M.Glass, Enum.PartType.Cylinder)
+		lake.Transparency = 0.22
+		lake.CanCollide = false
+		for k = 1, 26 do
+			local a = k / 26 * math.pi * 2
+			local rock = mk(scenery, "ShoreRock", V3(rng:NextNumber(3, 7), 2.2, rng:NextNumber(3, 7)), CF(-550 + math.cos(a) * 97, 0.8, 1250 + math.sin(a) * 97) * CFrame.Angles(0, a, 0), rgb(140, 138, 132), M.Granite)
+			rock.CanCollide = false
+		end
+		local pier = mk(scenery, "Pier", V3(7, 0.5, 40), CF(-550, 0.55, 1148), rgb(130, 98, 62), M.WoodPlanks)
+		for i = 0, 5 do
+			for _, sx in ipairs({ -3, 3 }) do
+				mk(scenery, "PierPost", V3(0.6, 2, 0.6), CF(-550 + sx, 0, 1132 + i * 7), rgb(86, 58, 40), M.Wood).CanCollide = false
+			end
+		end
+		pier.CanCollide = true
+		Props.bench(scenery, CF(-550, 0.8, 1128))
+		yield()
+
+		-- the mill on the Muehlenweg
+		local _, millR = Buildings.barn(houses, CF(-850, 0, 1450) * CFrame.Angles(0, -math.pi / 2, 0), { rng = rng, name = "Muehle" })
+		addRect(-850 - millR, 1450 - millR, -850 + millR, 1450 + millR)
+		Props.haybale(scenery, CF(-830, 0, 1495))
+		Props.wayCross(scenery, CF(-812, 0, 1010))
+		yield()
+
+		-- farms and fences along the Feldweg
+		for _, f in ipairs({ { 100, 1050, math.pi }, { 640, 950, 0 }, { 940, 1050, math.pi } }) do
+			placeHouse(f[1], f[2], f[3], "stone", 0, { name = "Bauernhaus", w = 34, d = 26 })
+			Props.tractor(scenery, CF(f[1] + 30, 0, f[2] + (f[3] == 0 and -4 or 4)) * CFrame.Angles(0, f[3] + 0.6, 0), rgb(150, 50, 40))
+			yield()
+		end
+		Props.fenceRun(scenery, V3(-340, 0, 990), V3(1180, 0, 990), "post")
+		Props.hedgeRun(scenery, V3(-1510, 0, 60), V3(-1510, 0, 980), rng, 4)
+		for _, f in ipairs({ { 300, 1180, 220, 180 }, { 20, 1260, 160, 150 } }) do
+			mk(town, "Field", V3(f[3], 0.3, f[4]), CF(f[1], 0.15, f[2]), rgb(176, 168, 78), M.Grass)
+			for k = -3, 3 do
+				local row = mk(scenery, "CropRow", V3(f[3], 0.5, 1.4), CF(f[1], 0.45, f[2] + k * 22), rgb(142, 134, 60), M.Grass)
+				row.CanCollide = false
+			end
+		end
+		addRect(190, 1090, 410, 1270)
+		addRect(-60, 1185, 100, 1335)
+		yield()
+
+		-- signposts at the junctions
+		Props.wayCross(scenery, CF(1190, 0, 1012))
+		Props.wayCross(scenery, CF(-1490, 0, 1012))
+		Props.wayCross(scenery, CF(-308, 0, 1012))
+		Props.roadSign(scenery, CF(-880, 0, 440) * CFrame.Angles(0, math.pi / 2, 0), "curve")
+		Props.roadSign(scenery, CF(1186, 0, 800) * CFrame.Angles(0, math.pi / 2, 0), "curve")
+		for z = 30, 960, 80 do
+			Props.reflectorPost(scenery, CF(-1486, 0, z) * CFrame.Angles(0, -math.pi / 2, 0))
+			Props.reflectorPost(scenery, CF(-1514, 0, z) * CFrame.Angles(0, math.pi / 2, 0))
+		end
+
+		-- trees: woods between the roads, orchards by the lake
+		scatterTrees(260, -1480, 40, -930, 980, { "fir", "oak", "birch" }, 16)
+		yield()
+		scatterTrees(150, -870, 40, -40, 440, { "oak", "birch", "orchard" }, 16)
+		scatterTrees(150, -860, 480, 1180, 980, { "oak", "orchard", "birch" }, 16)
+		yield()
+		scatterTrees(140, -1250, 1030, -820, 1700, { "fir", "oak", "fir" }, 16)
+		scatterTrees(120, -290, 1030, 1180, 1700, { "oak", "birch", "orchard" }, 16)
+		print("[TownBuilder] backroads trees done")
 	end)
 
 	----------------------------------------------------------------------

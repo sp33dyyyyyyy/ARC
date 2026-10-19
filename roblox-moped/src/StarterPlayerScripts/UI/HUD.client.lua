@@ -188,7 +188,7 @@ RunService.RenderStepped:Connect(function()
 	local m = myBike
 	if not (m and m.Parent) then
 		gauge.Visible, panel.Visible, pushFrame.Visible = false, false, false
-		hint.Text = "Press B to bring your bike out."
+		hint.Text = "B: bring your bike out   P: phone (parts, garage)"
 		return
 	end
 

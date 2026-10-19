@@ -5,9 +5,9 @@
 	bike's Chassis and the VehicleData entry, and builds everything visible:
 	wheels, frame, fork, engine, exhaust, tank, seat, lights, mudguards ...
 
-	  moped       Spatz-style: pedals, chain, two-stroke engine, round muffler
-	  scooter     Kuckuck-style: step-through body, floorboard, variator cover
-	  supermoto   Wiesel / Dachs: tall long-travel forks, discs, high pipe
+	  moped       pedal moped: pedals, chain, two-stroke engine, round muffler
+	  scooter     the Aerox 50 stand-in: step-through body, floorboard, variator cover
+	  supermoto   the Supermoto 80 stand-in: tall long-travel forks, discs, high pipe
 
 	Coordinates: chassis centre = origin, -Z forward, +Y up, +X right.
 	The ground is at y = -(wheelRadius + 0.25). Axles sit at y = -0.25.

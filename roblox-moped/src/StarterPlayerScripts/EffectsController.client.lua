@@ -121,6 +121,21 @@ local function buildRig(model: Model)
 	end
 	rig.wheels = wheels
 
+	-- Animated groups built by BikeRig: a pivot part with a Weld "J" whose C0
+	-- we turn about the pivot's local Y axis (steering, stand, kick lever, ...)
+	local anims = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		local kind = d:IsA("BasePart") and d:GetAttribute("Anim")
+		local joint = kind and d:FindFirstChild("J")
+		if joint then
+			table.insert(anims, {
+				kind = kind, joint = joint, base = joint.C0, a1 = d:GetAttribute("A1") or 0,
+				inverted = d:GetAttribute("Inverted") == true, v = 0, applied = 0,
+			})
+		end
+	end
+	rig.anims = anims
+
 	rigs[model] = rig
 end
 
@@ -182,6 +197,57 @@ RunService.RenderStepped:Connect(function(dt)
 				end
 			end
 
+			-- handlebar steering, stand, kick lever, tap / key / choke
+			if camera and #rig.anims > 0 and (rig.chassis.Position - camera.CFrame.Position).Magnitude < 200 then
+				local mode = model:GetAttribute("Mode")
+				local speed = rig.chassis.AssemblyLinearVelocity:Dot(look)
+				if rig.kickT then
+					rig.kickT += dt
+					if rig.kickT > 0.55 then
+						rig.kickT = nil
+					end
+				end
+				for _, a in ipairs(rig.anims) do
+					local target, rate = 0, 10
+					if a.kind == "Steer" then
+						rate = 14
+						if ClientState.controlling == model then
+							target = (ClientState.steer or 0) * (1 - 0.55 * math.clamp(speed / 60, 0, 1))
+						elseif math.abs(speed) > 1.5 then
+							-- other players: steering angle from the bike's yaw rate (bicycle model)
+							local yaw = rig.chassis.AssemblyAngularVelocity.Y
+							target = math.clamp(-math.atan(vehicle.geometry.wheelbase * yaw / speed) / math.max(a.a1, 0.01), -1, 1)
+						end
+					elseif a.kind == "Stand" then
+						rate = 5
+						local down = mode == "Parked" and model:GetAttribute("OnStand") ~= true
+						target = (down ~= a.inverted) and 1 or 0
+					elseif a.kind == "Kick" then
+						rate = 60
+						local t = rig.kickT
+						if t then
+							target = t < 0.16 and (t / 0.16) or math.max(0, 1 - (t - 0.16) / 0.39)
+						end
+					elseif a.kind == "Tap" then
+						local tap = model:GetAttribute("FuelTap")
+						target = tap == "On" and 0.5 or (tap == "Reserve" and 1 or 0)
+					elseif a.kind == "Key" then
+						target = model:GetAttribute("Ignition") and 1 or 0
+					elseif a.kind == "Choke" then
+						target = model:GetAttribute("Choke") and 1 or 0
+					end
+					a.v += (target - a.v) * math.min(1, dt * rate)
+					if math.abs(a.v - a.applied) > 0.002 then
+						a.applied = a.v
+						local angle = a.v * a.a1
+						if a.kind == "Steer" then
+							angle = -angle -- +1 = steer right = clockwise seen from above
+						end
+						a.joint.C0 = a.base * CFrame.Angles(0, angle, 0)
+					end
+				end
+			end
+
 			local rpm = running and math.clamp(0.2 + 0.8 * forward / gearTop + throttle * 0.2, 0.2, 1.1) or 0
 			rig.smooth += (rpm - rig.smooth) * math.min(1, dt * 8)
 
@@ -234,6 +300,10 @@ Remotes.event("BikeEvent").OnClientEvent:Connect(function(model: Model, kind: st
 		return
 	end
 	if kind == "Kick" then
+		local rig = rigs[model]
+		if rig then
+			rig.kickT = 0 -- swing the kick lever
+		end
 		oneShot(model, "kick", 0.8, 0.95 + math.random() * 0.1)
 	elseif kind == "Crank" then
 		oneShot(model, "crank", 0.7)

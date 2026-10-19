@@ -238,7 +238,7 @@ function BikePhysics:step(input, dt: number)
 	-- 4. Wheelie (rear grounded, throttle, low gear)
 	----------------------------------------------------------------------
 	-- Below ~25 deg the rear spring just soaks it up; the front wheel only
-	-- lifts for bikes with a high `wheelie` stat (Wiesel easily, Dachs barely).
+	-- lifts for bikes with a high `wheelie` stat (Supermoto easily, Aerox barely).
 	local maxWheelie = math.rad(10 + 40 * geo.wheelie)
 	local wantWheelie = 0
 	if input.wheelie and rearGrounded and throttle > 0.4 and vLong > 3 and self.gear <= 3 then

@@ -21,6 +21,7 @@ return {
 	pushLeash = 0, -- 0..1 how stretched your arms are
 	throttle = 0,
 	brake = 0,
+	steer = 0, -- -1..1, +1 = right (drives the handlebar animation)
 	-- written by DataChanged handler (HUD)
 	data = nil :: any,
 }

@@ -378,6 +378,66 @@ van.Parent = workspace
   "petrol": "local B = require('Buildings'); local root = Instance.new('Folder'); root.Parent = workspace; B.petrolStation(root, CFrame.new(0,0,0), {})",
 }
 
+def import_scene(vid, pose, yaw_deg=180.0):
+    """Builds a fake 'imported' Model from the GLB's own bounding boxes (as the
+    3D importer would give MeshParts), runs BikeImport on it and poses the rig."""
+    import sys as _s
+    _s.path.insert(0, "/tmp/glb")
+    from glb import load, world, mesh_world
+    import numpy as _np
+    path = {"aerox50": "433a9efc-aerox50.glb", "supermoto80": "2aeb1192-supermoto80.glb"}[vid]
+    j, b = load("/root/.claude/uploads/04804a78-d950-5a10-aa81-ac24ad8ea7ec/" + path)
+    W = world(j)
+    K = 3.57
+    lines = ["local tpl = Instance.new('Model'); tpl.Name = '%s'" % vid]
+    c, s_ = math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))
+    for i, n in enumerate(j["nodes"]):
+        r = mesh_world(j, b, i, W)
+        if not r:
+            continue
+        lo, hi = r[1].min(0), r[1].max(0)
+        ctr = (lo + hi) / 2 * K
+        sz = (hi - lo) * K
+        x, z = c * ctr[0] + s_ * ctr[2], -s_ * ctr[0] + c * ctr[2]
+        lines.append("do local p = Instance.new('MeshPart'); p.Name = %r; p.Size = Vector3.new(%.4f,%.4f,%.4f); p.CFrame = CFrame.new(%.4f,%.4f,%.4f); p.Color = Color3.fromRGB(150,150,150); p.Parent = tpl end" % (n["name"], sz[0], sz[1], sz[2], x, ctr[1], z))
+    lines.append("tpl.Parent = workspace")
+    lines.append("""
+local VD = require('VehicleData')
+local BI = require('BikeImport')
+local m = BI.adapt(tpl, VD.byId['%s'])
+assert(m, 'adapt failed')
+m.Parent = workspace
+tpl.Parent = nil
+-- resolve welds the way Roblox would (part = Part0 * C0), parents first
+local function resolve(part, seen)
+  if seen[part] then return end
+  seen[part] = true
+  local w
+  for _, c in ipairs(part:GetChildren()) do if c.ClassName == 'Weld' and c.Part1 == part then w = c end end
+  if w then resolve(w.Part0, seen); part.CFrame = w.Part0.CFrame * w.C0 end
+end
+local function resolveAll() local seen = {} for _, d in ipairs(m:GetDescendants()) do if d.CFrame then resolve(d, seen) end end end
+local POSE = '%s'
+for _, d in ipairs(m:GetDescendants()) do
+  local kind = d.ClassName == 'Part' and d:GetAttribute('Anim')
+  if kind then
+    local j = d:FindFirstChild('J')
+    local a1 = d:GetAttribute('A1')
+    print('[rig]', d.Name, kind, 'a1=' .. string.format('%%.1f', math.deg(a1)))
+    local state = 0
+    if POSE == 'steer' and kind == 'Steer' then state = -0.6 / a1 * 1 end
+    if POSE == 'stand' and kind == 'Stand' then state = d:GetAttribute('Inverted') and 0 or 1 end
+    if POSE == 'standup' and kind == 'Stand' then state = d:GetAttribute('Inverted') and 1 or 0 end
+    if POSE == 'kick' and kind == 'Kick' then state = 1 end
+    if POSE == 'knobs' and (kind == 'Tap' or kind == 'Key' or kind == 'Choke') then state = 1 end
+    j.C0 = j.C0 * CFrame.Angles(0, state * a1, 0)
+  end
+end
+resolveAll()
+""" % (vid, pose))
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     kind = sys.argv[1]
     if kind == "bike":
@@ -403,6 +463,15 @@ if __name__ == "__main__":
         print(len(parts), "parts total,", len(sel), "in region")
         views = [(0.5,0.6,1.0),(1.0,0.5,0.6),(-0.9,0.5,0.9),(0.0,1.0,0.05),(0.1,0.25,1.0)]
         render(sel, views[vi], Wd, Hd).save(out)
+    elif kind == "import":
+        # python3 tools/preview.py import <vehicleId> out.png <pose> [view]
+        vid, out, pose = sys.argv[2], sys.argv[3], sys.argv[4]
+        parts = parse(run_lua(import_scene(vid, pose)))
+        parts = [p for p in parts if p["name"] not in ("Chassis",) and not p["name"].startswith("Pivot_")]
+        print(len(parts), "parts")
+        views = [(1.0,0.45,0.5),(0.0,1.0,0.02),(0.0,0.2,1.0),(-1.0,0.4,-0.3)]
+        vi = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+        render(parts, views[vi], 1400, 900).save(out)
     elif kind == "scene":
         name, out = sys.argv[2], sys.argv[3]
         parts = parse(run_lua(SCENES[name]))

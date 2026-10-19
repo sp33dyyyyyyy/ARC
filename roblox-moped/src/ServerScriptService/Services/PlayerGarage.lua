@@ -138,32 +138,11 @@ local function clickable(part: BasePart, distance: number, handler: (Player) -> 
 	return cd
 end
 
-local function billboard(adornee: BasePart, text: string, offset: Vector3, maxDistance: number?)
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "Tag"
-	gui.Adornee = adornee
-	gui.Size = UDim2.fromOffset(150, 28)
-	gui.StudsOffset = offset
-	gui.AlwaysOnTop = true
-	gui.MaxDistance = maxDistance or 26
-	gui.Parent = adornee
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromScale(1, 1)
-	frame.BackgroundColor3 = rgb(24, 26, 32)
-	frame.BackgroundTransparency = 0.25
-	frame.Parent = gui
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = frame
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.Text = text
-	label.TextColor3 = rgb(244, 184, 60)
-	label.Font = Enum.Font.GothamBold
-	label.TextSize = 14
-	label.Parent = frame
-	return gui
+-- Painted lettering ON the object (no floating text): a SurfaceGui on one face.
+local function plate(part: BasePart, text: string, face: Enum.NormalId, textColor: Color3?)
+	local t = ModelKit.signText(part, text, face, textColor or rgb(244, 184, 60), Enum.Font.GothamBlack)
+	t.TextTransparency = 0
+	return t
 end
 
 local function ownerOnly(g, fn: (Player) -> ())
@@ -333,19 +312,19 @@ local function buildControls(g, kit)
 	local keypad = b("Keypad", 1.1, 1.8, 0.25, 10.5, 4.4, -0.12, C.black, M.Metal, { query = true })
 	g.padLamp = b("KeypadLamp", 0.5, 0.18, 0.1, 10.5, 5.1, -0.28, rgb(200, 70, 60), M.Neon, { shadow = false })
 	b("KeypadButtons", 0.8, 0.9, 0.08, 10.5, 4.2, -0.28, rgb(60, 62, 70), M.SmoothPlastic)
-	billboard(keypad, "Door", V3(0, 2.2, 0), 18)
+	plate(keypad, "TOR", Enum.NormalId.Front)
 	clickable(keypad, 14, ownerOnly(g, function() toggleDoorByOwner(g) end))
 
 	-- inside, right wall near the door: big door button and the light switch
 	local doorBtn = b("DoorButton", 0.3, 1.4, 1.4, 13.85, 4.2, 4.5, rgb(190, 40, 36), M.SmoothPlastic, { query = true })
-	billboard(doorBtn, "Door", V3(-1.5, 1.4, 0), 18)
+	plate(doorBtn, "TOR", Enum.NormalId.Left, rgb(255, 255, 255))
 	clickable(doorBtn, 16, ownerOnly(g, function() toggleDoorByOwner(g) end))
 
-	local plate = b("SwitchPlate", 0.2, 1.4, 1.0, 13.9, 4.2, 7.6, rgb(230, 230, 224), M.SmoothPlastic, { query = true })
+	local switchPlate = b("SwitchPlate", 0.2, 1.4, 1.0, 13.9, 4.2, 7.6, rgb(230, 230, 224), M.SmoothPlastic, { query = true })
 	g.switchLamp = b("SwitchLamp", 0.12, 0.2, 0.2, 13.78, 4.7, 7.6, rgb(200, 70, 60), M.Neon, { shadow = false })
 	b("SwitchRocker", 0.18, 0.5, 0.5, 13.78, 4.0, 7.6, rgb(250, 250, 246), M.SmoothPlastic)
-	billboard(plate, "Lights", V3(-1.5, 1.3, 0), 18)
-	clickable(plate, 16, ownerOnly(g, function() setLights(g, not g.lightsOn) end))
+	plate(switchPlate, "LICHT", Enum.NormalId.Left, rgb(40, 40, 44))
+	clickable(switchPlate, 16, ownerOnly(g, function() setLights(g, not g.lightsOn) end))
 end
 
 local function buildFurniture(g, kit)
@@ -429,7 +408,7 @@ local function buildStand(g, kit)
 	g.platform = platform
 	g.platformHome = platform:GetPivot()
 	g.platformY = PLAT_LOW
-	billboard(deck, "Bike stand", V3(0, 3.2, 0), 30)
+	plate(deck, "BIKE STAND", Enum.NormalId.Top)
 	clickable(deck, 26, ownerOnly(g, function(player) PlayerGarage.standClicked(player) end))
 end
 
@@ -606,7 +585,7 @@ local function buildCrate(g, order, cf: CFrame)
 	clickable(box, 18, ownerOnly(g, function(player)
 		Parts.unpack(player, order.id)
 	end))
-	billboard(box, "Unpack", V3(0, 2, 0), 16)
+	plate(box, "AUF", Enum.NormalId.Top, rgb(60, 40, 20))
 	return crate
 end
 
@@ -706,32 +685,36 @@ function PlayerGarage.deliver(player: Player, order)
 	g.delivering = true
 	holdOpen(g, 14)
 	local van = buildVan()
-	van.Parent = g.model
-	local vanX = 9
-	local from = (g.cf * CF(vanX, 0, -90)).Position
-	local stop = (g.cf * CF(vanX, 0, -16)).Position
-	van:PivotTo(CFrame.lookAt(from, from + V3(0, 0, 1)))
-	driveVan(van, from, stop, 3.4)
+	local ok, err = pcall(function()
+		van.Parent = g.model
+		local vanX = 9
+		local from = (g.cf * CF(vanX, 0, -90)).Position
+		local stop = (g.cf * CF(vanX, 0, -16)).Position
+		van:PivotTo(CFrame.lookAt(from, from + V3(0, 0, 1)))
+		driveVan(van, from, stop, 3.4)
 
-	-- drop the crate behind the van
-	local slot = firstFreeCrateSlot(g)
-	local dropCF = g.cf * CF(vanX, 0.95, -24.5)
-	local crate = buildCrate(g, order, dropCF)
-	g.crates[order.id] = { model = crate, slot = slot }
-	Parts.markArrived(player, order)
-	task.wait(0.8)
-	tweenCrate(crate, g.cf * CF(5, 1.1, -24.5), 0.8) -- clear of the van
-	tweenCrate(crate, g.cf * CF(5, 1.1, crateSlot(slot).Z), 2.0) -- through the open door
+		-- drop the crate behind the van
+		local slot = firstFreeCrateSlot(g)
+		local dropCF = g.cf * CF(vanX, 0.95, -24.5)
+		local crate = buildCrate(g, order, dropCF)
+		g.crates[order.id] = { model = crate, slot = slot }
+		Parts.markArrived(player, order)
+		task.wait(0.8)
+		tweenCrate(crate, g.cf * CF(5, 1.1, -24.5), 0.8) -- clear of the van
+		tweenCrate(crate, g.cf * CF(5, 1.1, crateSlot(slot).Z), 2.0) -- through the open door
+		tweenCrate(crate, g.cf * CF(crateSlot(slot)), 0.8)
+		notify(player, "Your parcel is in the garage: click the crate to unpack it.", "good")
 
-	tweenCrate(crate, g.cf * CF(crateSlot(slot)), 0.8)
-	notify(player, "Your parcel is in the garage: click the crate to unpack it.", "good")
-
-	-- van leaves (back the way it came: reverse out, then fade)
-	driveVan(van, stop, from, 3.0)
+		-- van leaves (back the way it came)
+		driveVan(van, stop, from, 3.0)
+	end)
 	van:Destroy()
 	g.delivering = false
 	g.busyUntil = os.clock() + 2
-	return true
+	if not ok then
+		warn("[PlayerGarage] delivery error: " .. tostring(err))
+	end
+	return ok
 end
 
 ----------------------------------------------------------------------------

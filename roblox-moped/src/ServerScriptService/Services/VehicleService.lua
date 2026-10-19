@@ -966,6 +966,18 @@ end
 ----------------------------------------------------------------------------
 function VehicleService.init(dataService, economyService)
 	Data, Economy = dataService, economyService
+	-- keep the saved fuel / health of every spawned bike current (autosave, leaving, shutdown)
+	Data.onBeforeSave(function(player)
+		local profile = Data.get(player)
+		if not profile then
+			return
+		end
+		for _, rec in ipairs(fleets[player] or {}) do
+			if rec.model.Parent then
+				profile.bikeState[rec.vehicle.id] = { fuel = rec.model:GetAttribute("Fuel"), health = rec.model:GetAttribute("Health") }
+			end
+		end
+	end)
 	bikeEvent = Remotes.event("BikeEvent")
 
 	bikesFolder = Workspace:FindFirstChild("Bikes") :: Folder

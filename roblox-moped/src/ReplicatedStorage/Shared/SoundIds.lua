@@ -27,6 +27,6 @@ return {
 	refuel = "",
 	repair = "",
 
-	-- Optional overrides per vehicle id, e.g. perBike = { spatz50 = { engineLoop = "rbxassetid://..." } }
+	-- Optional overrides per vehicle id, e.g. perBike = { aerox50 = { engineLoop = "rbxassetid://..." } }
 	perBike = {},
 }

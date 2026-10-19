@@ -58,6 +58,7 @@ function CF.Inverse(c)
   local inv = cfm(vec(0, 0, 0), rx, ry, rz)
   return cfm(-rot(inv, p), rx, ry, rz)
 end
+function CF.PointToObjectSpace(c, v) return c:Inverse() * v end
 function CF.PointToWorldSpace(c, v) return c * v end
 function CF.VectorToWorldSpace(c, v) return rot(c, v) end
 function CF.ToObjectSpace(c, o) return c:Inverse() * o end
@@ -71,6 +72,7 @@ local function Ry(a) local c, s = math.cos(a), math.sin(a) return cfm(vec(0,0,0)
 local function Rz(a) local c, s = math.cos(a), math.sin(a) return cfm(vec(0,0,0), vec(c,s,0), vec(-s,c,0), vec(0,0,1)) end
 CFrame.Angles = function(x, y, z) return Rx(x or 0) * Ry(y or 0) * Rz(z or 0) end
 CFrame.fromEulerAnglesYXZ = function(x, y, z) return Ry(y) * Rx(x) * Rz(z) end
+CFrame.fromMatrix = function(pos, x, y, z) return cfm(pos, x, y, z or x:Cross(y)) end
 CFrame.lookAt = function(pos, target, up)
   up = up or vec(0, 1, 0)
   local z = (pos - target).Unit
@@ -103,6 +105,10 @@ end }
 PARTS = {}
 local Inst = {}
 Inst.__index = function(t, k)
+  if k == "Position" then
+    local cf = rawget(t, "_p").CFrame
+    if cf then return cf.Position end
+  end
   local v = rawget(t, "_p")[k]
   if v ~= nil then return v end
   if k == "Name" then return rawget(t, "_name") end
@@ -127,7 +133,7 @@ function Inst.GetDescendants(t)
   walk(t)
   return out
 end
-function Inst.GetChildren(t) return t._kids end
+function Inst.GetChildren(t) local c = {} for i, k in ipairs(t._kids) do c[i] = k end return c end
 function Inst.FindFirstChild(t, name, rec)
   for _, c in ipairs(t._kids) do if c.Name == name then return c end end
   if rec then for _, c in ipairs(t._kids) do local f = Inst.FindFirstChild(c, name, true) if f then return f end end end
@@ -162,9 +168,21 @@ function Inst.PivotTo(t, cf)
     if d.CFrame then d.CFrame = cf * (rel * d.CFrame) end
   end
 end
+function Inst.GetScale(t) return rawget(t, "_scale") or 1 end
+function Inst.ScaleTo(t, f)
+  local cur = rawget(t, "_scale") or 1
+  local r = f / cur
+  for _, d in ipairs(t:GetDescendants()) do
+    if d.CFrame and d.Size then
+      d.Size = d.Size * r
+      d.CFrame = cfm(d.CFrame.Position * r, d.CFrame.R, d.CFrame.U, d.CFrame.B)
+    end
+  end
+  rawset(t, "_scale", f)
+end
 function Inst.WaitForChild(t, n) return t:FindFirstChild(n) end
 
-local PARTCLASSES = { Part = 1, Seat = 1, WedgePart = 1, SpawnLocation = 1 }
+local PARTCLASSES = { Part = 1, Seat = 1, WedgePart = 1, SpawnLocation = 1, MeshPart = 1 }
 Instance = { new = function(cls)
   local t = setmetatable({ _p = { ClassName = cls }, _kids = {}, _attrs = {}, _name = cls }, Inst)
   rawget(t, "_p").Name = cls
@@ -176,7 +194,6 @@ Instance = { new = function(cls)
     p.Shape = "PartType.Block"
     p.Material = "Material.Plastic"
     p.Transparency = 0
-    p.Position = vec(0, 0, 0)
     table.insert(PARTS, t)
   end
   return t

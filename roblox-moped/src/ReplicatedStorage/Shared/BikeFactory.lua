@@ -28,6 +28,8 @@ local BikeFactory = {}
 
 local ModelKit = require(script.Parent.ModelKit)
 local BikeModels = require(script.Parent.BikeModels)
+local BikeRig = require(script.Parent.BikeRig)
+local BikeImport = require(script.Parent.BikeImport)
 
 ----------------------------------------------------------------------------
 -- Geometry helpers
@@ -187,6 +189,7 @@ function BikeFactory.build(vehicle, paintIndex: number): Model
 	local kit = ModelKit.new(model, chassis, chassis.CFrame)
 	local builder = BikeModels[BikeFactory.styleOf(vehicle)]
 	builder(kit, vehicle)
+	BikeRig.auto(model, chassis, vehicle) -- steering, stand and kick lever become animated groups
 
 	-- The sit target: an invisible Seat at the saddle
 	local seatAt = chassis:FindFirstChild("SeatPoint") :: Attachment
@@ -244,11 +247,23 @@ function BikeFactory.create(vehicleId: string, paintIndex: number): Model?
 	end
 	local store = ReplicatedStorage:FindFirstChild("VehicleModels")
 	local template = store and store:FindFirstChild(vehicleId)
-	if template and template:IsA("Model") and template.PrimaryPart then
-		local model = template:Clone()
-		BikeFactory.ensureAttachments(model, vehicle)
-		BikeFactory.applyPaint(model, vehicle, paintIndex)
-		return model
+	if template and template:IsA("Model") then
+		if template.PrimaryPart and template.PrimaryPart.Name == "Chassis" then
+			-- a finished, hand-prepared model
+			local model = template:Clone()
+			BikeFactory.ensureAttachments(model, vehicle)
+			BikeFactory.applyPaint(model, vehicle, paintIndex)
+			return model
+		elseif BikeImport.hasSpec(vehicleId) then
+			-- a raw import of the supplied .glb: scale, orient, rig
+			local ok, imported = pcall(BikeImport.adapt, template, vehicle)
+			if ok and imported then
+				BikeFactory.ensureAttachments(imported, vehicle)
+				BikeFactory.applyPaint(imported, vehicle, paintIndex)
+				return imported
+			end
+			warn(("[BikeFactory] could not use the imported model for %s (%s) - using the built-in bike"):format(vehicleId, tostring(imported)))
+		end
 	end
 	return BikeFactory.build(vehicle, paintIndex)
 end
