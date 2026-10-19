@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(script.Parent.GameConfig)
 local VehicleData = require(script.Parent.VehicleData)
+local PartsData = require(script.Parent.PartsData)
 
 local BikeFactory = {}
 
@@ -80,6 +81,76 @@ function BikeFactory.applyPaint(model: Model, vehicle, paintIndex: number)
 		end
 	end
 	model:SetAttribute("Paint", paintIndex)
+end
+
+----------------------------------------------------------------------------
+-- Aftermarket parts: how they look. Stats come from PartsData.apply; this only
+-- recolours / rescales named parts of the model and remembers the originals
+-- (attributes BaseColor / BaseSize) so removing a part puts everything back.
+----------------------------------------------------------------------------
+local rgbc = Color3.fromRGB
+local MOD_LOOKS = {
+	sport_exhaust = { colour = { { { "Muffler", "Silencer", "Header" }, rgbc(34, 34, 38) } } },
+	race_pipe = { colour = { { { "Muffler", "Silencer", "Header" }, rgbc(176, 120, 64) } } },
+	titan_exhaust = { colour = { { { "Muffler", "Silencer", "Header" }, rgbc(112, 128, 168) } } },
+	air_kit = { colour = { { { "AirBox" }, rgbc(225, 150, 40) } } },
+	big_carb = { colour = { { { "AirBox", "IntakeBoot" }, rgbc(210, 40, 40) } } },
+	short_gear = { colour = { { { "Sprocket" }, rgbc(214, 168, 58) } } },
+	long_gear = { colour = { { { "Sprocket" }, rgbc(214, 168, 58) } } },
+	road_tyres = { colour = { { { "Rib" }, rgbc(72, 72, 78) } } },
+	sport_tyres = { colour = { { { "Rib" }, rgbc(196, 30, 30) } } },
+	steel_lines = { colour = { { { "Caliper" }, rgbc(200, 30, 30) } } },
+	big_disc = { colour = { { { "Caliper" }, rgbc(200, 30, 30) } }, scale = { { "Disc$", Vector3.new(1, 1.22, 1.22) } } },
+	fork_springs = { colour = { { { "ShockSpring", "MonoSpring" }, rgbc(200, 30, 30) } } },
+	race_suspension = { colour = { { { "ForkTube", "ForkLeg", "ForkSlider", "ShockSpring", "MonoSpring" }, rgbc(214, 168, 58) } } },
+	big_tank = { scale = { { "^Tank$", Vector3.new(1.1, 1.14, 1.14) } } },
+	light_frame = { colour = { { { "Cradle", "SubFrame", "SwingArm", "SeatStay" }, rgbc(205, 208, 216) } } },
+}
+
+function BikeFactory.applyMods(model: Model, mods: { string })
+	local parts = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			table.insert(parts, d)
+			-- put the stock look back first
+			local c = d:GetAttribute("BaseColor")
+			if c then
+				d.Color = c
+			end
+			local s = d:GetAttribute("BaseSize")
+			if s then
+				d.Size = s
+			end
+		end
+	end
+	for _, id in ipairs(mods) do
+		local look = MOD_LOOKS[id]
+		if look then
+			for _, p in ipairs(parts) do
+				for _, rule in ipairs(look.colour or {}) do
+					for _, pattern in ipairs(rule[1]) do
+						if string.find(p.Name, pattern) then
+							if p:GetAttribute("BaseColor") == nil then
+								p:SetAttribute("BaseColor", p.Color)
+							end
+							p.Color = rule[2]
+							break
+						end
+					end
+				end
+				for _, rule in ipairs(look.scale or {}) do
+					if string.find(p.Name, rule[1]) then
+						if p:GetAttribute("BaseSize") == nil then
+							p:SetAttribute("BaseSize", p.Size)
+						end
+						local base = p:GetAttribute("BaseSize") :: Vector3
+						p.Size = Vector3.new(base.X * rule[2].X, base.Y * rule[2].Y, base.Z * rule[2].Z)
+					end
+				end
+			end
+		end
+	end
+	model:SetAttribute("Mods", PartsData.encode(mods))
 end
 
 ----------------------------------------------------------------------------

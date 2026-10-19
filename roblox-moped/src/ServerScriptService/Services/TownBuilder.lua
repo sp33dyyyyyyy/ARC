@@ -275,6 +275,11 @@ function TownBuilder.build()
 		road(0, -1200, 0, 0, 16, 0.24, { color = C.lane }) -- Marktstrasse back to the village
 		road(-300, 0, 300, 0, 24, 0.26, { dashed = true }) -- Hauptstrasse (village main street)
 
+		-- Garagenreihe: the row of personal garages (built per player by PlayerGarage)
+		road(-290, 100, 290, 100, 14, 0.24, { color = C.lane })
+		road(40, 12, 40, 100, 12, 0.24, { color = C.lane })
+		addRect(-300, 92, 300, 190)
+
 		-- Marktplatz
 		mk(town, "Marktplatz", V3(150, 0.5, 130), CF(0, 0.05, -150), C.cobble, M.Cobblestone)
 		mk(town, "MarktplatzRim", V3(154, 0.4, 134), CF(0, 0.02, -150), rgb(120, 114, 104), M.Granite)
@@ -446,6 +451,14 @@ function TownBuilder.buildScenery(z0: number, z1: number, rise: number)
 		ModelKit.signText(head, "AUFTRAEGE", Enum.NormalId.Back, rgb(240, 214, 140))
 		tag(board, "MissionBoard")
 		addRect(24, -28, 44, -18)
+
+		-- signpost for the garage row
+		local gsign = mk(scenery, "GarageSign", V3(11, 2.6, 0.4), CF(52, 6, 20), rgb(40, 84, 62), M.SmoothPlastic)
+		for _, sx in ipairs({ -4, 4 }) do
+			mk(scenery, "SignPost", V3(0.7, 6, 0.7), CF(52 + sx, 3, 20), rgb(86, 58, 40), M.Wood)
+		end
+		ModelKit.signText(gsign, "MEINE GARAGE  >", Enum.NormalId.Front, rgb(244, 236, 210), Enum.Font.GothamBlack)
+		addRect(44, 16, 60, 24)
 	end)
 
 	----------------------------------------------------------------------

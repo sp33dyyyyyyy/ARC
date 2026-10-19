@@ -212,7 +212,24 @@ def sheet(parts, views, out, W=700, H=460, **kw):
 
 BIKE_VIEWS = [(1.0,0.45,0.9), (1,0.0,0), (-1,0.4,-0.8), (0.0,0.15,-1)]
 
+MODS = "sport_exhaust,big_carb,long_gear,sport_tyres,big_disc,race_suspension,big_tank,light_frame"
 DRIVERS = {
+  "bikemods": lambda vid: f"""
+local VD = require('VehicleData')
+local BF = require('BikeFactory')
+local PD = require('PartsData')
+local v = VD.byId['{vid}']
+local m = BF.build(v, 1)
+m.Parent = workspace
+local mods = PD.decode('{MODS}')
+BF.applyMods(m, mods)
+local eff = PD.apply(v, mods)
+print('[stats] top', v.stats.topSpeedKmh, '->', eff.stats.topSpeedKmh, 'weight', v.stats.weightKg, '->', eff.stats.weightKg, 'tank', v.stats.fuelCapacityL, '->', eff.stats.fuelCapacityL, 'price', PD.price(PD.byId.big_disc, v))
+BF.applyMods(m, {{}}) -- remove everything again: must restore the stock look
+local again = PD.encode(PD.installedList({{parts = {{}}}}, '{vid}'))
+print('[restore] mods attr =', m:GetAttribute('Mods') == '' and 'empty' or 'NOT EMPTY')
+BF.applyMods(m, mods)
+""",
   "bike": lambda vid: f"""
 local VD = require('VehicleData')
 local BF = require('BikeFactory')
@@ -264,6 +281,100 @@ kit:wheel('Wire', Vector3.new(0,1.1,0), 0.85, 0.5, {spokes = 9, drum = true, dru
 kit:wheel('Cast', Vector3.new(4,1.1,0), 0.9, 0.55, {cast = true, drum = true, drumSide = 0.32, rimColor = Color3.fromRGB(176,180,186), rimRatio = 0.7})
 kit:wheel('Moto', Vector3.new(8,1.3,0), 1.05, 0.55, {spokes = 12, disc = true, discSide = 0.24, caliper = -0.5, rimColor = Color3.fromRGB(214,168,58), rimRatio = 0.8})
 """,
+  "garage": """
+-- stand-ins for services/events the previewer does not model
+TweenInfo = { new = function() return {} end }
+local oldGet = game.GetService
+game.GetService = function(self, n)
+  if n == 'TweenService' then return { Create = function() return { Play = function() end, Cancel = function() end } end } end
+  return oldGet(self, n)
+end
+local oldNew = Instance.new
+Instance.new = function(c)
+  local t = oldNew(c)
+  if c == 'ClickDetector' then rawget(t, '_p').MouseClick = { Connect = function() end } end
+  return t
+end
+local G = require('PlayerGarage')
+pcall(G.init, nil, nil, nil, nil)
+local fake = { UserId = 1, DisplayName = 'Evan' }
+local g = G.assign(fake)
+if OPEN then end
+""",
+  "partslogic": """
+-- exercises PartsService with stubbed neighbours (no Roblox needed)
+local oldGet = game.GetService
+game.GetService = function(self, n)
+  if n == 'RunService' then return { IsServer = function() return true end, IsStudio = function() return true end } end
+  if n == 'Players' then return { PlayerRemoving = { Connect = function() end }, GetPlayers = function() return {} end } end
+  return oldGet(self, n)
+end
+local oldNew = Instance.new
+Instance.new = function(c)
+  local t = oldNew(c)
+  if c == 'RemoteEvent' then rawget(t, '_p').OnServerEvent = { Connect = function() end }; rawget(t, '_p').FireClient = function() end end
+  return t
+end
+task.spawn = function() end
+local fakeClock = 0
+local realOs = os
+os = setmetatable({ clock = function() fakeClock += 1 return fakeClock end }, { __index = realOs }) -- steps past the rate limiters
+local PS = require('PartsService')
+local PD = require('PartsData')
+local VD = require('VehicleData')
+local function say(...) print('[test]', ...) end
+local profile = { money = 5000, owned = { spatz50 = { paint = 1 } }, parts = {}, orders = {} }
+local player = { UserId = 1 }
+local standRec = nil
+local Data = { get = function() return profile end, push = function() end }
+local Economy = {
+  spend = function(_, amount) if profile.money >= amount then profile.money -= amount return true end return false end,
+  notify = function(_, text) say('notify:', text) end,
+}
+local refits = 0
+local Vehicles = { refit = function() refits += 1 end }
+local crates = {}
+local Garage = {
+  get = function() return {} end,
+  standBike = function() return standRec end,
+  deliver = function() end, placeCrate = function(_, o) crates[o.id] = true end,
+  removeCrate = function(_, id) crates[id] = nil end,
+}
+Remotes_ = nil
+PS.init(Data, Economy, Vehicles, Garage)
+local order = game.ReplicatedStorage:FindFirstChild('Remotes')
+-- the mock Remotes returns generic instances; call the handlers through the module instead
+local R = require('Remotes')
+local orderFn = R.func('PartsOrder').OnServerInvoke
+local installFn = R.func('PartsInstall').OnServerInvoke
+local removeFn = R.func('PartsRemove').OnServerInvoke
+local r = orderFn(player, 'sport_exhaust', 'spatz50'); say('order sport_exhaust ->', r.ok, r.reason, 'money', profile.money)
+r = orderFn(player, 'sport_exhaust', 'spatz50'); say('order again ->', r.ok, r.reason)
+r = orderFn(player, 'titan_exhaust', 'spatz50'); say('order 4-stroke part on 2-stroke ->', r.ok, r.reason)
+r = orderFn(player, 'race_pipe', 'wiesel125'); say('order for unowned bike (TestFleet) ->', r.ok, r.reason)
+r = orderFn(player, 'nope', 'spatz50'); say('unknown part ->', r.ok, r.reason)
+-- deliver + unpack by hand (the van is stubbed)
+local o = profile.orders[1]; o.arrived = true; PS.markArrived(player, o)
+PS.unpack(player, o.id)
+say('inventory after unpack', profile.parts.spatz50 and profile.parts.spatz50.owned.sport_exhaust, 'orders left', #profile.orders)
+r = installFn(player, 'spatz50', 'sport_exhaust'); say('install without stand ->', r.ok, r.reason)
+standRec = { vehicle = VD.byId.spatz50 }
+r = installFn(player, 'spatz50', 'sport_exhaust'); say('install on stand ->', r.ok, 'refits', refits, 'installed', profile.parts.spatz50.installed.exhaust)
+local eff = PD.apply(VD.byId.spatz50, PD.installedList(profile, 'spatz50'))
+say('top speed', VD.byId.spatz50.stats.topSpeedKmh, '->', eff.stats.topSpeedKmh)
+r = removeFn(player, 'spatz50', 'exhaust'); say('remove ->', r.ok, 'back in inventory', profile.parts.spatz50.owned.sport_exhaust, 'installed', profile.parts.spatz50.installed.exhaust)
+""",
+  "van": """
+local oldGet = game.GetService
+game.GetService = function(self, n)
+  if n == 'TweenService' then return { Create = function() return { Play = function() end, Cancel = function() end } end } end
+  return oldGet(self, n)
+end
+TweenInfo = { new = function() return {} end }
+local G = require('PlayerGarage')
+local van = G.buildVan()
+van.Parent = workspace
+""",
   "petrol": "local B = require('Buildings'); local root = Instance.new('Folder'); root.Parent = workspace; B.petrolStation(root, CFrame.new(0,0,0), {})",
 }
 
@@ -271,7 +382,7 @@ if __name__ == "__main__":
     kind = sys.argv[1]
     if kind == "bike":
         vid, out = sys.argv[2], sys.argv[3]
-        parts = parse(run_lua(DRIVERS["bike"](vid)))
+        parts = parse(run_lua(DRIVERS[os.environ.get("DRIVER", "bike")](vid)))
         print(len(parts), "parts")
         views = BIKE_VIEWS
         if len(sys.argv) > 4:
@@ -295,8 +406,13 @@ if __name__ == "__main__":
     elif kind == "scene":
         name, out = sys.argv[2], sys.argv[3]
         parts = parse(run_lua(SCENES[name]))
+        hide = [h for h in os.environ.get("HIDE", "").split(",") if h]
+        if hide:
+            parts = [p for p in parts if p["name"] not in hide]
         print(len(parts), "parts")
-        views = [(0.5,0.55,1.0),(1.0,0.45,0.6),(-0.9,0.5,0.9),(0.0,1.0,0.05)]
+        if not parts:
+            raise SystemExit(0)  # logic-only scene
+        views = [(0.5,0.55,1.0),(1.0,0.45,0.6),(-0.9,0.5,0.9),(0.0,1.0,0.05),(-0.6,0.45,-1.0),(0.7,0.9,-0.7),(-0.5,0.8,-0.6),(0.3,0.5,-1.0)]
         if len(sys.argv) > 4:
             render(parts, views[int(sys.argv[4])], 1400, 900).save(out)
         else:

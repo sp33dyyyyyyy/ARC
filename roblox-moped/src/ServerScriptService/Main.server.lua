@@ -53,6 +53,8 @@ local Vehicles = safeRequire(Services, "VehicleService")
 local Garage = safeRequire(Services, "GarageService")
 local Stations = safeRequire(Services, "StationService")
 local Missions = safeRequire(Services, "MissionService")
+local PlayerGarage = safeRequire(Services, "PlayerGarage")
+local Parts = safeRequire(Services, "PartsService")
 
 if not (DataService and Economy and Vehicles) then
 	warn("[MopedDays] core services failed to load - see the errors above. Bikes cannot spawn.")
@@ -65,6 +67,12 @@ try("Vehicles.init", function() Vehicles.init(DataService, Economy) end)
 if Garage then try("Garage.init", function() Garage.init(DataService, Economy, Vehicles) end) end
 if Stations then try("Stations.init", function() Stations.init(Economy, Vehicles, Garage) end) end
 if Missions then try("Missions.init", function() Missions.init(Economy, Vehicles) end) end
+if PlayerGarage and Parts then
+	try("Parts.init", function() Parts.init(DataService, Economy, Vehicles, PlayerGarage) end)
+	try("PlayerGarage.init", function() PlayerGarage.init(DataService, Economy, Vehicles, Parts) end)
+else
+	warn("[MopedDays] personal garages / parts are unavailable - see the errors above")
+end
 print("[MopedDays] services ready")
 
 -- 3. players
@@ -76,6 +84,12 @@ local function onPlayerAdded(player: Player)
 		return
 	end
 	try("leaderstats", function() Economy.setupPlayer(player) end)
+	if PlayerGarage and Parts then
+		try("garage", function()
+			PlayerGarage.assign(player)
+			Parts.onJoin(player)
+		end)
+	end
 
 	-- put the bike(s) next to the player once their character exists
 	task.spawn(function()

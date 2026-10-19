@@ -13,6 +13,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VehicleData = require(Shared:WaitForChild("VehicleData"))
+local PartsData = require(Shared:WaitForChild("PartsData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local ClientState = require(Shared:WaitForChild("ClientState"))
 local UIKit = require(script.Parent:WaitForChild("UIKit"))
@@ -195,6 +196,7 @@ RunService.RenderStepped:Connect(function()
 	if not vehicle then
 		return
 	end
+	vehicle = PartsData.effective(vehicle, m:GetAttribute("Mods"))
 	local mode = m:GetAttribute("Mode")
 	gauge.Visible, panel.Visible = true, true
 

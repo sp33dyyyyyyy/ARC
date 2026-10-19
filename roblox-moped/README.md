@@ -105,6 +105,33 @@ garage, physics, fuel, start-up and prices all follow.
 
 ---------------------------------------------------------------------------
 
+### Your personal garage, the phone and parts
+
+Everybody gets **their own garage** in the *Garagenreihe* (row of garages) south
+of the spawn - follow the green "MEINE GARAGE" sign, or open the phone. It is
+built when you join and removed when you leave; nobody else can use yours.
+
+* **Door** - a roller door that rolls up when you (or your bike) come close and
+  closes when you leave. Also click the keypad outside or the red button inside.
+* **Lights** - ceiling lights and the lamp over the apron switch on with the
+  door; click the light switch inside to toggle them.
+* **Phone** (button on the right edge, or `P`):
+  *Parts* - pick a bike, order upgrades (exhaust, carb, gearing, tyres, brakes,
+  suspension, tank, frame kit; prices scale with engine size).
+  *Orders* - countdown for parcels on their way.
+  *Garage* - "Take me to my garage" / "Bring my bikes to my garage".
+* **Delivery** - after `GameConfig.Garage.DeliverySeconds` a yellow van drives
+  up, the garage door opens and the crate is carried in. **Click the crate** to
+  unpack it (the part goes into that bike's inventory).
+* **Bike stand** - bring a bike near the garage and **click the stand**: the bike
+  is parked on it and lifted, and the workshop window opens. Press *Install* on a
+  part (or *Remove*). Stats, fuel tank, weight and the bike's looks change for
+  real (gold forks, red calipers, a big tank, ...). *Lower the stand & release
+  the bike* puts it back on the floor.
+
+Orders, inventory and fitted parts are saved in the profile. Parts live in
+`PartsData.lua` - add a table to `list` to add a part.
+
 ## 3. Project structure
 
 ```
@@ -120,6 +147,7 @@ roblox-moped/
    │   ├─ BikeModels.lua                 ModuleScript  the detailed moped / scooter / supermoto bodies
    │   ├─ BikeFactory.lua                ModuleScript  builds a bike (or loads YOUR model) + physics setup
    │   ├─ BikePhysics.lua                ModuleScript  raycast-wheel two-wheeler solver
+   │   ├─ PartsData.lua                  ModuleScript  <- aftermarket parts catalogue + stat maths
    │   ├─ ClientState.lua                ModuleScript  client-only shared telemetry
    │   └─ SoundIds.lua                   ModuleScript  <- paste YOUR audio ids here
    ├─ ServerScriptService/
@@ -130,6 +158,8 @@ roblox-moped/
    │       ├─ VehicleService.lua         spawn, start-up procedure, fuel, damage, push, clickable control hotspots
    │       ├─ GarageService.lua          validated buy / equip / spawn
    │       ├─ StationService.lua         petrol station, workshop, garage door prompts
+   │       ├─ PlayerGarage.lua           one garage per player: roller door, lights, bike stand, crates, delivery van
+   │       ├─ PartsService.lua           orders, delivery timing, unpacking, installing / removing parts
    │       ├─ MissionService.lua         delivery / checkpoint / cruise, server-judged
    │       ├─ TownBuilder.lua            lays out the whole map (core first, scenery in the background)
    │       ├─ Buildings.lua              houses, church, barn, shops, garage, petrol station, Gasthof
@@ -138,10 +168,13 @@ roblox-moped/
        ├─ BikeClient.client.lua          LocalScript  driving input + physics for the bike you control
        ├─ BikeControls.client.lua        LocalScript  hover outline + click on the bike's controls
        ├─ EffectsController.client.lua   LocalScript  sound, smoke, shake (cosmetic only)
+       ├─ GarageClient.client.lua        LocalScript  rolls the garage doors up / down smoothly
        └─ UI/                            (Folder)
            ├─ UIKit.lua                  ModuleScript  UI helpers
            ├─ HUD.client.lua             LocalScript  gauges, start-up panel, toasts, money
            ├─ GarageUI.client.lua        LocalScript  garage w/ rotating preview + stat bars
+           ├─ PhoneUI.client.lua         LocalScript  in-game phone: parts shop, orders, garage shortcuts
+           ├─ WorkshopUI.client.lua      LocalScript  install / remove parts for the bike on the stand
            └─ MissionClient.client.lua   LocalScript  job board, tracker, markers
 ```
 
@@ -223,8 +256,14 @@ Bike modes (`Mode` attribute): `Parked` (anchored, kickstand) → `Ride` (seated
 7. **Garage:** open it, spin the preview, check locked/unlocked text, buy,
    equip, swap colour.
 8. **Missions:** take each of the three types from the board.
-9. **Save:** buy something, stop the test, start again, confirm it persists.
-10. **Multiplayer:** Test tab → Local Server with 2+ players. Each player gets
+9. **Personal garage:** use the phone > Garage > *Take me to my garage*. The door
+   should roll up as you approach and the lights come on; click the keypad /
+   red button to close it. Order a part (phone > Parts), watch Orders count down,
+   the van arrives, click the crate, bring a bike (*Bring my bikes to my garage*),
+   click the stand, *Install*. The stats in the workshop window and the HUD
+   gauge should change, and the bike should look different.
+10. **Save:** buy something, stop the test, start again, confirm it persists.
+11. **Multiplayer:** Test tab → Local Server with 2+ players. Each player gets
     their own bike; only the owner can use its controls; check you can hear/see
     another player's engine and smoke.
 
@@ -322,12 +361,17 @@ play session.
   vehicles. A cheating client could ignore its own physics; the server clamps
   speed and still owns money/fuel/health, so the economy can't be cheated.
 - Controls are clickable only on your own bikes; the server re-checks ownership and distance on every click.
-- No traffic, police or engine/tyre/exhaust upgrades in v1. `VehicleData` is
-  structured so upgrades can be added as extra stat multipliers.
+- No traffic or police. Upgrades are stat changes + recolours/rescales of named
+  bike parts (`PartsData`, `BikeFactory.applyMods`); real new meshes would go in
+  as extra model parts.
+- The personal garages are part-built, the roller door is animated on each client
+  (the server only flips `Open`), and the delivery van / lift motion is stepped on
+  the server, so it looks a little less smooth than a client tween on a laggy
+  connection. Not tried in Studio yet.
 - Saves use `UpdateAsync` last-write-wins and no session lock; fine for one
   server per player, add a lock before shipping widely.
 - Saved: money, owned bikes (+colour), equipped bike, jobs, lifetime earnings,
-  per-bike fuel and health.
+  per-bike fuel and health, parts inventory / fitted parts, pending orders.
 
 ---------------------------------------------------------------------------
 
@@ -339,7 +383,10 @@ Roblox runtime and renders it to a PNG, so models can be checked without Studio:
 
 ```
 python3 tools/preview.py bike spatz50 out.png        # one bike, four views
-python3 tools/preview.py scene houses out.png        # houses | church | barn | shops | petrol | props
+python3 tools/preview.py scene houses out.png        # houses | church | barn | shops | petrol | props | garage | van
+HIDE=Roof,Parapet python3 tools/preview.py scene garage out.png 5   # cut-away view of a personal garage
+DRIVER=bikemods python3 tools/preview.py bike wiesel125 out.png 1  # a bike with parts fitted
+python3 tools/preview.py scene partslogic out.png    # logic test of ordering / installing parts
 python3 tools/preview.py region out.png -330 -300 330 90 0   # a region of the full town
 ```
 (needs `luau` on PATH or `LUAU=/path/to/luau`, plus numpy and Pillow.)

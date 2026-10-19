@@ -88,6 +88,15 @@ GameConfig.Data = {
 	AutosaveSeconds = 90,
 }
 
+-- Personal garages, phone orders, parts delivery
+GameConfig.Garage = {
+	DeliverySeconds = 25, -- order -> van arrives
+	OpenDistance = 30, -- door opens when you (or your bike) are this close
+	CloseDistance = 55, -- ...and closes again beyond this
+	AutoOpen = true,
+	StandRaise = 3.0, -- studs the lift rises
+}
+
 -- TEST MODE: spawning puts every bike (owned or not, full tanks) in a line in
 -- front of you. Set false for the normal "one equipped bike" game.
 GameConfig.TestFleet = true

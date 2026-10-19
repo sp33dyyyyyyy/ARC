@@ -52,6 +52,8 @@ local function defaultProfile()
 		jobs = 0,
 		earned = 0,
 		bikeState = {},
+		parts = {}, -- [bikeId] = { owned = {id=true}, installed = {slot=id} }
+		orders = {}, -- parts on their way / waiting as crates: {id, partId, bikeId, deliverAt, arrived}
 	}
 end
 
@@ -111,6 +113,8 @@ function DataService.view(profile)
 		equipped = profile.equipped,
 		jobs = profile.jobs,
 		earned = profile.earned,
+		parts = profile.parts,
+		orders = profile.orders,
 	}
 end
 

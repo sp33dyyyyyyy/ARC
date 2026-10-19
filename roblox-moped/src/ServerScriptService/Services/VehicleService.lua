@@ -36,6 +36,7 @@ local VehicleData = require(Shared.VehicleData)
 local Remotes = require(Shared.Remotes)
 local BikeFactory = require(Shared.BikeFactory)
 local BikePhysics = require(Shared.BikePhysics)
+local PartsData = require(Shared.PartsData)
 
 local ENGINE = GameConfig.Engine
 local FUEL = GameConfig.Fuel
@@ -408,6 +409,10 @@ local function handleAction(player: Player, action: string, target: any?)
 	if not nearBike(player, rec) then
 		return
 	end
+	if m:GetAttribute("OnStand") and (action == "Ride" or action == "Grab" or action == "Kick" or action == "Starter") then
+		notify(player, "The bike is on the stand - lower it first (click the stand).", "hint")
+		return
+	end
 
 	if action == "FuelTap" then
 		m:SetAttribute("FuelTap", TAP_NEXT[m:GetAttribute("FuelTap")] or "Off")
@@ -549,12 +554,16 @@ function VehicleService.despawn(player: Player)
 end
 
 -- Builds one bike, places it, registers it. Returns the record or nil, reason.
-local function placeBike(player: Player, vehicle, paintIndex: number, position: Vector3, facing: Vector3, ignore: Instance, fuelOverride: number?)
+local function placeBike(player: Player, baseVehicle, paintIndex: number, position: Vector3, facing: Vector3, ignore: Instance, fullTank: boolean?)
 	local profile = Data.get(player)
-	local model = BikeFactory.create(vehicle.id, paintIndex)
+	local model = BikeFactory.create(baseVehicle.id, paintIndex)
 	if not model then
 		return nil, "Model missing"
 	end
+	-- installed upgrades: the bike runs (and is weighed) with its effective stats
+	local mods = profile and PartsData.installedList(profile, baseVehicle.id) or {}
+	local vehicle = PartsData.effective(baseVehicle, PartsData.encode(mods))
+	BikeFactory.applyMods(model, mods)
 	BikeFactory.setupPhysics(model, vehicle)
 	local chassis = model.PrimaryPart :: BasePart
 	local seat = model:FindFirstChildWhichIsA("Seat", true)
@@ -566,8 +575,9 @@ local function placeBike(player: Player, vehicle, paintIndex: number, position: 
 	seatPart.CanTouch = false -- no accidental sitting; mounting is by clicking the seat
 
 	local saved = profile and profile.bikeState[vehicle.id]
-	local fuel = fuelOverride or (saved and saved.fuel) or vehicle.stats.fuelCapacityL * 0.5
-	local health = fuelOverride and 100 or (saved and saved.health) or 100
+	local fuel = fullTank and vehicle.stats.fuelCapacityL or (saved and saved.fuel) or vehicle.stats.fuelCapacityL * 0.5
+	fuel = math.min(fuel, vehicle.stats.fuelCapacityL)
+	local health = fullTank and 100 or (saved and saved.health) or 100
 
 	local attrs = {
 		Owner = player.UserId, VehicleId = vehicle.id, Rider = 0, Pusher = 0, Controller = 0,
@@ -613,7 +623,9 @@ local function placeBike(player: Player, vehicle, paintIndex: number, position: 
 	return rec
 end
 
-function VehicleService.spawn(player: Player): (boolean, string?)
+-- `at` (optional) = where to put the bike(s) and which way they face; by default
+-- in front of the player.
+function VehicleService.spawn(player: Player, at: CFrame?): (boolean, string?)
 	local profile = Data.get(player)
 	if not profile then
 		warn("[VehicleService] spawn: no profile for " .. player.Name)
@@ -626,7 +638,8 @@ function VehicleService.spawn(player: Player): (boolean, string?)
 
 	VehicleService.despawn(player)
 
-	local look = hrp.CFrame.LookVector
+	local origin = at or hrp.CFrame
+	local look = origin.LookVector
 	local flat = Vector3.new(look.X, 0, look.Z)
 	flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1)
 
@@ -638,8 +651,8 @@ function VehicleService.spawn(player: Player): (boolean, string?)
 		for i, vehicle in ipairs(VehicleData.list) do
 			local owned = profile.owned[vehicle.id]
 			local lateral = (i - (count + 1) / 2) * 7
-			local pos = hrp.Position + flat * 12 + right * lateral
-			local rec, why = placeBike(player, vehicle, owned and owned.paint or 1, pos, flat, char, vehicle.stats.fuelCapacityL)
+			local pos = origin.Position + flat * 12 + right * lateral
+			local rec, why = placeBike(player, vehicle, owned and owned.paint or 1, pos, flat, char, true)
 			if not rec then
 				warn(("[VehicleService] could not spawn %s: %s"):format(vehicle.id, tostring(why)))
 			end
@@ -654,7 +667,7 @@ function VehicleService.spawn(player: Player): (boolean, string?)
 	if not (vehicle and owned) then
 		return false, "No bike equipped"
 	end
-	local rec, why = placeBike(player, vehicle, owned.paint, hrp.Position + flat * 7, flat, char)
+	local rec, why = placeBike(player, vehicle, owned.paint, origin.Position + flat * 7, flat, char)
 	if not rec then
 		warn("[VehicleService] spawn failed: " .. tostring(why))
 		return false, why
@@ -690,6 +703,52 @@ function VehicleService.getBikeNear(player: Player, position: Vector3, range: nu
 		end
 	end
 	return best
+end
+
+function VehicleService.fleetOf(player: Player): { any }
+	return fleets[player] or {}
+end
+
+-- Re-read the installed parts from the profile and apply them to a live bike.
+function VehicleService.refit(player: Player, rec)
+	local profile = Data.get(player)
+	if not (profile and rec.model.Parent) then
+		return
+	end
+	local base = VehicleData.byId[rec.vehicle.id]
+	local mods = PartsData.installedList(profile, base.id)
+	rec.vehicle = PartsData.effective(base, PartsData.encode(mods))
+	BikeFactory.applyMods(rec.model, mods)
+	BikeFactory.setupPhysics(rec.model, rec.vehicle) -- weight changes with parts
+	local cap = rec.vehicle.stats.fuelCapacityL
+	if rec.model:GetAttribute("Fuel") > cap then
+		rec.model:SetAttribute("Fuel", cap)
+	end
+	fireBikeEvent(rec, "Click")
+end
+
+-- Put a bike on a stand: off, parked, nobody on it. The garage moves it.
+function VehicleService.dock(player: Player, rec, cf: CFrame)
+	local m = rec.model
+	if m:GetAttribute("Rider") == player.UserId then
+		local _, hum = character(player)
+		if hum then
+			hum.Sit = false
+		end
+	end
+	releasePush(rec)
+	m:SetAttribute("Rider", 0)
+	m:SetAttribute("Ignition", false)
+	m:SetAttribute("FuelTap", "Off")
+	m:SetAttribute("EngineRunning", false)
+	m:SetAttribute("OnStand", true)
+	park(rec)
+	m:PivotTo(cf)
+	bikes[player] = rec
+end
+
+function VehicleService.undock(rec)
+	rec.model:SetAttribute("OnStand", false)
 end
 
 function VehicleService.fuelMissing(rec): number

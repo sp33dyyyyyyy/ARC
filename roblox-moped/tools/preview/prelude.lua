@@ -138,6 +138,10 @@ function Inst.FindFirstChildWhichIsA(t, cls, rec)
   if rec then for _, c in ipairs(t._kids) do local f = Inst.FindFirstChildWhichIsA(c, cls, true) if f then return f end end end
   return nil
 end
+function Inst.FindFirstChildOfClass(t, cls)
+  for _, c in ipairs(t._kids) do if c.ClassName == cls then return c end end
+  return nil
+end
 function Inst.IsA(t, cls)
   if t.ClassName == cls then return true end
   local part = { Part = 1, Seat = 1, WedgePart = 1, SpawnLocation = 1, MeshPart = 1 }
@@ -148,6 +152,9 @@ function Inst.SetAttribute(t, k, v) t._attrs[k] = v end
 function Inst.GetAttribute(t, k) return t._attrs[k] end
 function Inst.Destroy(t) t.Parent = nil end
 function Inst.Clone(t) return t end
+function Inst.GetPivot(t)
+  return t.PrimaryPart and t.PrimaryPart.CFrame or CFrame.new(0, 0, 0)
+end
 function Inst.PivotTo(t, cf)
   local pivot = t.PrimaryPart and t.PrimaryPart.CFrame or CFrame.new(0, 0, 0)
   local rel = pivot:Inverse()

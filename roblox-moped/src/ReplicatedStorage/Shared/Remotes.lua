@@ -8,6 +8,10 @@
 	  BikeInput(throttle, brake, gear)   10 Hz while controlling a bike
 	  BikeAction(action, bikeModel)      a click on a control: "FuelTap" "Ignition"
 	                                     "Choke" "Kick" "Starter" "Ride" "Grab"
+	  GarageAction(action, garageModel, extra)   click on the garage door / light
+	                                     switch / stand / workbench / parcel
+	  PartsOrder(partId, bikeId) / PartsInstall(bikeId, partId) /
+	  PartsRemove(bikeId, slot) / GarageTeleport()   (RemoteFunctions)
 	  MissionAbandon()
 	  GarageBuy / GarageEquip / GarageSpawn / MissionStart   (RemoteFunctions)
 
@@ -17,6 +21,8 @@
 	  MissionUpdate(state | nil)
 	  BikeEvent(model, kind, data?)      one-shot cosmetics: Kick, Started, Sputter,
 	                                     Stall, Crash, Click
+	  OrdersChanged(list)                phone: parts orders and their ETA
+	  OpenWorkshop(info)                 the workbench UI for the bike on the stand
 	  Notify(text, kind)                 toast messages
 ]]
 
@@ -33,6 +39,9 @@ local EVENTS = {
 	"MissionUpdate",
 	"BikeEvent",
 	"Notify",
+	"GarageAction",
+	"OrdersChanged",
+	"OpenWorkshop",
 }
 
 local FUNCTIONS = {
@@ -40,6 +49,10 @@ local FUNCTIONS = {
 	"GarageEquip",
 	"GarageSpawn",
 	"MissionStart",
+	"PartsOrder",
+	"PartsInstall",
+	"PartsRemove",
+	"GarageTeleport",
 }
 
 local Remotes = {}

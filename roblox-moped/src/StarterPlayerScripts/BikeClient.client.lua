@@ -31,6 +31,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local VehicleData = require(Shared:WaitForChild("VehicleData"))
+local PartsData = require(Shared:WaitForChild("PartsData"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local BikePhysics = require(Shared:WaitForChild("BikePhysics"))
@@ -184,6 +185,8 @@ RunService.Heartbeat:Connect(function(dt)
 		if model then
 			local vehicle = VehicleData.byId[model:GetAttribute("VehicleId")]
 			if vehicle then
+				-- installed upgrades change the stat block the physics runs on
+				vehicle = PartsData.effective(vehicle, model:GetAttribute("Mods"))
 				sim = BikePhysics.new(model, vehicle)
 				refreshIgnoreList()
 			end
