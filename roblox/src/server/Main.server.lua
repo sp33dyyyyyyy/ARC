@@ -17,6 +17,7 @@ local RagdollService = require(script.Parent.RagdollService)
 local ShopService = require(script.Parent.ShopService)
 local EnvironmentService = require(script.Parent.EnvironmentService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
+local AdminService = require(script.Parent.AdminService)
 
 local world, towers = WorldBuilder.build()
 
@@ -30,6 +31,7 @@ RagdollService.start()
 ShopService.start()
 EnvironmentService.start()
 LeaderboardService.start(world:FindFirstChild("Leaderboard") :: BasePart)
+AdminService.start()
 
 local notify = Remotes.get("Notify")
 

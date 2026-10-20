@@ -16,6 +16,7 @@ export type Actions = {
 	plaza: () -> (),
 	letGo: () -> (),
 	emotes: () -> (),
+	settings: () -> (),
 }
 
 local function label(props: { [string]: any }): TextLabel
@@ -122,6 +123,18 @@ function Hud.new(actions: Actions)
 		TextSize = 14,
 		Parent = self.weatherPanel,
 	})
+
+	-- Settings button, bottom-left.
+	C.button({
+		Name = "SettingsButton",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 16, 1, -24),
+		Size = UDim2.fromOffset(150, 46),
+		BackgroundColor3 = Color3.fromRGB(45, 52, 72),
+		Text = if not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled then "SETTINGS  [O]" else "SETTINGS",
+		TextSize = 16,
+		Parent = root,
+	}, actions.settings)
 
 	-- Emote bar above the stamina panel (toggled with G / the EMOTES button).
 	self.emoteBar = C.new("Frame", {

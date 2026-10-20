@@ -25,6 +25,7 @@ local RETRIES = 3
 type Profile = { data: any, persistent: boolean, dirty: boolean }
 
 local profiles: { [Player]: Profile } = {}
+local marketPasses: { [Player]: { [string]: boolean } } = {} -- bought with Robux
 local changedCallbacks: { (Player, any) -> () } = {}
 
 local store: DataStore? = nil
@@ -80,6 +81,13 @@ local function sync(player: Player, data: any)
 	player:SetAttribute("SummitEmote", data.SummitEmote)
 	player:SetAttribute("Streak", data.Streak)
 	player:SetAttribute("BestHeight", math.floor(data.BestHeight))
+	local market = marketPasses[player] or {}
+	for _, pass in Config.GamePasses do
+		player:SetAttribute("Pass_" .. pass.Id, data.GrantedPasses[pass.Id] == true or market[pass.Id] == true)
+	end
+	for key, value in data.Settings do
+		player:SetAttribute("Setting_" .. key, value)
+	end
 	for _, cb in changedCallbacks do
 		task.spawn(cb, player, data)
 	end
@@ -179,6 +187,33 @@ function DataService.update(player: Player, fn: (any) -> ())
 	return true
 end
 
+-- Gamepasses the player owns: bought with Robux or granted by an admin.
+function DataService.ownedPasses(player: Player): { [string]: boolean }
+	local owned = table.clone(marketPasses[player] or {})
+	local data = DataService.get(player)
+	for id, has in (data and data.GrantedPasses or {}) :: { [string]: boolean } do
+		if has then
+			owned[id] = true
+		end
+	end
+	return owned
+end
+
+-- Boost levels with owned gamepasses folded in (for Rules perk math).
+function DataService.effectiveBoosts(player: Player): Rules.Boosts
+	local data = DataService.get(player)
+	return Rules.withPasses(data and data.Boosts or {}, DataService.ownedPasses(player))
+end
+
+function DataService.setMarketPass(player: Player, passId: string, owned: boolean)
+	marketPasses[player] = marketPasses[player] or {}
+	marketPasses[player][passId] = owned
+	local profile = profiles[player]
+	if profile then
+		sync(player, profile.data)
+	end
+end
+
 function DataService.onChanged(cb: (Player, any) -> ())
 	table.insert(changedCallbacks, cb)
 end
@@ -195,6 +230,8 @@ function DataService.save(player: Player, release: boolean)
 	local snapshot = table.clone(profile.data)
 	snapshot.Boosts = table.clone(profile.data.Boosts)
 	snapshot.Emotes = table.clone(profile.data.Emotes)
+	snapshot.GrantedPasses = table.clone(profile.data.GrantedPasses)
+	snapshot.Settings = table.clone(profile.data.Settings)
 	local ok = withRetries("save " .. key, function()
 		return (store :: DataStore):UpdateAsync(key, function(old)
 			old = old or {}
@@ -220,6 +257,7 @@ end
 function DataService.release(player: Player)
 	DataService.save(player, true)
 	profiles[player] = nil
+	marketPasses[player] = nil
 end
 
 function DataService.start()

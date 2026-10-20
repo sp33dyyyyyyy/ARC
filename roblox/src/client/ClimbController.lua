@@ -89,6 +89,11 @@ local function boosts(): Rules.Boosts
 	for _, def in Config.Boosts do
 		b[def.Id] = player:GetAttribute("Boost_" .. def.Id) or 0
 	end
+	for _, pass in Config.GamePasses do
+		if player:GetAttribute("Pass_" .. pass.Id) == true then
+			b["Pass_" .. pass.Id] = 1
+		end
+	end
 	return b
 end
 
@@ -335,7 +340,7 @@ local function exitRagdoll()
 		Effects.sound(Config.Sounds.GetUp, 0.6)
 	end
 	if wasBlackout then
-		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 		stamina = math.max(stamina, max * Config.Stamina.WakeFraction)
 		ui.overlay:blackout(false)
 	end
@@ -423,7 +428,7 @@ local function onGust(phase_: string, dir: Vector3, duration: number)
 			return
 		end
 		Effects.shake(duration * 0.5, 0.2)
-		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 		if climbing and not resting and stamina < max * Config.Wind.KnockOffFraction then
 			-- Too tired to hold on: the wind rips you off the wall.
 			local y = rootPart.Position.Y
@@ -582,7 +587,7 @@ local function step(dt: number)
 		return
 	end
 	local b = boosts()
-	local max = Rules.maxStamina(Config.Stamina, Config.Boosts, b)
+	local max = Rules.maxStamina(Config.Stamina, Config.Boosts, b, Config.GamePasses)
 	stamina = math.min(stamina, max)
 	local now = os.clock()
 
@@ -705,7 +710,7 @@ local function onCharacter(char: Model)
 	checkpointLevel = nil
 	sentPose = ""
 	cooldownUntil = os.clock() + 1.5 -- respawning at a checkpoint can start mid-air
-	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 	ui.overlay:blackout(false)
 	Effects.setBreathless(0)
 	hum.Died:Connect(function()

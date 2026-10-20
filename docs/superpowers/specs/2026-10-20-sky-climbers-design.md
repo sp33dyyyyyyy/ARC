@@ -140,3 +140,17 @@ Changes requested after the first playable build:
   the slanted lattice panels and wrongly reported "no room".
 - Wind gusts now come every 110-130s, are softer, and only knock off climbers
   below 15% stamina.
+
+## 12. Revision: settings, admin panel, gamepasses (2026-10-20)
+
+- **Settings** window: name tags (hidden locally via `DisplayDistanceType`) and
+  camera shake, both saved in the profile.
+- **Admin:** the code lives only in server-side `AdminConfig`, is compared in
+  full every time, and is rate limited (5 per 10 min). Owner, listed user IDs
+  and Studio playtests are auto-admin. Tools: ban/unban by username (Roblox
+  `BanAsync` plus a DataStore ban list checked on join), send to plaza (one or
+  all), give/take gamepass, and filtered game-wide announcements via
+  MessagingService. Every action is re-validated on the server.
+- **Gamepasses:** VIP (2x payout), Iron Lungs (+50 stamina), Featherweight
+  (0.5x fall damage). Ownership is a Robux purchase OR an admin grant
+  (`GrantedPasses` in the profile). Perks are applied in Rules.

@@ -13,6 +13,9 @@ local NAMES = {
 	"RestCheckpoint", -- client -> server: wallNormal (hanging on a rest bar)
 	"ClimbPose", -- client -> server: "" | "climb" | "rest" | "leap" (shared climbing animation)
 	"ResetToPlaza", -- client -> server
+	"SaveSetting", -- client -> server: key, value
+	"AdminLogin", -- client -> server: code
+	"AdminAction", -- client -> server: action, args (re-checked on the server)
 	"Notify", -- server -> client: kind, payload
 	"Gust", -- server -> all clients: phase, direction, duration
 }

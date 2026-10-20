@@ -82,6 +82,24 @@ Config.Weather = {
 	},
 }
 
+-- Gamepasses. `GamePassId` is the pass's ID from the Creator Dashboard; leave
+-- it 0 until you create the pass (it can still be granted from the admin panel).
+-- `Robux` is only the price shown in the shop. Perks are applied in Rules.
+Config.GamePasses = {} :: { any }
+Config.GamePasses = {
+	{ Id = "VIP", Name = "VIP", Description = "Double cash from every summit.", GamePassId = 0, Robux = 199, CashMultiplier = 2 },
+	{ Id = "IronLungs", Name = "Iron Lungs", Description = "+50 max stamina.", GamePassId = 0, Robux = 149, StaminaBonus = 50 },
+	{ Id = "Featherweight", Name = "Featherweight", Description = "Take half fall damage.", GamePassId = 0, Robux = 99, FallDamageMultiplier = 0.5 },
+}
+
+Config.Admin = {
+	MaxCodeAttempts = 5, -- per player, per window
+	AttemptWindow = 600, -- seconds
+	MaxAnnouncementLength = 200,
+	BanStoreName = "SkyClimbers_Bans_v1",
+	AnnounceTopic = "SkyClimbersAnnounce",
+}
+
 -- Emotes use the animations every Roblox avatar's Animate script already has.
 -- `Anim` is the folder name inside Animate. Wave is free.
 Config.Emotes = {

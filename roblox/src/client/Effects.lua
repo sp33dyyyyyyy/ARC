@@ -53,7 +53,16 @@ end
 
 -- Shakes the camera through Humanoid.CameraOffset (no camera scripting needed).
 local shakeUntil, shakeMagnitude = 0, 0
+local shakeEnabled = true
+
+function Effects.setShakeEnabled(on: boolean)
+	shakeEnabled = on
+end
+
 function Effects.shake(duration: number, magnitude: number)
+	if not shakeEnabled then
+		return
+	end
 	shakeUntil = math.max(shakeUntil, os.clock() + duration)
 	shakeMagnitude = math.max(if os.clock() < shakeUntil then shakeMagnitude else 0, magnitude)
 end

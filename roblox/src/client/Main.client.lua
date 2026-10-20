@@ -1,4 +1,5 @@
 -- Client entry point: builds the UI, wires input and server notifications.
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,6 +16,8 @@ local Weather = require(script.Parent.Weather)
 local Hud = require(script.Parent.UI.Hud)
 local Overlay = require(script.Parent.UI.Overlay)
 local Shop = require(script.Parent.UI.Shop)
+local Settings = require(script.Parent.UI.Settings)
+local AdminPanel = require(script.Parent.UI.AdminPanel)
 
 local player = Players.LocalPlayer
 
@@ -22,7 +25,7 @@ local function useChalk()
 	Remotes.get("UseChalk"):FireServer()
 end
 
-local shop, hud -- forward-declared: the button callbacks below refer to both
+local shop, hud, settings, overlay -- forward-declared: the button callbacks below refer to them
 hud = Hud.new({
 	shop = function()
 		shop:toggle()
@@ -32,6 +35,9 @@ hud = Hud.new({
 	letGo = ClimbController.letGo,
 	emotes = function()
 		hud:toggleEmoteBar()
+	end,
+	settings = function()
+		settings:toggle()
 	end,
 	plaza = function()
 		Remotes.get("ResetToPlaza"):FireServer()
@@ -50,8 +56,90 @@ shop = Shop.new({
 	equipEmote = function(id)
 		Remotes.get("EquipEmote"):FireServer(id)
 	end,
+	buyPass = function(id)
+		for _, pass in Config.GamePasses do
+			if pass.Id == id then
+				if pass.GamePassId and pass.GamePassId > 0 then
+					MarketplaceService:PromptGamePassPurchase(player, pass.GamePassId)
+				else
+					overlay:toast(pass.Name .. " isn't on sale yet.", "bad")
+				end
+			end
+		end
+	end,
 })
-local overlay = Overlay.new()
+overlay = Overlay.new()
+
+-- Name tags: hiding them is local to you (other players still see theirs).
+local showNameTags = true
+local function applyNameTag(character: Model?)
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = if showNameTags
+			then Enum.HumanoidDisplayDistanceType.Viewer
+			else Enum.HumanoidDisplayDistanceType.None
+	end
+end
+local function applyNameTags()
+	for _, other in Players:GetPlayers() do
+		if other ~= player then
+			applyNameTag(other.Character)
+		end
+	end
+end
+local function watchPlayer(other: Player)
+	if other == player then
+		return
+	end
+	other.CharacterAdded:Connect(function(character)
+		character:WaitForChild("Humanoid", 10)
+		applyNameTag(character)
+	end)
+	applyNameTag(other.Character)
+end
+Players.PlayerAdded:Connect(watchPlayer)
+for _, other in Players:GetPlayers() do
+	watchPlayer(other)
+end
+
+local adminPanel = AdminPanel.new(function(action, args)
+	Remotes.get("AdminAction"):FireServer(action, args)
+end)
+
+settings = Settings.new({
+	setNameTags = function(on)
+		showNameTags = on
+		applyNameTags()
+		Remotes.get("SaveSetting"):FireServer("NameTags", on)
+	end,
+	setCameraShake = function(on)
+		Effects.setShakeEnabled(on)
+		Remotes.get("SaveSetting"):FireServer("CameraShake", on)
+	end,
+	submitCode = function(code)
+		Remotes.get("AdminLogin"):FireServer(code)
+	end,
+	openAdmin = function()
+		adminPanel:open()
+	end,
+})
+
+-- Saved settings and admin status arrive as attributes from the server.
+local function applySavedSettings()
+	local tags = player:GetAttribute("Setting_NameTags")
+	if typeof(tags) == "boolean" and tags ~= showNameTags then
+		showNameTags = tags
+		settings.setNameTags(tags)
+		applyNameTags()
+	end
+	local shake = player:GetAttribute("Setting_CameraShake")
+	if typeof(shake) == "boolean" then
+		settings.setCameraShake(shake)
+		Effects.setShakeEnabled(shake)
+	end
+	settings:setAdmin(player:GetAttribute("IsAdmin") == true)
+end
+applySavedSettings()
 
 Effects.start()
 ClimbController.start({ hud = hud, overlay = overlay })
@@ -87,12 +175,20 @@ local function boostLevels(): { [string]: number }
 	return levels
 end
 
+local function ownedPasses(): { [string]: boolean }
+	local owned = {}
+	for _, pass in Config.GamePasses do
+		owned[pass.Id] = player:GetAttribute("Pass_" .. pass.Id) == true
+	end
+	return owned
+end
+
 local lastEmotes = nil
 local function refresh()
 	hud:setCash(cashValue.Value)
 	hud:setSubline(player:GetAttribute("BestHeight") or 0, player:GetAttribute("Streak") or 0)
 	local owned = Emotes.owned()
-	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0, owned, player:GetAttribute("SummitEmote") or "")
+	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0, owned, player:GetAttribute("SummitEmote") or "", ownedPasses())
 	local key = table.concat(owned, ",")
 	if key ~= lastEmotes then
 		lastEmotes = key
@@ -114,7 +210,9 @@ climbsValue.Changed:Connect(function(value)
 end)
 cashValue.Changed:Connect(refresh)
 player.AttributeChanged:Connect(function(name)
-	if name ~= "ChalkUntil" then
+	if string.sub(name, 1, 8) == "Setting_" or name == "IsAdmin" then
+		applySavedSettings()
+	elseif name ~= "ChalkUntil" then
 		refresh()
 	end
 end)
@@ -136,6 +234,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		ClimbController.toggleRagdoll()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		hud:toggleEmoteBar()
+	elseif input.KeyCode == Enum.KeyCode.O then
+		settings:toggle()
 	elseif input.KeyCode == Enum.KeyCode.P then
 		Remotes.get("ResetToPlaza"):FireServer()
 	elseif input.KeyCode == Enum.KeyCode.Escape and shop:isOpen() then
@@ -169,6 +269,14 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 		overlay:toast(string.format("Daily reward: +$%d  (streak %d)", payload.reward or 0, payload.streak or 0), "gold")
 	elseif kind == "Unlock" then
 		overlay:toast(tostring(payload.text), "gold")
+	elseif kind == "AdminResult" then
+		local ok, text = payload.ok == true, tostring(payload.text)
+		settings:showCodeResult(ok, text)
+		adminPanel:showResult(ok, text)
+		overlay:toast(text, if ok then "good" else "bad")
+	elseif kind == "Announcement" then
+		overlay:announcement(tostring(payload.text), tostring(payload.from or "Admin"))
+		Effects.sound(Config.Sounds.Summit, 0.7, 0.8)
 	elseif kind == "Regrip" then
 		ClimbController.regrip()
 	elseif kind == "Hurt" then

@@ -43,6 +43,7 @@ to block you; you rest on yellow rest bars instead.
 | R | Ragdoll / get up |
 | P | Back to the plaza |
 | G | Emote bar (play any emote you own) |
+| O (or the SETTINGS button) | Settings: name tags, camera shake, admin code |
 | E at a summit lift | Ride down |
 
 On touch screens, push the stick toward the wall to climb; the jump button
@@ -94,21 +95,47 @@ Skyscraper 3, and windows that light up at night.
 - Day/night cycle with street lights, string lights, lit windows and aviation lights
 - DataStore saving with retries, session locking, and no save after a failed load
 
+## Settings, admin panel and gamepasses
+
+**Settings** (O or the bottom-left button): toggle other players' name tags (only
+on your screen) and camera shake. Both save with your progress.
+
+**Admin panel:** enter the admin code in Settings to unlock it. **Set the code
+first** in `src/server/AdminConfig.lua` (at least 6 characters; while it's empty,
+no code works). That file lives in ServerScriptService, so players can never see
+it, but if this repo is public, set the code only in your published place.
+The game's owner, any user IDs listed in `AdminConfig.UserIds`, and everyone in
+a Studio playtest are admins automatically. Wrong codes are limited to 5 tries
+every 10 minutes, and every admin action is checked again on the server.
+
+| Admin tool | What it does |
+|---|---|
+| Ban / Unban (by username) | Roblox's universe-wide ban, plus the game's own ban list as a backup. Ban needs a second click to confirm. Owners can't be banned. |
+| Send to plaza | One player, or everyone in the server |
+| Give free / Take away gamepass | Grants or removes VIP, Iron Lungs or Featherweight (saved; player must be in the server) |
+| Announcement | Filtered through Roblox's text filter, then shown in every server |
+
+**Gamepasses** (also in the Power Up Shop): VIP (2x summit cash), Iron Lungs
+(+50 max stamina), Featherweight (half fall damage). Create the passes on the
+Creator Dashboard and put their IDs in `Config.GamePasses` (`GamePassId`) to sell
+them for Robux; until then they can only be granted by an admin.
+
 ## Layout
 
 ```
 src/shared   Config (all tuning), Rules (pure game logic), Remotes
 src/server   Main, WorldBuilder, TowerBuilder, Build, DataService,
-             ClimbService, RagdollService, ShopService,
-             EnvironmentService, LeaderboardService
-src/client   Main, ClimbController, Effects, UI/{Theme,Components,Hud,Overlay,Shop}
+             ClimbService, RagdollService, ShopService, AdminService,
+             AdminConfig (server-only code), EnvironmentService, LeaderboardService
+src/client   Main, ClimbController, ClimbAnimator, Emotes, Weather, Effects,
+             UI/{Theme,Components,Hud,Overlay,Shop,Settings,AdminPanel}
 tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 ```
 
 ## Checks
 
 ```
-luau tests/run.lua                          # 22 unit tests for the game rules and balance
+luau tests/run.lua                          # 27 unit tests for the game rules and balance
 python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock and
                                             # verifies every face of every tower is climbable:
                                             # grip from ground to summit, nothing in the way,

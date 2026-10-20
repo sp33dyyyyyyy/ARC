@@ -117,7 +117,9 @@ function RagdollService.set(player: Player, ragdolled: boolean, claimedStartY: n
 		end
 		disableRagdoll(state)
 		local data = DataService.get(player)
-		local damage = Rules.fallDamage(Config.Fall, Config.Boosts, data and data.Boosts or {}, state.startY - root.Position.Y)
+		local damage = if data
+			then Rules.fallDamage(Config.Fall, Config.Boosts, DataService.effectiveBoosts(player), state.startY - root.Position.Y, Config.GamePasses)
+			else 0
 		if damage > 0 and humanoid.Health > 0 then
 			humanoid:TakeDamage(damage)
 			Remotes.get("Notify"):FireClient(player, "Hurt", { damage = math.floor(damage) })

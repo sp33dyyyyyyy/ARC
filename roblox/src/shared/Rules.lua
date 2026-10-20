@@ -23,9 +23,44 @@ end
 
 -- Stamina ---------------------------------------------------------------
 
-function Rules.maxStamina(staminaCfg: any, boostDefs: { any }, boosts: Boosts): number
+-- Gamepass ownership rides along in the boosts table as "Pass_<Id>" = 1.
+local function passPerks(passDefs: { any }?, boosts: Boosts, field: string): { number }
+	local values = {}
+	for _, pass in (passDefs or {}) :: { any } do
+		if pass[field] ~= nil and level(boosts, "Pass_" .. pass.Id) > 0 then
+			table.insert(values, pass[field])
+		end
+	end
+	return values
+end
+
+-- Copy of `boosts` with owned gamepasses added as "Pass_<Id>" = 1.
+function Rules.withPasses(boosts: Boosts, owned: { [string]: boolean }): Boosts
+	local merged = table.clone(boosts)
+	for id, has in owned do
+		if has then
+			merged["Pass_" .. id] = 1
+		end
+	end
+	return merged
+end
+
+function Rules.maxStamina(staminaCfg: any, boostDefs: { any }, boosts: Boosts, passDefs: { any }?): number
 	local def = boostDef(boostDefs, "Endurance")
-	return staminaCfg.Base + (def and def.PerLevel or 0) * level(boosts, "Endurance")
+	local bonus = 0
+	for _, v in passPerks(passDefs, boosts, "StaminaBonus") do
+		bonus += v
+	end
+	return staminaCfg.Base + (def and def.PerLevel or 0) * level(boosts, "Endurance") + bonus
+end
+
+-- Summit payout after gamepass multipliers (VIP doubles it).
+function Rules.payout(base: number, passDefs: { any }?, boosts: Boosts): number
+	local amount = base
+	for _, v in passPerks(passDefs, boosts, "CashMultiplier") do
+		amount *= v
+	end
+	return math.floor(amount)
 end
 
 export type DrainContext = {
@@ -164,13 +199,55 @@ end
 
 -- Falls -----------------------------------------------------------------
 
-function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number): number
+function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number, passDefs: { any }?): number
 	if drop ~= drop or drop <= fallCfg.SafeDrop then -- drop ~= drop catches NaN
 		return 0
 	end
 	local def = boostDef(boostDefs, "SoftLanding")
 	local reduction = math.min(0.75, (def and def.PerLevel or 0) * level(boosts, "SoftLanding"))
-	return (drop - fallCfg.SafeDrop) * fallCfg.DamagePerStud * (1 - reduction)
+	local damage = (drop - fallCfg.SafeDrop) * fallCfg.DamagePerStud * (1 - reduction)
+	for _, v in passPerks(passDefs, boosts, "FallDamageMultiplier") do
+		damage *= v
+	end
+	return damage
+end
+
+-- Admin ---------------------------------------------------------------------
+
+-- Roblox usernames: 3-20 letters, digits or underscores.
+function Rules.isValidUsername(name: any): boolean
+	return type(name) == "string" and #name >= 3 and #name <= 20 and string.match(name, "^[%w_]+$") ~= nil
+end
+
+-- Whether `code` unlocks admin. An empty configured code never matches.
+function Rules.adminCodeMatches(configured: any, code: any): boolean
+	if type(configured) ~= "string" or type(code) ~= "string" then
+		return false
+	end
+	if #configured < 6 or #code ~= #configured then
+		return false
+	end
+	-- Compare every character so timing doesn't leak how much matched.
+	local diff = 0
+	for i = 1, #configured do
+		diff += if string.byte(configured, i) == string.byte(code, i) then 0 else 1
+	end
+	return diff == 0
+end
+
+-- Rate limit for code attempts: returns allowed, newAttemptTimes.
+function Rules.allowAttempt(adminCfg: any, attempts: { number }, now: number): (boolean, { number })
+	local recent = {}
+	for _, t in attempts do
+		if now - t < adminCfg.AttemptWindow then
+			table.insert(recent, t)
+		end
+	end
+	if #recent >= adminCfg.MaxCodeAttempts then
+		return false, recent
+	end
+	table.insert(recent, now)
+	return true, recent
 end
 
 -- Climb validation --------------------------------------------------------
@@ -234,6 +311,8 @@ function Rules.defaultProfile(boostDefs: { any }, emoteDefs: { any }?): any
 	end
 	local first = emoteDefs and emoteDefs[1]
 	return {
+		GrantedPasses = {},
+		Settings = { NameTags = true, CameraShake = true },
 		Emotes = emotes,
 		SummitEmote = if first then first.Id else "",
 		Version = 1,
@@ -255,7 +334,7 @@ function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any, e
 		return profile
 	end
 	for key, value in profile do
-		if key ~= "Boosts" and key ~= "Emotes" and type(saved[key]) == type(value) then
+		if key ~= "Boosts" and key ~= "Emotes" and key ~= "GrantedPasses" and key ~= "Settings" and type(saved[key]) == type(value) then
 			profile[key] = saved[key]
 		end
 	end
@@ -271,6 +350,20 @@ function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any, e
 		for _, def in (emoteDefs or {}) :: { any } do
 			if saved.Emotes[def.Id] == true then
 				profile.Emotes[def.Id] = true
+			end
+		end
+	end
+	if type(saved.GrantedPasses) == "table" then
+		for id, has in saved.GrantedPasses do
+			if type(id) == "string" and has == true and #id <= 32 then
+				profile.GrantedPasses[id] = true
+			end
+		end
+	end
+	if type(saved.Settings) == "table" then
+		for key, default in profile.Settings do
+			if type(saved.Settings[key]) == type(default) then
+				profile.Settings[key] = saved.Settings[key]
 			end
 		end
 	end

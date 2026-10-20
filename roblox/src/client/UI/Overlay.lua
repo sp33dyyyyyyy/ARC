@@ -126,6 +126,38 @@ function Overlay.new()
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	-- Game-wide announcement banner.
+	self.announce = C.panel({
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 132),
+		Size = UDim2.fromOffset(640, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Visible = false,
+		ZIndex = 8,
+		Parent = root,
+	}, { C.stroke(Theme.Info, 2, 0.2), C.padding(18, 12) })
+	self.announceScale = C.new("UIScale", { Parent = self.announce })
+	self.announceFrom = C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 18),
+		Font = Theme.Title,
+		Text = "",
+		TextSize = 14,
+		TextColor3 = Theme.Info,
+		ZIndex = 9,
+		Parent = self.announce,
+	})
+	self.announceText = C.new("TextLabel", {
+		Position = UDim2.fromOffset(0, 22),
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Font = Theme.Bold,
+		Text = "",
+		TextSize = 22,
+		TextWrapped = true,
+		ZIndex = 9,
+		Parent = self.announce,
+	})
+	self._announceToken = 0
 	self._toastOrder = 0
 	self._summitToken = 0
 	return self
@@ -160,6 +192,21 @@ function Overlay:showSummit(tower: string, payout: number, climbs: number)
 			if self._summitToken == token then
 				self.summit.Visible = false
 			end
+		end
+	end)
+end
+
+function Overlay:announcement(text: string, from: string)
+	self._announceToken += 1
+	local token = self._announceToken
+	self.announceFrom.Text = "ANNOUNCEMENT  ·  " .. string.upper(from)
+	self.announceText.Text = text
+	self.announce.Visible = true
+	self.announceScale.Scale = 0.6
+	C.tween(self.announceScale, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+	task.delay(8, function()
+		if self._announceToken == token then
+			self.announce.Visible = false
 		end
 	end)
 end

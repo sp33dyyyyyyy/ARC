@@ -169,6 +169,24 @@ Config.Weather = {
 	},
 }
 
+-- Gamepasses. `GamePassId` is the pass's ID from the Creator Dashboard; leave
+-- it 0 until you create the pass (it can still be granted from the admin panel).
+-- `Robux` is only the price shown in the shop. Perks are applied in Rules.
+Config.GamePasses = {} :: { any }
+Config.GamePasses = {
+	{ Id = "VIP", Name = "VIP", Description = "Double cash from every summit.", GamePassId = 0, Robux = 199, CashMultiplier = 2 },
+	{ Id = "IronLungs", Name = "Iron Lungs", Description = "+50 max stamina.", GamePassId = 0, Robux = 149, StaminaBonus = 50 },
+	{ Id = "Featherweight", Name = "Featherweight", Description = "Take half fall damage.", GamePassId = 0, Robux = 99, FallDamageMultiplier = 0.5 },
+}
+
+Config.Admin = {
+	MaxCodeAttempts = 5, -- per player, per window
+	AttemptWindow = 600, -- seconds
+	MaxAnnouncementLength = 200,
+	BanStoreName = "SkyClimbers_Bans_v1",
+	AnnounceTopic = "SkyClimbersAnnounce",
+}
+
 -- Emotes use the animations every Roblox avatar's Animate script already has.
 -- `Anim` is the folder name inside Animate. Wave is free.
 Config.Emotes = {
@@ -381,6 +399,9 @@ local NAMES = {
 	"RestCheckpoint", -- client -> server: wallNormal (hanging on a rest bar)
 	"ClimbPose", -- client -> server: "" | "climb" | "rest" | "leap" (shared climbing animation)
 	"ResetToPlaza", -- client -> server
+	"SaveSetting", -- client -> server: key, value
+	"AdminLogin", -- client -> server: code
+	"AdminAction", -- client -> server: action, args (re-checked on the server)
 	"Notify", -- server -> client: kind, payload
 	"Gust", -- server -> all clients: phase, direction, duration
 }
@@ -433,9 +454,44 @@ end
 
 -- Stamina ---------------------------------------------------------------
 
-function Rules.maxStamina(staminaCfg: any, boostDefs: { any }, boosts: Boosts): number
+-- Gamepass ownership rides along in the boosts table as "Pass_<Id>" = 1.
+local function passPerks(passDefs: { any }?, boosts: Boosts, field: string): { number }
+	local values = {}
+	for _, pass in (passDefs or {}) :: { any } do
+		if pass[field] ~= nil and level(boosts, "Pass_" .. pass.Id) > 0 then
+			table.insert(values, pass[field])
+		end
+	end
+	return values
+end
+
+-- Copy of `boosts` with owned gamepasses added as "Pass_<Id>" = 1.
+function Rules.withPasses(boosts: Boosts, owned: { [string]: boolean }): Boosts
+	local merged = table.clone(boosts)
+	for id, has in owned do
+		if has then
+			merged["Pass_" .. id] = 1
+		end
+	end
+	return merged
+end
+
+function Rules.maxStamina(staminaCfg: any, boostDefs: { any }, boosts: Boosts, passDefs: { any }?): number
 	local def = boostDef(boostDefs, "Endurance")
-	return staminaCfg.Base + (def and def.PerLevel or 0) * level(boosts, "Endurance")
+	local bonus = 0
+	for _, v in passPerks(passDefs, boosts, "StaminaBonus") do
+		bonus += v
+	end
+	return staminaCfg.Base + (def and def.PerLevel or 0) * level(boosts, "Endurance") + bonus
+end
+
+-- Summit payout after gamepass multipliers (VIP doubles it).
+function Rules.payout(base: number, passDefs: { any }?, boosts: Boosts): number
+	local amount = base
+	for _, v in passPerks(passDefs, boosts, "CashMultiplier") do
+		amount *= v
+	end
+	return math.floor(amount)
 end
 
 export type DrainContext = {
@@ -574,13 +630,55 @@ end
 
 -- Falls -----------------------------------------------------------------
 
-function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number): number
+function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number, passDefs: { any }?): number
 	if drop ~= drop or drop <= fallCfg.SafeDrop then -- drop ~= drop catches NaN
 		return 0
 	end
 	local def = boostDef(boostDefs, "SoftLanding")
 	local reduction = math.min(0.75, (def and def.PerLevel or 0) * level(boosts, "SoftLanding"))
-	return (drop - fallCfg.SafeDrop) * fallCfg.DamagePerStud * (1 - reduction)
+	local damage = (drop - fallCfg.SafeDrop) * fallCfg.DamagePerStud * (1 - reduction)
+	for _, v in passPerks(passDefs, boosts, "FallDamageMultiplier") do
+		damage *= v
+	end
+	return damage
+end
+
+-- Admin ---------------------------------------------------------------------
+
+-- Roblox usernames: 3-20 letters, digits or underscores.
+function Rules.isValidUsername(name: any): boolean
+	return type(name) == "string" and #name >= 3 and #name <= 20 and string.match(name, "^[%w_]+$") ~= nil
+end
+
+-- Whether `code` unlocks admin. An empty configured code never matches.
+function Rules.adminCodeMatches(configured: any, code: any): boolean
+	if type(configured) ~= "string" or type(code) ~= "string" then
+		return false
+	end
+	if #configured < 6 or #code ~= #configured then
+		return false
+	end
+	-- Compare every character so timing doesn't leak how much matched.
+	local diff = 0
+	for i = 1, #configured do
+		diff += if string.byte(configured, i) == string.byte(code, i) then 0 else 1
+	end
+	return diff == 0
+end
+
+-- Rate limit for code attempts: returns allowed, newAttemptTimes.
+function Rules.allowAttempt(adminCfg: any, attempts: { number }, now: number): (boolean, { number })
+	local recent = {}
+	for _, t in attempts do
+		if now - t < adminCfg.AttemptWindow then
+			table.insert(recent, t)
+		end
+	end
+	if #recent >= adminCfg.MaxCodeAttempts then
+		return false, recent
+	end
+	table.insert(recent, now)
+	return true, recent
 end
 
 -- Climb validation --------------------------------------------------------
@@ -644,6 +742,8 @@ function Rules.defaultProfile(boostDefs: { any }, emoteDefs: { any }?): any
 	end
 	local first = emoteDefs and emoteDefs[1]
 	return {
+		GrantedPasses = {},
+		Settings = { NameTags = true, CameraShake = true },
 		Emotes = emotes,
 		SummitEmote = if first then first.Id else "",
 		Version = 1,
@@ -665,7 +765,7 @@ function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any, e
 		return profile
 	end
 	for key, value in profile do
-		if key ~= "Boosts" and key ~= "Emotes" and type(saved[key]) == type(value) then
+		if key ~= "Boosts" and key ~= "Emotes" and key ~= "GrantedPasses" and key ~= "Settings" and type(saved[key]) == type(value) then
 			profile[key] = saved[key]
 		end
 	end
@@ -681,6 +781,20 @@ function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any, e
 		for _, def in (emoteDefs or {}) :: { any } do
 			if saved.Emotes[def.Id] == true then
 				profile.Emotes[def.Id] = true
+			end
+		end
+	end
+	if type(saved.GrantedPasses) == "table" then
+		for id, has in saved.GrantedPasses do
+			if type(id) == "string" and has == true and #id <= 32 then
+				profile.GrantedPasses[id] = true
+			end
+		end
+	end
+	if type(saved.Settings) == "table" then
+		for key, default in profile.Settings do
+			if type(saved.Settings[key]) == type(default) then
+				profile.Settings[key] = saved.Settings[key]
 			end
 		end
 	end
@@ -708,6 +822,372 @@ return Rules
         <string name="Name">Server</string>
       </Properties>
       <Item class="ModuleScript" referent="13">
+        <Properties>
+          <string name="Name">AdminConfig</string>
+          <string name="Source"><![CDATA[-- Server-only admin settings. This ModuleScript lives in ServerScriptService,
+-- which clients can never see, so the code is safe here in the live game.
+--
+-- SET YOUR OWN CODE before publishing (at least 6 characters). While Code is
+-- empty, typing a code never unlocks anything. The game's owner, anyone in
+-- UserIds, and everyone in a Studio playtest are admins without a code.
+--
+-- If this repository is public, anyone can read what you put here. Then leave
+-- Code empty in the repo and set it only in your published place in Studio.
+return {
+	Code = "",
+	UserIds = {
+		-- 12345678, -- add Roblox user IDs that are always admins
+	},
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="14">
+        <Properties>
+          <string name="Name">AdminService</string>
+          <string name="Source"><![CDATA[-- Admins and the admin panel's powers: ban / unban by username, give or take
+-- gamepasses, send players to the plaza, and game-wide announcements.
+--
+-- Security: the admin code only ever lives on the server (AdminConfig), code
+-- attempts are rate limited, and every admin action is re-checked here.
+-- Clients only get an "IsAdmin" attribute to show the panel.
+local DataStoreService = game:GetService("DataStoreService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local MessagingService = game:GetService("MessagingService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TextService = game:GetService("TextService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local AdminConfig = require(script.Parent.AdminConfig)
+local ClimbService = require(script.Parent.ClimbService)
+local DataService = require(script.Parent.DataService)
+
+local AdminService = {}
+
+local admins: { [Player]: boolean } = {}
+local attempts: { [Player]: { number } } = {}
+local lastAction: { [Player]: number } = {}
+local notify: RemoteEvent
+
+local banStore: DataStore? = nil
+pcall(function()
+	banStore = DataStoreService:GetDataStore(Config.Admin.BanStoreName)
+end)
+
+local function isPermanentAdmin(userId: number): boolean
+	if RunService:IsStudio() then
+		return true -- Studio playtests are only ever run by the game's editors
+	end
+	if game.CreatorType == Enum.CreatorType.User and userId == game.CreatorId then
+		return true
+	end
+	return table.find(AdminConfig.UserIds, userId) ~= nil
+end
+
+function AdminService.isAdmin(player: Player): boolean
+	return admins[player] == true
+end
+
+local function grant(player: Player)
+	admins[player] = true
+	player:SetAttribute("IsAdmin", true)
+end
+
+local function reply(player: Player, ok: boolean, text: string)
+	notify:FireClient(player, "AdminResult", { ok = ok, text = text })
+end
+
+local function passDef(id: any): any?
+	for _, pass in Config.GamePasses do
+		if pass.Id == id then
+			return pass
+		end
+	end
+	return nil
+end
+
+-- Filter admin-typed text the way Roblox requires before others see it.
+local function filterForEveryone(text: string, fromUserId: number): string?
+	local ok, result = pcall(function()
+		return TextService:FilterStringAsync(text, fromUserId):GetNonChatStringForBroadcastAsync()
+	end)
+	return if ok then result else nil
+end
+
+local function findOnline(name: string): Player?
+	for _, p in Players:GetPlayers() do
+		if string.lower(p.Name) == string.lower(name) then
+			return p
+		end
+	end
+	return nil
+end
+
+local function userIdFor(name: string): number?
+	local online = findOnline(name)
+	if online then
+		return online.UserId
+	end
+	local ok, id = pcall(Players.GetUserIdFromNameAsync, Players, name)
+	return if ok then id else nil
+end
+
+-- Actions -------------------------------------------------------------------------
+
+local actions: { [string]: (Player, any) -> () } = {}
+
+function actions.ban(admin: Player, args: any)
+	local name = args.username
+	if not Rules.isValidUsername(name) then
+		reply(admin, false, "That's not a valid username.")
+		return
+	end
+	local userId = userIdFor(name)
+	if not userId then
+		reply(admin, false, "No Roblox user called " .. name .. ".")
+		return
+	end
+	if userId == admin.UserId or isPermanentAdmin(userId) then
+		reply(admin, false, "You can't ban yourself or the game's owners.")
+		return
+	end
+	local reason = "Banned by an admin."
+	if type(args.reason) == "string" and #args.reason > 0 and #args.reason <= 100 then
+		reason = filterForEveryone(args.reason, admin.UserId) or reason
+	end
+	-- Our own ban list (always works) plus Roblox's ban API (published games only).
+	if banStore then
+		pcall(function()
+			(banStore :: DataStore):SetAsync(tostring(userId), { by = admin.UserId, reason = reason, time = os.time() })
+		end)
+	end
+	pcall(function()
+		Players:BanAsync({
+			UserIds = { userId },
+			ApplyToUniverse = true,
+			Duration = -1,
+			DisplayReason = reason,
+			PrivateReason = "Banned by " .. admin.Name .. " from the admin panel",
+			ExcludeAltAccounts = false,
+		})
+	end)
+	local target = Players:GetPlayerByUserId(userId)
+	if target then
+		target:Kick("You have been banned. " .. reason)
+	end
+	print(string.format("[Admin] %s banned %s (%d)", admin.Name, name, userId))
+	reply(admin, true, name .. " has been banned.")
+end
+
+function actions.unban(admin: Player, args: any)
+	local name = args.username
+	if not Rules.isValidUsername(name) then
+		reply(admin, false, "That's not a valid username.")
+		return
+	end
+	local userId = userIdFor(name)
+	if not userId then
+		reply(admin, false, "No Roblox user called " .. name .. ".")
+		return
+	end
+	if banStore then
+		pcall(function()
+			(banStore :: DataStore):RemoveAsync(tostring(userId))
+		end)
+	end
+	pcall(function()
+		Players:UnbanAsync({ UserIds = { userId }, ApplyToUniverse = true })
+	end)
+	print(string.format("[Admin] %s unbanned %s (%d)", admin.Name, name, userId))
+	reply(admin, true, name .. " has been unbanned.")
+end
+
+function actions.plaza(admin: Player, args: any)
+	if args.all == true then
+		for _, p in Players:GetPlayers() do
+			ClimbService.sendToPlaza(p)
+		end
+		print(string.format("[Admin] %s sent everyone to the plaza", admin.Name))
+		reply(admin, true, "Sent everyone to the plaza.")
+		return
+	end
+	local target = if Rules.isValidUsername(args.username) then findOnline(args.username) else nil
+	if not target then
+		reply(admin, false, "That player isn't in this server.")
+		return
+	end
+	ClimbService.sendToPlaza(target)
+	ClimbService.toast(target, "An admin sent you to the plaza.", "info")
+	reply(admin, true, "Sent " .. target.Name .. " to the plaza.")
+end
+
+local function setPass(admin: Player, args: any, give: boolean)
+	local pass = passDef(args.passId)
+	if not pass then
+		reply(admin, false, "Pick a gamepass first.")
+		return
+	end
+	local target = if Rules.isValidUsername(args.username) then findOnline(args.username) else nil
+	if not target then
+		reply(admin, false, "That player needs to be in this server.")
+		return
+	end
+	local ok = DataService.update(target, function(d)
+		d.GrantedPasses[pass.Id] = if give then true else nil
+	end)
+	if not ok then
+		reply(admin, false, target.Name .. "'s data hasn't loaded yet.")
+		return
+	end
+	if give then
+		notify:FireClient(target, "Unlock", { text = "An admin gave you the " .. pass.Name .. " gamepass!" })
+	end
+	print(string.format("[Admin] %s %s %s %s", admin.Name, if give then "gave" else "took", pass.Id, target.Name))
+	reply(admin, true, string.format("%s %s %s.", if give then "Gave" else "Took", pass.Name, if give then "to " .. target.Name else "from " .. target.Name))
+end
+
+function actions.givePass(admin: Player, args: any)
+	setPass(admin, args, true)
+end
+
+function actions.takePass(admin: Player, args: any)
+	setPass(admin, args, false)
+end
+
+function actions.announce(admin: Player, args: any)
+	local text = args.text
+	if type(text) ~= "string" or #text == 0 or #text > Config.Admin.MaxAnnouncementLength then
+		reply(admin, false, "Announcements need 1-" .. Config.Admin.MaxAnnouncementLength .. " characters.")
+		return
+	end
+	local filtered = filterForEveryone(text, admin.UserId)
+	if not filtered then
+		reply(admin, false, "Roblox's text filter is unavailable right now; try again.")
+		return
+	end
+	local message = { text = filtered, from = admin.DisplayName }
+	local published = pcall(function()
+		MessagingService:PublishAsync(Config.Admin.AnnounceTopic, message)
+	end)
+	if not published then
+		-- Studio / messaging down: at least tell this server.
+		notify:FireAllClients("Announcement", message)
+	end
+	print(string.format("[Admin] %s announced: %s", admin.Name, filtered))
+	reply(admin, true, if published then "Announcement sent to every server." else "Announcement sent to this server.")
+end
+
+-- Gamepasses bought with Robux ---------------------------------------------------------
+
+local function checkMarketPasses(player: Player)
+	for _, pass in Config.GamePasses do
+		if pass.GamePassId and pass.GamePassId > 0 then
+			local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass.GamePassId)
+			if ok and owns then
+				DataService.setMarketPass(player, pass.Id, true)
+			end
+		end
+	end
+end
+
+-- Start ---------------------------------------------------------------------------------
+
+function AdminService.start()
+	notify = Remotes.get("Notify")
+
+	local function onPlayer(player: Player)
+		-- Our own ban list (backs up Roblox bans, and works in unpublished places too).
+		if banStore then
+			local ok, ban = pcall(function()
+				return (banStore :: DataStore):GetAsync(tostring(player.UserId))
+			end)
+			if ok and type(ban) == "table" and not isPermanentAdmin(player.UserId) then
+				player:Kick("You are banned. " .. tostring(ban.reason or ""))
+				return
+			end
+		end
+		if isPermanentAdmin(player.UserId) then
+			grant(player)
+		end
+		task.spawn(checkMarketPasses, player)
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayer, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		admins[player] = nil
+		attempts[player] = nil
+		lastAction[player] = nil
+	end)
+
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, purchased)
+		if not purchased then
+			return
+		end
+		for _, pass in Config.GamePasses do
+			if pass.GamePassId == gamePassId then
+				DataService.setMarketPass(player, pass.Id, true)
+				notify:FireClient(player, "Unlock", { text = pass.Name .. " unlocked. Thanks for the support!" })
+			end
+		end
+	end)
+
+	Remotes.get("AdminLogin").OnServerEvent:Connect(function(player, code)
+		if admins[player] then
+			reply(player, true, "You're already an admin.")
+			return
+		end
+		local allowed
+		allowed, attempts[player] = Rules.allowAttempt(Config.Admin, attempts[player] or {}, os.clock())
+		if not allowed then
+			reply(player, false, "Too many tries. Wait a few minutes.")
+			return
+		end
+		if Rules.adminCodeMatches(AdminConfig.Code, code) then
+			grant(player)
+			print("[Admin] " .. player.Name .. " unlocked admin with the code")
+			reply(player, true, "Admin panel unlocked.")
+		else
+			reply(player, false, "Wrong code.")
+		end
+	end)
+
+	Remotes.get("AdminAction").OnServerEvent:Connect(function(player, action, args)
+		if not admins[player] then
+			return -- not an admin: ignore silently
+		end
+		if typeof(action) ~= "string" or not actions[action] or typeof(args) ~= "table" then
+			return
+		end
+		local now = os.clock()
+		if now - (lastAction[player] or 0) < 0.5 then
+			reply(player, false, "Slow down a little.")
+			return
+		end
+		lastAction[player] = now
+		actions[action](player, args)
+	end)
+
+	pcall(function()
+		MessagingService:SubscribeAsync(Config.Admin.AnnounceTopic, function(message)
+			local data = message.Data
+			if type(data) == "table" and type(data.text) == "string" then
+				notify:FireAllClients("Announcement", { text = data.text, from = tostring(data.from or "Admin") })
+			end
+		end)
+	end)
+end
+
+return AdminService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">Build</string>
           <string name="Source"><![CDATA[-- Small helpers for creating anchored geometry from code.
@@ -825,7 +1305,7 @@ return Build
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">ClimbService</string>
           <string name="Source"><![CDATA[-- Climb tracking: base/peak zones, payouts, checkpoints, lifts, trails.
@@ -947,7 +1427,7 @@ local function onPeak(tower: Model, player: Player)
 	climb.paid = true
 	checkpoints[player] = nil
 
-	local payout = tower:GetAttribute("Payout") :: number
+	local payout = Rules.payout(tower:GetAttribute("Payout") :: number, Config.GamePasses, DataService.effectiveBoosts(player))
 	local before = (DataService.get(player) or {}).Climbs or 0
 	DataService.update(player, function(data)
 		data.Cash += payout
@@ -1158,7 +1638,7 @@ return ClimbService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">DataService</string>
           <string name="Source"><![CDATA[-- Player save data.
@@ -1188,6 +1668,7 @@ local RETRIES = 3
 type Profile = { data: any, persistent: boolean, dirty: boolean }
 
 local profiles: { [Player]: Profile } = {}
+local marketPasses: { [Player]: { [string]: boolean } } = {} -- bought with Robux
 local changedCallbacks: { (Player, any) -> () } = {}
 
 local store: DataStore? = nil
@@ -1243,6 +1724,13 @@ local function sync(player: Player, data: any)
 	player:SetAttribute("SummitEmote", data.SummitEmote)
 	player:SetAttribute("Streak", data.Streak)
 	player:SetAttribute("BestHeight", math.floor(data.BestHeight))
+	local market = marketPasses[player] or {}
+	for _, pass in Config.GamePasses do
+		player:SetAttribute("Pass_" .. pass.Id, data.GrantedPasses[pass.Id] == true or market[pass.Id] == true)
+	end
+	for key, value in data.Settings do
+		player:SetAttribute("Setting_" .. key, value)
+	end
 	for _, cb in changedCallbacks do
 		task.spawn(cb, player, data)
 	end
@@ -1342,6 +1830,33 @@ function DataService.update(player: Player, fn: (any) -> ())
 	return true
 end
 
+-- Gamepasses the player owns: bought with Robux or granted by an admin.
+function DataService.ownedPasses(player: Player): { [string]: boolean }
+	local owned = table.clone(marketPasses[player] or {})
+	local data = DataService.get(player)
+	for id, has in (data and data.GrantedPasses or {}) :: { [string]: boolean } do
+		if has then
+			owned[id] = true
+		end
+	end
+	return owned
+end
+
+-- Boost levels with owned gamepasses folded in (for Rules perk math).
+function DataService.effectiveBoosts(player: Player): Rules.Boosts
+	local data = DataService.get(player)
+	return Rules.withPasses(data and data.Boosts or {}, DataService.ownedPasses(player))
+end
+
+function DataService.setMarketPass(player: Player, passId: string, owned: boolean)
+	marketPasses[player] = marketPasses[player] or {}
+	marketPasses[player][passId] = owned
+	local profile = profiles[player]
+	if profile then
+		sync(player, profile.data)
+	end
+end
+
 function DataService.onChanged(cb: (Player, any) -> ())
 	table.insert(changedCallbacks, cb)
 end
@@ -1358,6 +1873,8 @@ function DataService.save(player: Player, release: boolean)
 	local snapshot = table.clone(profile.data)
 	snapshot.Boosts = table.clone(profile.data.Boosts)
 	snapshot.Emotes = table.clone(profile.data.Emotes)
+	snapshot.GrantedPasses = table.clone(profile.data.GrantedPasses)
+	snapshot.Settings = table.clone(profile.data.Settings)
 	local ok = withRetries("save " .. key, function()
 		return (store :: DataStore):UpdateAsync(key, function(old)
 			old = old or {}
@@ -1383,6 +1900,7 @@ end
 function DataService.release(player: Player)
 	DataService.save(player, true)
 	profiles[player] = nil
+	marketPasses[player] = nil
 end
 
 function DataService.start()
@@ -1423,7 +1941,7 @@ return DataService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">EnvironmentService</string>
           <string name="Source"><![CDATA[-- Day/night cycle, blinking aviation lights, street lights and wind gusts.
@@ -1566,7 +2084,7 @@ return EnvironmentService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">LeaderboardService</string>
           <string name="Source"><![CDATA[-- Fills the plaza leaderboard with the all-time top climbers. Falls back to the
@@ -1698,7 +2216,7 @@ return LeaderboardService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="18">
+      <Item class="Script" referent="20">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -1721,6 +2239,7 @@ local RagdollService = require(script.Parent.RagdollService)
 local ShopService = require(script.Parent.ShopService)
 local EnvironmentService = require(script.Parent.EnvironmentService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
+local AdminService = require(script.Parent.AdminService)
 
 local world, towers = WorldBuilder.build()
 
@@ -1734,6 +2253,7 @@ RagdollService.start()
 ShopService.start()
 EnvironmentService.start()
 LeaderboardService.start(world:FindFirstChild("Leaderboard") :: BasePart)
+AdminService.start()
 
 local notify = Remotes.get("Notify")
 
@@ -1769,7 +2289,7 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">RagdollService</string>
           <string name="Source"><![CDATA[-- Server half of the ragdoll: swaps Motor6Ds for BallSocketConstraints so every
@@ -1891,7 +2411,9 @@ function RagdollService.set(player: Player, ragdolled: boolean, claimedStartY: n
 		end
 		disableRagdoll(state)
 		local data = DataService.get(player)
-		local damage = Rules.fallDamage(Config.Fall, Config.Boosts, data and data.Boosts or {}, state.startY - root.Position.Y)
+		local damage = if data
+			then Rules.fallDamage(Config.Fall, Config.Boosts, DataService.effectiveBoosts(player), state.startY - root.Position.Y, Config.GamePasses)
+			else 0
 		if damage > 0 and humanoid.Health > 0 then
 			humanoid:TakeDamage(damage)
 			Remotes.get("Notify"):FireClient(player, "Hurt", { damage = math.floor(damage) })
@@ -1957,7 +2479,7 @@ return RagdollService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">ShopService</string>
           <string name="Source"><![CDATA[-- Server-authoritative purchases. Clients only ask; every check happens here.
@@ -2064,6 +2586,20 @@ function ShopService.start()
 		end)
 	end)
 
+	-- Player settings (name tags, camera shake) are saved with the profile.
+	Remotes.get("SaveSetting").OnServerEvent:Connect(function(player, key, value)
+		if typeof(key) ~= "string" or typeof(value) ~= "boolean" or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data or data.Settings[key] == nil then
+			return -- only settings that exist in the profile
+		end
+		DataService.update(player, function(d)
+			d.Settings[key] = value
+		end)
+	end)
+
 	Remotes.get("UseChalk").OnServerEvent:Connect(function(player)
 		if not allowed(player) then
 			return
@@ -2095,7 +2631,7 @@ return ShopService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="23">
         <Properties>
           <string name="Name">TowerBuilder</string>
           <string name="Source"><![CDATA[-- Procedural towers for Hand-over-Hand climbing.
@@ -2559,7 +3095,7 @@ return TowerBuilder
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="22">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">WorldBuilder</string>
           <string name="Source"><![CDATA[-- Builds the island map from the top-down design (north = -Z):
@@ -3152,7 +3688,7 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="23">
+  <Item class="StarterPlayer" referent="25">
     <Properties>
       <string name="Name">StarterPlayer</string>
       <float name="CameraMaxZoomDistance">200</float>
@@ -3160,15 +3696,15 @@ return WorldBuilder
       <bool name="CharacterUseJumpPower">true</bool>
       <float name="CharacterWalkSpeed">16</float>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="24">
+    <Item class="StarterPlayerScripts" referent="26">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="25">
+      <Item class="Folder" referent="27">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="26">
+        <Item class="ModuleScript" referent="28">
           <Properties>
             <string name="Name">ClimbAnimator</string>
             <string name="Source"><![CDATA[-- Procedural climbing animation, no uploaded animation assets.
@@ -3345,7 +3881,7 @@ return ClimbAnimator
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="27">
+        <Item class="ModuleScript" referent="29">
           <Properties>
             <string name="Name">ClimbController</string>
             <string name="Source"><![CDATA[-- Client climbing: "Hand-over-Hand" wall climbing, stamina, blackouts, ragdoll
@@ -3438,6 +3974,11 @@ local function boosts(): Rules.Boosts
 	local b = {}
 	for _, def in Config.Boosts do
 		b[def.Id] = player:GetAttribute("Boost_" .. def.Id) or 0
+	end
+	for _, pass in Config.GamePasses do
+		if player:GetAttribute("Pass_" .. pass.Id) == true then
+			b["Pass_" .. pass.Id] = 1
+		end
 	end
 	return b
 end
@@ -3685,7 +4226,7 @@ local function exitRagdoll()
 		Effects.sound(Config.Sounds.GetUp, 0.6)
 	end
 	if wasBlackout then
-		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 		stamina = math.max(stamina, max * Config.Stamina.WakeFraction)
 		ui.overlay:blackout(false)
 	end
@@ -3773,7 +4314,7 @@ local function onGust(phase_: string, dir: Vector3, duration: number)
 			return
 		end
 		Effects.shake(duration * 0.5, 0.2)
-		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 		if climbing and not resting and stamina < max * Config.Wind.KnockOffFraction then
 			-- Too tired to hold on: the wind rips you off the wall.
 			local y = rootPart.Position.Y
@@ -3932,7 +4473,7 @@ local function step(dt: number)
 		return
 	end
 	local b = boosts()
-	local max = Rules.maxStamina(Config.Stamina, Config.Boosts, b)
+	local max = Rules.maxStamina(Config.Stamina, Config.Boosts, b, Config.GamePasses)
 	stamina = math.min(stamina, max)
 	local now = os.clock()
 
@@ -4055,7 +4596,7 @@ local function onCharacter(char: Model)
 	checkpointLevel = nil
 	sentPose = ""
 	cooldownUntil = os.clock() + 1.5 -- respawning at a checkpoint can start mid-air
-	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 	ui.overlay:blackout(false)
 	Effects.setBreathless(0)
 	hum.Died:Connect(function()
@@ -4084,7 +4625,7 @@ return ClimbController
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="28">
+        <Item class="ModuleScript" referent="30">
           <Properties>
             <string name="Name">Effects</string>
             <string name="Source"><![CDATA[-- Sounds, confetti, camera shake and the "out of breath" screen effect.
@@ -4142,7 +4683,16 @@ end
 
 -- Shakes the camera through Humanoid.CameraOffset (no camera scripting needed).
 local shakeUntil, shakeMagnitude = 0, 0
+local shakeEnabled = true
+
+function Effects.setShakeEnabled(on: boolean)
+	shakeEnabled = on
+end
+
 function Effects.shake(duration: number, magnitude: number)
+	if not shakeEnabled then
+		return
+	end
 	shakeUntil = math.max(shakeUntil, os.clock() + duration)
 	shakeMagnitude = math.max(if os.clock() < shakeUntil then shakeMagnitude else 0, magnitude)
 end
@@ -4187,7 +4737,7 @@ return Effects
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="29">
+        <Item class="ModuleScript" referent="31">
           <Properties>
             <string name="Name">Emotes</string>
             <string name="Source"><![CDATA[-- Plays emotes from the avatar's own Animate script (no uploaded animations),
@@ -4313,10 +4863,11 @@ return Emotes
 ]]></string>
           </Properties>
         </Item>
-        <Item class="LocalScript" referent="30">
+        <Item class="LocalScript" referent="32">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[-- Client entry point: builds the UI, wires input and server notifications.
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -4333,6 +4884,8 @@ local Weather = require(script.Parent.Weather)
 local Hud = require(script.Parent.UI.Hud)
 local Overlay = require(script.Parent.UI.Overlay)
 local Shop = require(script.Parent.UI.Shop)
+local Settings = require(script.Parent.UI.Settings)
+local AdminPanel = require(script.Parent.UI.AdminPanel)
 
 local player = Players.LocalPlayer
 
@@ -4340,7 +4893,7 @@ local function useChalk()
 	Remotes.get("UseChalk"):FireServer()
 end
 
-local shop, hud -- forward-declared: the button callbacks below refer to both
+local shop, hud, settings, overlay -- forward-declared: the button callbacks below refer to them
 hud = Hud.new({
 	shop = function()
 		shop:toggle()
@@ -4350,6 +4903,9 @@ hud = Hud.new({
 	letGo = ClimbController.letGo,
 	emotes = function()
 		hud:toggleEmoteBar()
+	end,
+	settings = function()
+		settings:toggle()
 	end,
 	plaza = function()
 		Remotes.get("ResetToPlaza"):FireServer()
@@ -4368,8 +4924,90 @@ shop = Shop.new({
 	equipEmote = function(id)
 		Remotes.get("EquipEmote"):FireServer(id)
 	end,
+	buyPass = function(id)
+		for _, pass in Config.GamePasses do
+			if pass.Id == id then
+				if pass.GamePassId and pass.GamePassId > 0 then
+					MarketplaceService:PromptGamePassPurchase(player, pass.GamePassId)
+				else
+					overlay:toast(pass.Name .. " isn't on sale yet.", "bad")
+				end
+			end
+		end
+	end,
 })
-local overlay = Overlay.new()
+overlay = Overlay.new()
+
+-- Name tags: hiding them is local to you (other players still see theirs).
+local showNameTags = true
+local function applyNameTag(character: Model?)
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = if showNameTags
+			then Enum.HumanoidDisplayDistanceType.Viewer
+			else Enum.HumanoidDisplayDistanceType.None
+	end
+end
+local function applyNameTags()
+	for _, other in Players:GetPlayers() do
+		if other ~= player then
+			applyNameTag(other.Character)
+		end
+	end
+end
+local function watchPlayer(other: Player)
+	if other == player then
+		return
+	end
+	other.CharacterAdded:Connect(function(character)
+		character:WaitForChild("Humanoid", 10)
+		applyNameTag(character)
+	end)
+	applyNameTag(other.Character)
+end
+Players.PlayerAdded:Connect(watchPlayer)
+for _, other in Players:GetPlayers() do
+	watchPlayer(other)
+end
+
+local adminPanel = AdminPanel.new(function(action, args)
+	Remotes.get("AdminAction"):FireServer(action, args)
+end)
+
+settings = Settings.new({
+	setNameTags = function(on)
+		showNameTags = on
+		applyNameTags()
+		Remotes.get("SaveSetting"):FireServer("NameTags", on)
+	end,
+	setCameraShake = function(on)
+		Effects.setShakeEnabled(on)
+		Remotes.get("SaveSetting"):FireServer("CameraShake", on)
+	end,
+	submitCode = function(code)
+		Remotes.get("AdminLogin"):FireServer(code)
+	end,
+	openAdmin = function()
+		adminPanel:open()
+	end,
+})
+
+-- Saved settings and admin status arrive as attributes from the server.
+local function applySavedSettings()
+	local tags = player:GetAttribute("Setting_NameTags")
+	if typeof(tags) == "boolean" and tags ~= showNameTags then
+		showNameTags = tags
+		settings.setNameTags(tags)
+		applyNameTags()
+	end
+	local shake = player:GetAttribute("Setting_CameraShake")
+	if typeof(shake) == "boolean" then
+		settings.setCameraShake(shake)
+		Effects.setShakeEnabled(shake)
+	end
+	settings:setAdmin(player:GetAttribute("IsAdmin") == true)
+end
+applySavedSettings()
 
 Effects.start()
 ClimbController.start({ hud = hud, overlay = overlay })
@@ -4405,12 +5043,20 @@ local function boostLevels(): { [string]: number }
 	return levels
 end
 
+local function ownedPasses(): { [string]: boolean }
+	local owned = {}
+	for _, pass in Config.GamePasses do
+		owned[pass.Id] = player:GetAttribute("Pass_" .. pass.Id) == true
+	end
+	return owned
+end
+
 local lastEmotes = nil
 local function refresh()
 	hud:setCash(cashValue.Value)
 	hud:setSubline(player:GetAttribute("BestHeight") or 0, player:GetAttribute("Streak") or 0)
 	local owned = Emotes.owned()
-	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0, owned, player:GetAttribute("SummitEmote") or "")
+	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0, owned, player:GetAttribute("SummitEmote") or "", ownedPasses())
 	local key = table.concat(owned, ",")
 	if key ~= lastEmotes then
 		lastEmotes = key
@@ -4432,7 +5078,9 @@ climbsValue.Changed:Connect(function(value)
 end)
 cashValue.Changed:Connect(refresh)
 player.AttributeChanged:Connect(function(name)
-	if name ~= "ChalkUntil" then
+	if string.sub(name, 1, 8) == "Setting_" or name == "IsAdmin" then
+		applySavedSettings()
+	elseif name ~= "ChalkUntil" then
 		refresh()
 	end
 end)
@@ -4454,6 +5102,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		ClimbController.toggleRagdoll()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		hud:toggleEmoteBar()
+	elseif input.KeyCode == Enum.KeyCode.O then
+		settings:toggle()
 	elseif input.KeyCode == Enum.KeyCode.P then
 		Remotes.get("ResetToPlaza"):FireServer()
 	elseif input.KeyCode == Enum.KeyCode.Escape and shop:isOpen() then
@@ -4487,6 +5137,14 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 		overlay:toast(string.format("Daily reward: +$%d  (streak %d)", payload.reward or 0, payload.streak or 0), "gold")
 	elseif kind == "Unlock" then
 		overlay:toast(tostring(payload.text), "gold")
+	elseif kind == "AdminResult" then
+		local ok, text = payload.ok == true, tostring(payload.text)
+		settings:showCodeResult(ok, text)
+		adminPanel:showResult(ok, text)
+		overlay:toast(text, if ok then "good" else "bad")
+	elseif kind == "Announcement" then
+		overlay:announcement(tostring(payload.text), tostring(payload.from or "Admin"))
+		Effects.sound(Config.Sounds.Summit, 0.7, 0.8)
 	elseif kind == "Regrip" then
 		ClimbController.regrip()
 	elseif kind == "Hurt" then
@@ -4504,11 +5162,250 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="31">
+        <Item class="Folder" referent="33">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="32">
+          <Item class="ModuleScript" referent="34">
+            <Properties>
+              <string name="Name">AdminPanel</string>
+              <string name="Source"><![CDATA[-- Admin panel: pick a player, then ban / unban / send to plaza / give or take
+-- a gamepass; send everyone to the plaza; send a game-wide announcement.
+-- Every button only *asks* the server, which re-checks that you're an admin.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Theme = require(script.Parent.Theme)
+local C = require(script.Parent.Components)
+
+local AdminPanel = {}
+AdminPanel.__index = AdminPanel
+
+local RED = Color3.fromRGB(255, 80, 90)
+
+local function section(parent: Instance, order: number, title: string, height: number): Frame
+	local frame = C.new("Frame", {
+		LayoutOrder = order,
+		Size = UDim2.new(1, 0, 0, height),
+		BackgroundColor3 = Theme.Card,
+		Parent = parent,
+	}, { C.corner(), C.stroke(nil, 1, 0.9), C.padding(14, 10) })
+	C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 18),
+		Font = Theme.Title,
+		Text = title,
+		TextSize = 14,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = frame,
+	})
+	return frame
+end
+
+local function hlist(parent: Instance, y: number, height: number): Frame
+	return C.new("Frame", {
+		Position = UDim2.fromOffset(0, y),
+		Size = UDim2.new(1, 0, 0, height),
+		BackgroundTransparency = 1,
+		Parent = parent,
+	}, {
+		C.new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+		}),
+	})
+end
+
+function AdminPanel.new(send: (action: string, args: { [string]: any }) -> ())
+	local self = setmetatable({}, AdminPanel)
+	local modal = C.modal("AdminPanel", "ADMIN PANEL", RED, Vector2.new(600, 640), 7)
+	self.modal = modal
+	self.selectedPass = nil :: string?
+
+	local list = C.new("ScrollingFrame", {
+		Size = UDim2.new(1, 0, 1, -36),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 5,
+		ScrollBarImageColor3 = RED,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		Parent = modal.body,
+	}, {
+		C.new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
+		C.new("UIPadding", { PaddingRight = UDim.new(0, 8) }),
+	})
+
+	-- Target player ----------------------------------------------------------------
+	local target = section(list, 1, "PLAYER", 132)
+	self.username = C.textbox({
+		Position = UDim2.fromOffset(0, 26),
+		Size = UDim2.new(1, 0, 0, 40),
+		PlaceholderText = "Username (or tap a player below)",
+		Parent = target,
+	})
+	self.playerChips = C.new("ScrollingFrame", {
+		Position = UDim2.fromOffset(0, 74),
+		Size = UDim2.new(1, 0, 0, 36),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 3,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		CanvasSize = UDim2.new(),
+		Parent = target,
+	}, {
+		C.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+
+	local function username(): string
+		return (string.gsub(self.username.Text, "%s", ""))
+	end
+
+	-- Player actions -----------------------------------------------------------------
+	local moderation = section(list, 2, "MODERATION", 136)
+	self.reason = C.textbox({
+		Position = UDim2.fromOffset(0, 26),
+		Size = UDim2.new(1, 0, 0, 36),
+		PlaceholderText = "Ban reason (optional)",
+		TextSize = 14,
+		Parent = moderation,
+	})
+	local modRow = hlist(moderation, 70, 44)
+	C.button({ LayoutOrder = 1, Size = UDim2.fromOffset(160, 42), BackgroundColor3 = Color3.fromRGB(50, 110, 90), Text = "SEND TO PLAZA", TextSize = 14, Parent = modRow }, function()
+		send("plaza", { username = username() })
+	end)
+	-- Ban needs a second click to confirm.
+	local banArmedUntil = 0
+	local banButton
+	banButton = C.button({ LayoutOrder = 2, Size = UDim2.fromOffset(160, 42), BackgroundColor3 = RED, Text = "BAN", TextSize = 14, Parent = modRow }, function()
+		local now = os.clock()
+		if now < banArmedUntil then
+			banArmedUntil = 0
+			banButton.Text = "BAN"
+			send("ban", { username = username(), reason = self.reason.Text })
+		else
+			banArmedUntil = now + 3
+			banButton.Text = "CONFIRM BAN?"
+			task.delay(3, function()
+				if os.clock() >= banArmedUntil then
+					banButton.Text = "BAN"
+				end
+			end)
+		end
+	end)
+	C.button({ LayoutOrder = 3, Size = UDim2.fromOffset(160, 42), BackgroundColor3 = Theme.PanelLight, Text = "UNBAN", TextSize = 14, Parent = modRow }, function()
+		send("unban", { username = username() })
+	end)
+
+	-- Gamepasses ---------------------------------------------------------------------
+	local passes = section(list, 3, "GAMEPASSES  (player must be in this server)", 134)
+	local passRow = hlist(passes, 24, 40)
+	self.passChips = {}
+	for i, pass in Config.GamePasses do
+		local chip
+		chip = C.button({ LayoutOrder = i, Size = UDim2.fromOffset(160, 38), BackgroundColor3 = Theme.PanelLight, Text = pass.Name, TextSize = 14, Parent = passRow }, function()
+			self.selectedPass = pass.Id
+			for id, other in self.passChips do
+				other.BackgroundColor3 = if id == pass.Id then Theme.Accent else Theme.PanelLight
+				other.TextColor3 = if id == pass.Id then Color3.fromRGB(30, 20, 0) else Theme.Text
+			end
+		end)
+		self.passChips[pass.Id] = chip
+	end
+	local giveRow = hlist(passes, 72, 40)
+	C.button({ LayoutOrder = 1, Size = UDim2.fromOffset(160, 38), BackgroundColor3 = Theme.Good, TextColor3 = Color3.fromRGB(15, 30, 20), Text = "GIVE FREE", TextSize = 14, Parent = giveRow }, function()
+		send("givePass", { username = username(), passId = self.selectedPass })
+	end)
+	C.button({ LayoutOrder = 2, Size = UDim2.fromOffset(160, 38), BackgroundColor3 = Theme.PanelLight, Text = "TAKE AWAY", TextSize = 14, Parent = giveRow }, function()
+		send("takePass", { username = username(), passId = self.selectedPass })
+	end)
+
+	-- Everyone -------------------------------------------------------------------------
+	local everyone = section(list, 4, "EVERYONE", 184)
+	self.announcement = C.textbox({
+		Position = UDim2.fromOffset(0, 26),
+		Size = UDim2.new(1, 0, 0, 70),
+		PlaceholderText = "Game-wide announcement (sent to every server)",
+		TextSize = 15,
+		TextWrapped = true,
+		MultiLine = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Parent = everyone,
+	})
+	local allRow = hlist(everyone, 106, 44)
+	C.button({ LayoutOrder = 1, Size = UDim2.fromOffset(200, 42), BackgroundColor3 = Theme.Info, TextColor3 = Color3.fromRGB(10, 20, 40), Text = "SEND ANNOUNCEMENT", TextSize = 14, Parent = allRow }, function()
+		local text = self.announcement.Text
+		if #text > 0 then
+			send("announce", { text = text })
+		end
+	end)
+	C.button({ LayoutOrder = 2, Size = UDim2.fromOffset(200, 42), BackgroundColor3 = Color3.fromRGB(50, 110, 90), Text = "ALL TO PLAZA", TextSize = 14, Parent = allRow }, function()
+		send("plaza", { all = true })
+	end)
+
+	-- Result line along the bottom.
+	self.status = C.new("TextLabel", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.new(1, 0, 0, 26),
+		Font = Theme.Bold,
+		Text = "Every action is checked by the server.",
+		TextSize = 15,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = modal.body,
+	})
+
+	local function refreshPlayers()
+		for _, child in self.playerChips:GetChildren() do
+			if child:IsA("GuiButton") then
+				child:Destroy()
+			end
+		end
+		for i, p in Players:GetPlayers() do
+			C.button({
+				LayoutOrder = i,
+				Size = UDim2.fromOffset(math.max(80, #p.Name * 9 + 24), 32),
+				BackgroundColor3 = Theme.PanelLight,
+				Text = p.Name,
+				TextSize = 13,
+				Parent = self.playerChips,
+			}, function()
+				self.username.Text = p.Name
+			end)
+		end
+	end
+	Players.PlayerAdded:Connect(refreshPlayers)
+	Players.PlayerRemoving:Connect(function()
+		task.defer(refreshPlayers)
+	end)
+	refreshPlayers()
+	return self
+end
+
+function AdminPanel:showResult(ok: boolean, text: string)
+	self.status.Text = text
+	self.status.TextColor3 = if ok then Theme.Good else Theme.Bad
+	if ok then
+		self.announcement.Text = ""
+	end
+end
+
+function AdminPanel:open()
+	self.modal.open()
+end
+
+function AdminPanel:close()
+	self.modal.close()
+end
+
+return AdminPanel
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="35">
             <Properties>
               <string name="Name">Components</string>
               <string name="Source"><![CDATA[-- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
@@ -4639,6 +5536,159 @@ function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
 	return button
 end
 
+-- Pill toggle switch. Calls onChange(newValue) when clicked; returns a setter.
+function C.toggle(props: { [string]: any }, initial: boolean, onChange: (boolean) -> ()): (TextButton, (boolean) -> ())
+	local value = initial
+	local merged = {
+		Size = UDim2.fromOffset(64, 32),
+		BackgroundColor3 = Theme.PanelLight,
+		AutoButtonColor = false,
+		Text = "",
+	}
+	for k, v in props do
+		merged[k] = v
+	end
+	local track = C.new("TextButton", merged, { C.round(), C.stroke(nil, 1, 0.8) })
+	track.BackgroundTransparency = 0
+	local knob = C.new("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.fromOffset(24, 24),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Parent = track,
+	}, { C.round() })
+	local function render(animate: boolean)
+		local goals = {
+			Position = if value then UDim2.new(1, -28, 0.5, 0) else UDim2.new(0, 4, 0.5, 0),
+		}
+		local color = if value then Theme.Good else Theme.PanelLight
+		if animate then
+			C.tween(knob, 0.2, goals, Enum.EasingStyle.Back)
+			C.tween(track, 0.2, { BackgroundColor3 = color })
+		else
+			knob.Position = goals.Position
+			track.BackgroundColor3 = color
+		end
+	end
+	render(false)
+	track.Activated:Connect(function()
+		value = not value
+		render(true)
+		onChange(value)
+	end)
+	return track, function(v: boolean)
+		if v ~= value then
+			value = v
+			render(true)
+		end
+	end
+end
+
+-- Dark rounded text box.
+function C.textbox(props: { [string]: any }): TextBox
+	local merged = {
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0,
+		ClearTextOnFocus = false,
+		Font = Theme.Bold,
+		PlaceholderColor3 = Theme.Muted,
+		Text = "",
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}
+	for k, v in props do
+		merged[k] = v
+	end
+	local box = C.new("TextBox", merged, { C.corner(10), C.stroke(nil, 1, 0.8), C.padding(12, 0) })
+	box.BackgroundTransparency = merged.BackgroundTransparency
+	return box
+end
+
+export type Modal = { gui: ScreenGui, window: Frame, body: Frame, open: () -> (), close: () -> (), isOpen: () -> boolean }
+
+-- A centred window over a dimmed screen, with a title bar and close button.
+-- Put content in `body`.
+function C.modal(name: string, title: string, accent: Color3, size: Vector2, displayOrder: number): Modal
+	local gui = C.new("ScreenGui", {
+		Name = name,
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = displayOrder,
+		Enabled = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"),
+	})
+	local root = C.autoScale(gui)
+	local dim = C.new("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.45,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = root,
+	})
+	local window = C.panel({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size.X, size.Y),
+		BackgroundTransparency = 0.04,
+		Parent = root,
+	}, { C.stroke(accent, 2, 0.35) })
+	local scale = C.new("UIScale", { Parent = window })
+	-- Accent strip along the top edge.
+	C.new("Frame", {
+		Size = UDim2.new(1, -24, 0, 3),
+		Position = UDim2.fromOffset(12, 0),
+		BackgroundColor3 = accent,
+		Parent = window,
+	}, { C.round() })
+	C.new("TextLabel", {
+		Position = UDim2.fromOffset(24, 18),
+		Size = UDim2.new(1, -100, 0, 36),
+		Font = Theme.Title,
+		Text = title,
+		TextSize = 28,
+		TextColor3 = accent,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = window,
+	})
+	local body = C.new("Frame", {
+		Position = UDim2.fromOffset(24, 70),
+		Size = UDim2.new(1, -48, 1, -88),
+		BackgroundTransparency = 1,
+		Parent = window,
+	})
+	local modal: Modal
+	local function close()
+		gui.Enabled = false
+	end
+	local function open()
+		gui.Enabled = true
+		scale.Scale = 0.88
+		C.tween(scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+	C.button({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -18, 0, 16),
+		Size = UDim2.fromOffset(40, 40),
+		BackgroundColor3 = Color3.fromRGB(70, 40, 46),
+		Text = "X",
+		TextSize = 18,
+		Parent = window,
+	}, close)
+	dim.Activated:Connect(close)
+	modal = {
+		gui = gui,
+		window = window,
+		body = body,
+		open = open,
+		close = close,
+		isOpen = function()
+			return gui.Enabled
+		end,
+	}
+	return modal
+end
+
 -- Returns a full-screen root frame whose contents scale with screen height, so
 -- phones and 4K screens get the same layout. The frame is sized 1/scale and
 -- then scaled by `scale`, so it always covers exactly the screen and children
@@ -4666,7 +5716,7 @@ return C
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="33">
+          <Item class="ModuleScript" referent="36">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[-- Always-on HUD: climb counter, cash, stamina, height meter, action buttons,
@@ -4687,6 +5737,7 @@ export type Actions = {
 	plaza: () -> (),
 	letGo: () -> (),
 	emotes: () -> (),
+	settings: () -> (),
 }
 
 local function label(props: { [string]: any }): TextLabel
@@ -4793,6 +5844,18 @@ function Hud.new(actions: Actions)
 		TextSize = 14,
 		Parent = self.weatherPanel,
 	})
+
+	-- Settings button, bottom-left.
+	C.button({
+		Name = "SettingsButton",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 16, 1, -24),
+		Size = UDim2.fromOffset(150, 46),
+		BackgroundColor3 = Color3.fromRGB(45, 52, 72),
+		Text = if not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled then "SETTINGS  [O]" else "SETTINGS",
+		TextSize = 16,
+		Parent = root,
+	}, actions.settings)
 
 	-- Emote bar above the stamina panel (toggled with G / the EMOTES button).
 	self.emoteBar = C.new("Frame", {
@@ -5093,7 +6156,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="34">
+          <Item class="ModuleScript" referent="37">
             <Properties>
               <string name="Name">Overlay</string>
               <string name="Source"><![CDATA[-- Full-screen moments: blackout, summit celebration, hurt flash, toasts.
@@ -5224,6 +6287,38 @@ function Overlay.new()
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	-- Game-wide announcement banner.
+	self.announce = C.panel({
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 132),
+		Size = UDim2.fromOffset(640, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Visible = false,
+		ZIndex = 8,
+		Parent = root,
+	}, { C.stroke(Theme.Info, 2, 0.2), C.padding(18, 12) })
+	self.announceScale = C.new("UIScale", { Parent = self.announce })
+	self.announceFrom = C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 18),
+		Font = Theme.Title,
+		Text = "",
+		TextSize = 14,
+		TextColor3 = Theme.Info,
+		ZIndex = 9,
+		Parent = self.announce,
+	})
+	self.announceText = C.new("TextLabel", {
+		Position = UDim2.fromOffset(0, 22),
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Font = Theme.Bold,
+		Text = "",
+		TextSize = 22,
+		TextWrapped = true,
+		ZIndex = 9,
+		Parent = self.announce,
+	})
+	self._announceToken = 0
 	self._toastOrder = 0
 	self._summitToken = 0
 	return self
@@ -5258,6 +6353,21 @@ function Overlay:showSummit(tower: string, payout: number, climbs: number)
 			if self._summitToken == token then
 				self.summit.Visible = false
 			end
+		end
+	end)
+end
+
+function Overlay:announcement(text: string, from: string)
+	self._announceToken += 1
+	local token = self._announceToken
+	self.announceFrom.Text = "ANNOUNCEMENT  ·  " .. string.upper(from)
+	self.announceText.Text = text
+	self.announce.Visible = true
+	self.announceScale.Scale = 0.6
+	C.tween(self.announceScale, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+	task.delay(8, function()
+		if self._announceToken == token then
+			self.announce.Visible = false
 		end
 	end)
 end
@@ -5315,7 +6425,166 @@ return Overlay
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="35">
+          <Item class="ModuleScript" referent="38">
+            <Properties>
+              <string name="Name">Settings</string>
+              <string name="Source"><![CDATA[-- Settings window: name tags, camera shake, and the admin code box.
+local Theme = require(script.Parent.Theme)
+local C = require(script.Parent.Components)
+
+local Settings = {}
+Settings.__index = Settings
+
+export type Handlers = {
+	setNameTags: (boolean) -> (),
+	setCameraShake: (boolean) -> (),
+	submitCode: (string) -> (),
+	openAdmin: () -> (),
+}
+
+local function row(parent: Instance, order: number, title: string, subtitle: string): Frame
+	local frame = C.new("Frame", {
+		LayoutOrder = order,
+		Size = UDim2.new(1, 0, 0, 64),
+		BackgroundColor3 = Theme.Card,
+		Parent = parent,
+	}, { C.corner(), C.stroke(nil, 1, 0.9), C.padding(16, 10) })
+	C.new("TextLabel", {
+		Size = UDim2.new(1, -90, 0, 22),
+		Font = Theme.Title,
+		Text = title,
+		TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = frame,
+	})
+	C.new("TextLabel", {
+		Position = UDim2.fromOffset(0, 24),
+		Size = UDim2.new(1, -90, 0, 18),
+		Font = Theme.Body,
+		Text = subtitle,
+		TextSize = 14,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = frame,
+	})
+	return frame
+end
+
+function Settings.new(handlers: Handlers)
+	local self = setmetatable({}, Settings)
+	local modal = C.modal("Settings", "SETTINGS", Theme.Info, Vector2.new(480, 450), 6)
+	self.modal = modal
+	local list = C.new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Parent = modal.body,
+	}, { C.new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }) })
+
+	local tags = row(list, 1, "Name tags", "Show names above other players")
+	local _, setTags = C.toggle({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.fromScale(1, 0.5), Parent = tags }, true, handlers.setNameTags)
+	self.setNameTags = setTags
+
+	local shake = row(list, 2, "Camera shake", "Shake on falls, landings and gusts")
+	local _, setShake = C.toggle({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.fromScale(1, 0.5), Parent = shake }, true, handlers.setCameraShake)
+	self.setCameraShake = setShake
+
+	-- Admin: code box until unlocked, then a button to the panel.
+	local admin = C.new("Frame", {
+		LayoutOrder = 3,
+		Size = UDim2.new(1, 0, 0, 150),
+		BackgroundColor3 = Theme.Card,
+		Parent = list,
+	}, { C.corner(), C.stroke(Theme.Bad, 1, 0.6), C.padding(16, 12) })
+	C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 22),
+		Font = Theme.Title,
+		Text = "Admin",
+		TextSize = 18,
+		TextColor3 = Theme.Bad,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = admin,
+	})
+	self.codeBox = C.textbox({
+		Position = UDim2.fromOffset(0, 32),
+		Size = UDim2.new(1, -130, 0, 44),
+		PlaceholderText = "Enter admin code",
+		Parent = admin,
+	})
+	self.unlock = C.button({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 32),
+		Size = UDim2.fromOffset(118, 44),
+		BackgroundColor3 = Theme.Bad,
+		Text = "UNLOCK",
+		Parent = admin,
+	}, function()
+		local code = self.codeBox.Text
+		if #code > 0 then
+			handlers.submitCode(code)
+		end
+	end)
+	self.codeBox.FocusLost:Connect(function(enterPressed)
+		if enterPressed and #self.codeBox.Text > 0 then
+			handlers.submitCode(self.codeBox.Text)
+		end
+	end)
+	self.openAdmin = C.button({
+		Position = UDim2.fromOffset(0, 32),
+		Size = UDim2.new(1, 0, 0, 44),
+		BackgroundColor3 = Theme.Bad,
+		Text = "OPEN ADMIN PANEL",
+		Visible = false,
+		Parent = admin,
+	}, function()
+		modal.close()
+		handlers.openAdmin()
+	end)
+	self.adminStatus = C.new("TextLabel", {
+		Position = UDim2.fromOffset(0, 86),
+		Size = UDim2.new(1, 0, 0, 36),
+		Font = Theme.Body,
+		Text = "Admins: enter your code to unlock the admin panel.",
+		TextSize = 14,
+		TextColor3 = Theme.Muted,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Parent = admin,
+	})
+	return self
+end
+
+function Settings:setAdmin(isAdmin: boolean)
+	self.codeBox.Visible = not isAdmin
+	self.unlock.Visible = not isAdmin
+	self.openAdmin.Visible = isAdmin
+	if isAdmin then
+		self.adminStatus.Text = "You're an admin."
+		self.adminStatus.TextColor3 = Theme.Good
+	end
+end
+
+function Settings:showCodeResult(ok: boolean, text: string)
+	self.adminStatus.Text = text
+	self.adminStatus.TextColor3 = if ok then Theme.Good else Theme.Bad
+	if not ok then
+		self.codeBox.Text = ""
+	end
+end
+
+function Settings:toggle()
+	if self.modal.isOpen() then
+		self.modal.close()
+	else
+		self.modal.open()
+	end
+end
+
+return Settings
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="39">
             <Properties>
               <string name="Name">Shop</string>
               <string name="Source"><![CDATA[-- Shop window: boost cards with level pips and a chalk card.
@@ -5334,6 +6603,7 @@ export type Handlers = {
 	buyBoost: (id: string) -> (),
 	buyChalk: () -> (),
 	buyEmote: (id: string) -> (),
+	buyPass: (id: string) -> (),
 	equipEmote: (id: string) -> (),
 }
 
@@ -5513,6 +6783,15 @@ function Shop.new(handlers: Handlers)
 	header(100, "GEAR")
 	self.chalkCard = card(101, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
 
+	-- Gamepasses (Robux).
+	header(150, "GAMEPASSES")
+	self.passCards = {}
+	for i, pass in Config.GamePasses do
+		self.passCards[pass.Id] = card(150 + i, pass.Name, pass.Description, nil, function()
+			handlers.buyPass(pass.Id)
+		end)
+	end
+
 	-- Emotes: buy, then pick which one plays automatically at every summit.
 	header(200, "EMOTES  (G to use · the starred one plays at every summit)")
 	self.emoteCards = {}
@@ -5530,7 +6809,7 @@ function Shop.new(handlers: Handlers)
 	return self
 end
 
-function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number, ownedEmotes: { string }, summitEmote: string)
+function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number, ownedEmotes: { string }, summitEmote: string, ownedPasses: { [string]: boolean })
 	self.balance.Text = "Balance: $" .. Theme.formatNumber(cash)
 	for _, def in Config.Boosts do
 		local cardRef = self.cards[def.Id]
@@ -5556,6 +6835,16 @@ function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number,
 	local ok = not full and cash >= Config.Chalk.Price
 	self.chalkCard.buy.BackgroundColor3 = if ok then Theme.Good else Theme.PanelLight
 	self.chalkCard.buy.TextColor3 = if ok then Color3.fromRGB(15, 30, 20) else Theme.Muted
+
+	for _, pass in Config.GamePasses do
+		local cardRef = self.passCards[pass.Id]
+		local owned = ownedPasses[pass.Id] == true
+		cardRef.levelLabel.Text = if owned then "Owned" else "Gamepass"
+		cardRef.levelLabel.TextColor3 = if owned then Theme.Good else Theme.Muted
+		cardRef.buy.Text = if owned then "OWNED" else "R$ " .. pass.Robux
+		cardRef.buy.BackgroundColor3 = if owned then Theme.PanelLight else Color3.fromRGB(0, 176, 111)
+		cardRef.buy.TextColor3 = if owned then Theme.Good else Color3.new(1, 1, 1)
+	end
 
 	self._owned, self._summit = {}, summitEmote
 	for _, id in ownedEmotes do
@@ -5610,7 +6899,7 @@ return Shop
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="36">
+          <Item class="ModuleScript" referent="40">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[-- One place for the HUD's look: dark glass panels, hazard-yellow accent.
@@ -5662,7 +6951,7 @@ return Theme
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="37">
+        <Item class="ModuleScript" referent="41">
           <Properties>
             <string name="Name">Weather</string>
             <string name="Source"><![CDATA[-- Client weather: rain that follows the camera, lightning flashes, and the
@@ -5758,7 +7047,7 @@ return Weather
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="38">
+  <Item class="Workspace" referent="42">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-400</float>
@@ -5766,7 +7055,7 @@ return Weather
       <bool name="NeedsPivotMigration">false</bool>
       <bool name="StreamingEnabled">false</bool>
     </Properties>
-    <Item class="SpawnLocation" referent="39">
+    <Item class="SpawnLocation" referent="43">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

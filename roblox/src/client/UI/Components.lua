@@ -126,6 +126,159 @@ function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
 	return button
 end
 
+-- Pill toggle switch. Calls onChange(newValue) when clicked; returns a setter.
+function C.toggle(props: { [string]: any }, initial: boolean, onChange: (boolean) -> ()): (TextButton, (boolean) -> ())
+	local value = initial
+	local merged = {
+		Size = UDim2.fromOffset(64, 32),
+		BackgroundColor3 = Theme.PanelLight,
+		AutoButtonColor = false,
+		Text = "",
+	}
+	for k, v in props do
+		merged[k] = v
+	end
+	local track = C.new("TextButton", merged, { C.round(), C.stroke(nil, 1, 0.8) })
+	track.BackgroundTransparency = 0
+	local knob = C.new("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.fromOffset(24, 24),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Parent = track,
+	}, { C.round() })
+	local function render(animate: boolean)
+		local goals = {
+			Position = if value then UDim2.new(1, -28, 0.5, 0) else UDim2.new(0, 4, 0.5, 0),
+		}
+		local color = if value then Theme.Good else Theme.PanelLight
+		if animate then
+			C.tween(knob, 0.2, goals, Enum.EasingStyle.Back)
+			C.tween(track, 0.2, { BackgroundColor3 = color })
+		else
+			knob.Position = goals.Position
+			track.BackgroundColor3 = color
+		end
+	end
+	render(false)
+	track.Activated:Connect(function()
+		value = not value
+		render(true)
+		onChange(value)
+	end)
+	return track, function(v: boolean)
+		if v ~= value then
+			value = v
+			render(true)
+		end
+	end
+end
+
+-- Dark rounded text box.
+function C.textbox(props: { [string]: any }): TextBox
+	local merged = {
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0,
+		ClearTextOnFocus = false,
+		Font = Theme.Bold,
+		PlaceholderColor3 = Theme.Muted,
+		Text = "",
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}
+	for k, v in props do
+		merged[k] = v
+	end
+	local box = C.new("TextBox", merged, { C.corner(10), C.stroke(nil, 1, 0.8), C.padding(12, 0) })
+	box.BackgroundTransparency = merged.BackgroundTransparency
+	return box
+end
+
+export type Modal = { gui: ScreenGui, window: Frame, body: Frame, open: () -> (), close: () -> (), isOpen: () -> boolean }
+
+-- A centred window over a dimmed screen, with a title bar and close button.
+-- Put content in `body`.
+function C.modal(name: string, title: string, accent: Color3, size: Vector2, displayOrder: number): Modal
+	local gui = C.new("ScreenGui", {
+		Name = name,
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = displayOrder,
+		Enabled = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"),
+	})
+	local root = C.autoScale(gui)
+	local dim = C.new("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.45,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = root,
+	})
+	local window = C.panel({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size.X, size.Y),
+		BackgroundTransparency = 0.04,
+		Parent = root,
+	}, { C.stroke(accent, 2, 0.35) })
+	local scale = C.new("UIScale", { Parent = window })
+	-- Accent strip along the top edge.
+	C.new("Frame", {
+		Size = UDim2.new(1, -24, 0, 3),
+		Position = UDim2.fromOffset(12, 0),
+		BackgroundColor3 = accent,
+		Parent = window,
+	}, { C.round() })
+	C.new("TextLabel", {
+		Position = UDim2.fromOffset(24, 18),
+		Size = UDim2.new(1, -100, 0, 36),
+		Font = Theme.Title,
+		Text = title,
+		TextSize = 28,
+		TextColor3 = accent,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = window,
+	})
+	local body = C.new("Frame", {
+		Position = UDim2.fromOffset(24, 70),
+		Size = UDim2.new(1, -48, 1, -88),
+		BackgroundTransparency = 1,
+		Parent = window,
+	})
+	local modal: Modal
+	local function close()
+		gui.Enabled = false
+	end
+	local function open()
+		gui.Enabled = true
+		scale.Scale = 0.88
+		C.tween(scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+	C.button({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -18, 0, 16),
+		Size = UDim2.fromOffset(40, 40),
+		BackgroundColor3 = Color3.fromRGB(70, 40, 46),
+		Text = "X",
+		TextSize = 18,
+		Parent = window,
+	}, close)
+	dim.Activated:Connect(close)
+	modal = {
+		gui = gui,
+		window = window,
+		body = body,
+		open = open,
+		close = close,
+		isOpen = function()
+			return gui.Enabled
+		end,
+	}
+	return modal
+end
+
 -- Returns a full-screen root frame whose contents scale with screen height, so
 -- phones and 4K screens get the same layout. The frame is sized 1/scale and
 -- then scaled by `scale`, so it always covers exactly the screen and children

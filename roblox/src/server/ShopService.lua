@@ -102,6 +102,20 @@ function ShopService.start()
 		end)
 	end)
 
+	-- Player settings (name tags, camera shake) are saved with the profile.
+	Remotes.get("SaveSetting").OnServerEvent:Connect(function(player, key, value)
+		if typeof(key) ~= "string" or typeof(value) ~= "boolean" or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data or data.Settings[key] == nil then
+			return -- only settings that exist in the profile
+		end
+		DataService.update(player, function(d)
+			d.Settings[key] = value
+		end)
+	end)
+
 	Remotes.get("UseChalk").OnServerEvent:Connect(function(player)
 		if not allowed(player) then
 			return

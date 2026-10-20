@@ -14,6 +14,7 @@ export type Handlers = {
 	buyBoost: (id: string) -> (),
 	buyChalk: () -> (),
 	buyEmote: (id: string) -> (),
+	buyPass: (id: string) -> (),
 	equipEmote: (id: string) -> (),
 }
 
@@ -193,6 +194,15 @@ function Shop.new(handlers: Handlers)
 	header(100, "GEAR")
 	self.chalkCard = card(101, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
 
+	-- Gamepasses (Robux).
+	header(150, "GAMEPASSES")
+	self.passCards = {}
+	for i, pass in Config.GamePasses do
+		self.passCards[pass.Id] = card(150 + i, pass.Name, pass.Description, nil, function()
+			handlers.buyPass(pass.Id)
+		end)
+	end
+
 	-- Emotes: buy, then pick which one plays automatically at every summit.
 	header(200, "EMOTES  (G to use · the starred one plays at every summit)")
 	self.emoteCards = {}
@@ -210,7 +220,7 @@ function Shop.new(handlers: Handlers)
 	return self
 end
 
-function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number, ownedEmotes: { string }, summitEmote: string)
+function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number, ownedEmotes: { string }, summitEmote: string, ownedPasses: { [string]: boolean })
 	self.balance.Text = "Balance: $" .. Theme.formatNumber(cash)
 	for _, def in Config.Boosts do
 		local cardRef = self.cards[def.Id]
@@ -236,6 +246,16 @@ function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number,
 	local ok = not full and cash >= Config.Chalk.Price
 	self.chalkCard.buy.BackgroundColor3 = if ok then Theme.Good else Theme.PanelLight
 	self.chalkCard.buy.TextColor3 = if ok then Color3.fromRGB(15, 30, 20) else Theme.Muted
+
+	for _, pass in Config.GamePasses do
+		local cardRef = self.passCards[pass.Id]
+		local owned = ownedPasses[pass.Id] == true
+		cardRef.levelLabel.Text = if owned then "Owned" else "Gamepass"
+		cardRef.levelLabel.TextColor3 = if owned then Theme.Good else Theme.Muted
+		cardRef.buy.Text = if owned then "OWNED" else "R$ " .. pass.Robux
+		cardRef.buy.BackgroundColor3 = if owned then Theme.PanelLight else Color3.fromRGB(0, 176, 111)
+		cardRef.buy.TextColor3 = if owned then Theme.Good else Color3.new(1, 1, 1)
+	end
 
 	self._owned, self._summit = {}, summitEmote
 	for _, id in ownedEmotes do

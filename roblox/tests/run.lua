@@ -110,6 +110,60 @@ test("purchase validation", function()
 	eq(Rules.canBuyChalk(C, 0, 75).ok, true)
 end)
 
+-- Gamepasses
+test("gamepass perks: VIP cash, Iron Lungs stamina, Featherweight falls", function()
+	local P = Config.GamePasses
+	local owned = Rules.withPasses({}, { VIP = true, IronLungs = true, Featherweight = true })
+	eq(Rules.payout(1000, P, {}), 1000)
+	eq(Rules.payout(1000, P, owned), 2000)
+	eq(Rules.maxStamina(S, B, {}, P), 100)
+	eq(Rules.maxStamina(S, B, owned, P), 150)
+	near(Rules.fallDamage(F, B, owned, 140, P), 45)
+	near(Rules.fallDamage(F, B, {}, 140, P), 90)
+	eq(Rules.withPasses({ Endurance = 2 }, { VIP = false }).Pass_VIP, nil)
+end)
+
+-- Admin
+test("admin code: exact match only, empty or short codes never unlock", function()
+	eq(Rules.adminCodeMatches("SKY-1234", "SKY-1234"), true)
+	eq(Rules.adminCodeMatches("SKY-1234", "SKY-1235"), false)
+	eq(Rules.adminCodeMatches("SKY-1234", "SKY-123"), false)
+	eq(Rules.adminCodeMatches("", ""), false)
+	eq(Rules.adminCodeMatches("abc", "abc"), false)
+	eq(Rules.adminCodeMatches("SKY-1234", nil), false)
+end)
+
+test("admin code attempts are rate limited", function()
+	local A = Config.Admin
+	local attempts = {}
+	local ok
+	for i = 1, A.MaxCodeAttempts do
+		ok, attempts = Rules.allowAttempt(A, attempts, i)
+		eq(ok, true)
+	end
+	ok, attempts = Rules.allowAttempt(A, attempts, 10)
+	eq(ok, false)
+	ok = Rules.allowAttempt(A, attempts, 10 + A.AttemptWindow)
+	eq(ok, true)
+end)
+
+test("usernames are validated", function()
+	eq(Rules.isValidUsername("Builderman"), true)
+	eq(Rules.isValidUsername("a_b_c"), true)
+	eq(Rules.isValidUsername("ab"), false)
+	eq(Rules.isValidUsername("bad name"), false)
+	eq(Rules.isValidUsername(string.rep("x", 21)), false)
+	eq(Rules.isValidUsername(42), false)
+end)
+
+test("profiles keep granted passes and settings", function()
+	local p = Rules.reconcileProfile(B, C, { GrantedPasses = { VIP = true, Bad = "yes" }, Settings = { NameTags = false, CameraShake = "no" } }, Config.Emotes)
+	eq(p.GrantedPasses.VIP, true)
+	eq(p.GrantedPasses.Bad, nil)
+	eq(p.Settings.NameTags, false)
+	eq(p.Settings.CameraShake, true)
+end)
+
 -- Emotes
 test("emotes: free ones owned, buying checks cash and ownership", function()
 	local E = Config.Emotes

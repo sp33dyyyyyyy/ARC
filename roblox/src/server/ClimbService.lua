@@ -117,7 +117,7 @@ local function onPeak(tower: Model, player: Player)
 	climb.paid = true
 	checkpoints[player] = nil
 
-	local payout = tower:GetAttribute("Payout") :: number
+	local payout = Rules.payout(tower:GetAttribute("Payout") :: number, Config.GamePasses, DataService.effectiveBoosts(player))
 	local before = (DataService.get(player) or {}).Climbs or 0
 	DataService.update(player, function(data)
 		data.Cash += payout
