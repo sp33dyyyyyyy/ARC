@@ -278,8 +278,10 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 		overlay:toast(tostring(payload.text), "gold")
 	elseif kind == "AdminResult" then
 		local ok, text = payload.ok == true, tostring(payload.text)
-		settings:showCodeResult(ok, text)
-		adminPanel:showResult(ok, text)
+		if payload.action == "login" then
+			settings:showCodeResult(ok, text)
+		end
+		adminPanel:showResult(ok, text, payload.action)
 		overlay:toast(text, if ok then "good" else "bad")
 	elseif kind == "Announcement" then
 		overlay:announcement(tostring(payload.text), tostring(payload.from or "Admin"))

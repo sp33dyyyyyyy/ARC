@@ -214,10 +214,10 @@ function AdminPanel.new(send: (action: string, args: { [string]: any }) -> ())
 	return self
 end
 
-function AdminPanel:showResult(ok: boolean, text: string)
+function AdminPanel:showResult(ok: boolean, text: string, action: string?)
 	self.status.Text = text
 	self.status.TextColor3 = if ok then Theme.Good else Theme.Bad
-	if ok then
+	if ok and action == "announce" then
 		self.announcement.Text = ""
 	end
 end

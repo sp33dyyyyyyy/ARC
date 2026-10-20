@@ -1193,7 +1193,8 @@ local DataService = require(script.Parent.DataService)
 local AdminService = {}
 
 local admins: { [Player]: boolean } = {}
-local attempts: { [Player]: { number } } = {}
+-- Keyed by UserId and kept after leaving, so rejoining doesn't reset the limit.
+local attempts: { [number]: { number } } = {}
 local lastAction: { [Player]: number } = {}
 local notify: RemoteEvent
 
@@ -1216,8 +1217,8 @@ local function grant(player: Player)
 	player:SetAttribute("IsAdmin", true)
 end
 
-local function reply(player: Player, ok: boolean, text: string)
-	notify:FireClient(player, "AdminResult", { ok = ok, text = text })
+local function reply(player: Player, ok: boolean, text: string, action: string?)
+	notify:FireClient(player, "AdminResult", { ok = ok, text = text, action = action })
 end
 
 local function passDef(id: any): any?
@@ -1280,12 +1281,11 @@ function actions.ban(admin: Player, args: any)
 		reason = filterForEveryone(args.reason, admin.UserId) or reason
 	end
 	-- Our own ban list (always works) plus Roblox's ban API (published games only).
-	if banStore then
-		pcall(function()
+	local listed = banStore ~= nil
+		and pcall(function()
 			(banStore :: DataStore):SetAsync(tostring(userId), { by = admin.UserId, reason = reason, time = os.time() })
 		end)
-	end
-	pcall(function()
+	local robloxBan = pcall(function()
 		Players:BanAsync({
 			UserIds = { userId },
 			ApplyToUniverse = true,
@@ -1299,8 +1299,14 @@ function actions.ban(admin: Player, args: any)
 	if target then
 		target:Kick("You have been banned. " .. reason)
 	end
-	print(string.format("[Admin] %s banned %s (%d)", admin.Name, name, userId))
-	reply(admin, true, name .. " has been banned.")
+	print(string.format("[Admin] %s banned %s (%d) list=%s roblox=%s", admin.Name, name, userId, tostring(listed), tostring(robloxBan)))
+	if not listed and not robloxBan then
+		reply(admin, false, name .. " was kicked, but the ban couldn't be saved (publish the game and enable API services).")
+	elseif not robloxBan then
+		reply(admin, true, name .. " is banned (game ban list only; Roblox's ban API failed).")
+	else
+		reply(admin, true, name .. " has been banned.")
+	end
 end
 
 function actions.unban(admin: Player, args: any)
@@ -1314,16 +1320,19 @@ function actions.unban(admin: Player, args: any)
 		reply(admin, false, "No Roblox user called " .. name .. ".")
 		return
 	end
-	if banStore then
-		pcall(function()
+	local listed = banStore ~= nil
+		and pcall(function()
 			(banStore :: DataStore):RemoveAsync(tostring(userId))
 		end)
-	end
-	pcall(function()
+	local robloxBan = pcall(function()
 		Players:UnbanAsync({ UserIds = { userId }, ApplyToUniverse = true })
 	end)
 	print(string.format("[Admin] %s unbanned %s (%d)", admin.Name, name, userId))
-	reply(admin, true, name .. " has been unbanned.")
+	if listed or robloxBan then
+		reply(admin, true, name .. " has been unbanned.")
+	else
+		reply(admin, false, "Couldn't unban " .. name .. " (publish the game and enable API services).")
+	end
 end
 
 function actions.plaza(admin: Player, args: any)
@@ -1398,7 +1407,7 @@ function actions.announce(admin: Player, args: any)
 		notify:FireAllClients("Announcement", message)
 	end
 	print(string.format("[Admin] %s announced: %s", admin.Name, filtered))
-	reply(admin, true, if published then "Announcement sent to every server." else "Announcement sent to this server.")
+	reply(admin, true, if published then "Announcement sent to every server." else "Announcement sent to this server.", "announce")
 end
 
 -- Gamepasses bought with Robux ---------------------------------------------------------
@@ -1438,7 +1447,6 @@ function AdminService.start()
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		admins[player] = nil
-		attempts[player] = nil
 		lastAction[player] = nil
 	end)
 
@@ -1456,21 +1464,21 @@ function AdminService.start()
 
 	Remotes.get("AdminLogin").OnServerEvent:Connect(function(player, code)
 		if admins[player] then
-			reply(player, true, "You're already an admin.")
+			reply(player, true, "You're already an admin.", "login")
 			return
 		end
 		local allowed
-		allowed, attempts[player] = Rules.allowAttempt(Config.Admin, attempts[player] or {}, os.clock())
+		allowed, attempts[player.UserId] = Rules.allowAttempt(Config.Admin, attempts[player.UserId] or {}, os.clock())
 		if not allowed then
-			reply(player, false, "Too many tries. Wait a few minutes.")
+			reply(player, false, "Too many tries. Wait a few minutes.", "login")
 			return
 		end
 		if Rules.adminCodeMatches(AdminConfig.Password, code) then
 			grant(player)
 			print("[Admin] " .. player.Name .. " unlocked the admin panel")
-			reply(player, true, "Password accepted. Admin panel unlocked.")
+			reply(player, true, "Password accepted. Admin panel unlocked.", "login")
 		else
-			reply(player, false, "Wrong password.")
+			reply(player, false, "Wrong password.", "login")
 		end
 	end)
 
@@ -1655,12 +1663,15 @@ local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local DataService = require(script.Parent.DataService)
 local RopeService = require(script.Parent.RopeService)
+local RagdollService = require(script.Parent.RagdollService)
 
 local ClimbService = {}
 
 type Checkpoint = { tower: string, position: Vector3, normal: Vector3 }
 
 local active: { [Player]: Rules.ActiveClimb } = {}
+-- Last sampled height per climber, to catch teleporting up a tower.
+local climbTrack: { [Player]: { y: number, t: number } } = {}
 local checkpoints: { [Player]: Checkpoint } = {}
 local lastRejectNotice: { [Player]: number } = {}
 local plazaSpawn: CFrame = CFrame.new(0, 4, 24)
@@ -1697,7 +1708,9 @@ function ClimbService.sendToPlaza(player: Player)
 	if character then
 		local offset = Vector3.new(math.random(-6, 6), 0, math.random(-4, 4))
 		character:PivotTo(plazaSpawn + offset)
+		RagdollService.resetFall(player, (plazaSpawn + offset).Position.Y)
 	end
+	climbTrack[player] = nil
 end
 
 function ClimbService.equipTrail(player: Player)
@@ -1885,6 +1898,7 @@ local function onCharacter(player: Player, character: Model)
 		if character.Parent then
 			-- Back on the wall, facing it; the client grabs on straight away.
 			character:PivotTo(CFrame.lookAt(cp.position, cp.position - cp.normal))
+			climbTrack[player] = nil -- a checkpoint respawn isn't a teleport cheat
 			notify:FireClient(player, "Regrip", {})
 			ClimbService.toast(player, "Respawned at your last checkpoint", "info")
 		end
@@ -1915,6 +1929,7 @@ function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
 	Players.PlayerRemoving:Connect(function(player)
 		active[player] = nil
 		checkpoints[player] = nil
+		climbTrack[player] = nil
 		lastRejectNotice[player] = nil
 	end)
 
@@ -1933,17 +1948,37 @@ function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
 		ClimbService.sendToPlaza(player)
 	end)
 
-	-- Track best height reached (shown on the HUD).
+	-- Track best height reached (shown on the HUD), up to the tallest summit.
+	local maxHeight = 0
+	for _, tower in towers:GetChildren() do
+		maxHeight = math.max(maxHeight, (tower:GetAttribute("Height") or 0) + 60)
+	end
 	task.spawn(function()
 		while true do
 			task.wait(1)
 			for _, player in Players:GetPlayers() do
 				local root = rootOf(player)
 				local data = DataService.get(player)
-				if root and data and root.Position.Y > data.BestHeight + 1 and root.Position.Y < 2000 then
+				if root and data and root.Position.Y > data.BestHeight + 1 and root.Position.Y < maxHeight then
 					DataService.update(player, function(d)
 						d.BestHeight = math.floor(root.Position.Y)
 					end)
+				end
+				-- Anti-teleport: nobody climbs faster than MaxPlausibleSpeed, so a
+				-- bigger jump upward during a climb voids that climb's payout.
+				local climb = active[player]
+				if root and climb and not climb.paid then
+					local now, y = os.clock(), root.Position.Y
+					local last = climbTrack[player]
+					if last and y - last.y > Config.Climb.MaxPlausibleSpeed * (now - last.t) + 15 then
+						active[player] = nil
+						climbTrack[player] = nil
+						ClimbService.toast(player, "That climb didn't count (moved up too fast).", "bad")
+					else
+						climbTrack[player] = { y = y, t = now }
+					end
+				else
+					climbTrack[player] = nil
 				end
 			end
 		end
@@ -2294,11 +2329,11 @@ end
 -- attribute; clients draw the rain and apply the slippery-wall drain.
 local function pickWeather(rng: Random, current: string): string
 	local options, total = {}, 0
+	-- Every state can come up (including staying as is), so the configured
+	-- chances are the real share of time spent in each.
 	for name, chance in Config.Weather.Chances do
-		if name ~= current then
-			table.insert(options, { name, chance })
-			total += chance
-		end
+		table.insert(options, { name, chance })
+		total += chance
 	end
 	table.sort(options, function(a, b)
 		return a[1] < b[1]
@@ -2736,6 +2771,15 @@ function RagdollService.set(player: Player, ragdolled: boolean, claimedStartY: n
 			humanoid:TakeDamage(damage)
 			Remotes.get("Notify"):FireClient(player, "Hurt", { damage = math.floor(damage) })
 		end
+	end
+end
+
+-- After a teleport (e.g. to the plaza mid-fall) measure any fall damage from
+-- the new spot, not from where the ragdoll started.
+function RagdollService.resetFall(player: Player, y: number)
+	local state = states[player]
+	if state then
+		state.startY = y
 	end
 end
 
@@ -6124,8 +6168,10 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 		overlay:toast(tostring(payload.text), "gold")
 	elseif kind == "AdminResult" then
 		local ok, text = payload.ok == true, tostring(payload.text)
-		settings:showCodeResult(ok, text)
-		adminPanel:showResult(ok, text)
+		if payload.action == "login" then
+			settings:showCodeResult(ok, text)
+		end
+		adminPanel:showResult(ok, text, payload.action)
 		overlay:toast(text, if ok then "good" else "bad")
 	elseif kind == "Announcement" then
 		overlay:announcement(tostring(payload.text), tostring(payload.from or "Admin"))
@@ -6372,10 +6418,10 @@ function AdminPanel.new(send: (action: string, args: { [string]: any }) -> ())
 	return self
 end
 
-function AdminPanel:showResult(ok: boolean, text: string)
+function AdminPanel:showResult(ok: boolean, text: string, action: string?)
 	self.status.Text = text
 	self.status.TextColor3 = if ok then Theme.Good else Theme.Bad
-	if ok then
+	if ok and action == "announce" then
 		self.announcement.Text = ""
 	end
 end

@@ -32,11 +32,11 @@ end
 -- attribute; clients draw the rain and apply the slippery-wall drain.
 local function pickWeather(rng: Random, current: string): string
 	local options, total = {}, 0
+	-- Every state can come up (including staying as is), so the configured
+	-- chances are the real share of time spent in each.
 	for name, chance in Config.Weather.Chances do
-		if name ~= current then
-			table.insert(options, { name, chance })
-			total += chance
-		end
+		table.insert(options, { name, chance })
+		total += chance
 	end
 	table.sort(options, function(a, b)
 		return a[1] < b[1]

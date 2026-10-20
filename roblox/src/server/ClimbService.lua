@@ -11,12 +11,15 @@ local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local DataService = require(script.Parent.DataService)
 local RopeService = require(script.Parent.RopeService)
+local RagdollService = require(script.Parent.RagdollService)
 
 local ClimbService = {}
 
 type Checkpoint = { tower: string, position: Vector3, normal: Vector3 }
 
 local active: { [Player]: Rules.ActiveClimb } = {}
+-- Last sampled height per climber, to catch teleporting up a tower.
+local climbTrack: { [Player]: { y: number, t: number } } = {}
 local checkpoints: { [Player]: Checkpoint } = {}
 local lastRejectNotice: { [Player]: number } = {}
 local plazaSpawn: CFrame = CFrame.new(0, 4, 24)
@@ -53,7 +56,9 @@ function ClimbService.sendToPlaza(player: Player)
 	if character then
 		local offset = Vector3.new(math.random(-6, 6), 0, math.random(-4, 4))
 		character:PivotTo(plazaSpawn + offset)
+		RagdollService.resetFall(player, (plazaSpawn + offset).Position.Y)
 	end
+	climbTrack[player] = nil
 end
 
 function ClimbService.equipTrail(player: Player)
@@ -241,6 +246,7 @@ local function onCharacter(player: Player, character: Model)
 		if character.Parent then
 			-- Back on the wall, facing it; the client grabs on straight away.
 			character:PivotTo(CFrame.lookAt(cp.position, cp.position - cp.normal))
+			climbTrack[player] = nil -- a checkpoint respawn isn't a teleport cheat
 			notify:FireClient(player, "Regrip", {})
 			ClimbService.toast(player, "Respawned at your last checkpoint", "info")
 		end
@@ -271,6 +277,7 @@ function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
 	Players.PlayerRemoving:Connect(function(player)
 		active[player] = nil
 		checkpoints[player] = nil
+		climbTrack[player] = nil
 		lastRejectNotice[player] = nil
 	end)
 
@@ -289,17 +296,37 @@ function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
 		ClimbService.sendToPlaza(player)
 	end)
 
-	-- Track best height reached (shown on the HUD).
+	-- Track best height reached (shown on the HUD), up to the tallest summit.
+	local maxHeight = 0
+	for _, tower in towers:GetChildren() do
+		maxHeight = math.max(maxHeight, (tower:GetAttribute("Height") or 0) + 60)
+	end
 	task.spawn(function()
 		while true do
 			task.wait(1)
 			for _, player in Players:GetPlayers() do
 				local root = rootOf(player)
 				local data = DataService.get(player)
-				if root and data and root.Position.Y > data.BestHeight + 1 and root.Position.Y < 2000 then
+				if root and data and root.Position.Y > data.BestHeight + 1 and root.Position.Y < maxHeight then
 					DataService.update(player, function(d)
 						d.BestHeight = math.floor(root.Position.Y)
 					end)
+				end
+				-- Anti-teleport: nobody climbs faster than MaxPlausibleSpeed, so a
+				-- bigger jump upward during a climb voids that climb's payout.
+				local climb = active[player]
+				if root and climb and not climb.paid then
+					local now, y = os.clock(), root.Position.Y
+					local last = climbTrack[player]
+					if last and y - last.y > Config.Climb.MaxPlausibleSpeed * (now - last.t) + 15 then
+						active[player] = nil
+						climbTrack[player] = nil
+						ClimbService.toast(player, "That climb didn't count (moved up too fast).", "bad")
+					else
+						climbTrack[player] = { y = y, t = now }
+					end
+				else
+					climbTrack[player] = nil
 				end
 			end
 		end

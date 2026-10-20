@@ -22,7 +22,8 @@ local DataService = require(script.Parent.DataService)
 local AdminService = {}
 
 local admins: { [Player]: boolean } = {}
-local attempts: { [Player]: { number } } = {}
+-- Keyed by UserId and kept after leaving, so rejoining doesn't reset the limit.
+local attempts: { [number]: { number } } = {}
 local lastAction: { [Player]: number } = {}
 local notify: RemoteEvent
 
@@ -45,8 +46,8 @@ local function grant(player: Player)
 	player:SetAttribute("IsAdmin", true)
 end
 
-local function reply(player: Player, ok: boolean, text: string)
-	notify:FireClient(player, "AdminResult", { ok = ok, text = text })
+local function reply(player: Player, ok: boolean, text: string, action: string?)
+	notify:FireClient(player, "AdminResult", { ok = ok, text = text, action = action })
 end
 
 local function passDef(id: any): any?
@@ -109,12 +110,11 @@ function actions.ban(admin: Player, args: any)
 		reason = filterForEveryone(args.reason, admin.UserId) or reason
 	end
 	-- Our own ban list (always works) plus Roblox's ban API (published games only).
-	if banStore then
-		pcall(function()
+	local listed = banStore ~= nil
+		and pcall(function()
 			(banStore :: DataStore):SetAsync(tostring(userId), { by = admin.UserId, reason = reason, time = os.time() })
 		end)
-	end
-	pcall(function()
+	local robloxBan = pcall(function()
 		Players:BanAsync({
 			UserIds = { userId },
 			ApplyToUniverse = true,
@@ -128,8 +128,14 @@ function actions.ban(admin: Player, args: any)
 	if target then
 		target:Kick("You have been banned. " .. reason)
 	end
-	print(string.format("[Admin] %s banned %s (%d)", admin.Name, name, userId))
-	reply(admin, true, name .. " has been banned.")
+	print(string.format("[Admin] %s banned %s (%d) list=%s roblox=%s", admin.Name, name, userId, tostring(listed), tostring(robloxBan)))
+	if not listed and not robloxBan then
+		reply(admin, false, name .. " was kicked, but the ban couldn't be saved (publish the game and enable API services).")
+	elseif not robloxBan then
+		reply(admin, true, name .. " is banned (game ban list only; Roblox's ban API failed).")
+	else
+		reply(admin, true, name .. " has been banned.")
+	end
 end
 
 function actions.unban(admin: Player, args: any)
@@ -143,16 +149,19 @@ function actions.unban(admin: Player, args: any)
 		reply(admin, false, "No Roblox user called " .. name .. ".")
 		return
 	end
-	if banStore then
-		pcall(function()
+	local listed = banStore ~= nil
+		and pcall(function()
 			(banStore :: DataStore):RemoveAsync(tostring(userId))
 		end)
-	end
-	pcall(function()
+	local robloxBan = pcall(function()
 		Players:UnbanAsync({ UserIds = { userId }, ApplyToUniverse = true })
 	end)
 	print(string.format("[Admin] %s unbanned %s (%d)", admin.Name, name, userId))
-	reply(admin, true, name .. " has been unbanned.")
+	if listed or robloxBan then
+		reply(admin, true, name .. " has been unbanned.")
+	else
+		reply(admin, false, "Couldn't unban " .. name .. " (publish the game and enable API services).")
+	end
 end
 
 function actions.plaza(admin: Player, args: any)
@@ -227,7 +236,7 @@ function actions.announce(admin: Player, args: any)
 		notify:FireAllClients("Announcement", message)
 	end
 	print(string.format("[Admin] %s announced: %s", admin.Name, filtered))
-	reply(admin, true, if published then "Announcement sent to every server." else "Announcement sent to this server.")
+	reply(admin, true, if published then "Announcement sent to every server." else "Announcement sent to this server.", "announce")
 end
 
 -- Gamepasses bought with Robux ---------------------------------------------------------
@@ -267,7 +276,6 @@ function AdminService.start()
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		admins[player] = nil
-		attempts[player] = nil
 		lastAction[player] = nil
 	end)
 
@@ -285,21 +293,21 @@ function AdminService.start()
 
 	Remotes.get("AdminLogin").OnServerEvent:Connect(function(player, code)
 		if admins[player] then
-			reply(player, true, "You're already an admin.")
+			reply(player, true, "You're already an admin.", "login")
 			return
 		end
 		local allowed
-		allowed, attempts[player] = Rules.allowAttempt(Config.Admin, attempts[player] or {}, os.clock())
+		allowed, attempts[player.UserId] = Rules.allowAttempt(Config.Admin, attempts[player.UserId] or {}, os.clock())
 		if not allowed then
-			reply(player, false, "Too many tries. Wait a few minutes.")
+			reply(player, false, "Too many tries. Wait a few minutes.", "login")
 			return
 		end
 		if Rules.adminCodeMatches(AdminConfig.Password, code) then
 			grant(player)
 			print("[Admin] " .. player.Name .. " unlocked the admin panel")
-			reply(player, true, "Password accepted. Admin panel unlocked.")
+			reply(player, true, "Password accepted. Admin panel unlocked.", "login")
 		else
-			reply(player, false, "Wrong password.")
+			reply(player, false, "Wrong password.", "login")
 		end
 	end)
 

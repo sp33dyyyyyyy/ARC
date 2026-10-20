@@ -127,6 +127,15 @@ function RagdollService.set(player: Player, ragdolled: boolean, claimedStartY: n
 	end
 end
 
+-- After a teleport (e.g. to the plaza mid-fall) measure any fall damage from
+-- the new spot, not from where the ragdoll started.
+function RagdollService.resetFall(player: Player, y: number)
+	local state = states[player]
+	if state then
+		state.startY = y
+	end
+end
+
 function RagdollService.start()
 	local lastCall: { [Player]: number } = {}
 	Remotes.get("Ragdoll").OnServerEvent:Connect(function(player, ragdolled, startY)
