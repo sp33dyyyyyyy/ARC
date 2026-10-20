@@ -349,7 +349,9 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 	-- Roof slab and a climbable parapet you climb over onto the roof.
 	Build.part(model, {
 		Name = "Roof",
-		Size = Vector3.new(h * 2 + 1, 1, h * 2 + 1),
+		-- Sits just inside the glass so its edge never sticks out past the
+		-- climbable wall (a lip there made the wall seem to end early).
+		Size = Vector3.new(h * 2 - 0.2, 1, h * 2 - 0.2),
 		CFrame = towerCF * CFrame.new(0, H - 0.5, 0),
 		Color = Color3.fromRGB(110, 112, 118),
 		Material = Enum.Material.Concrete,
@@ -361,7 +363,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 			CFrame = faceCF(towerCF, faceDir(f), h, 0, H + 1),
 			Color = frame,
 			Material = Enum.Material.Concrete,
-			Tags = { "Climbable" },
+			Tags = { "Climbable", "NoStand" }, -- climb over it, don't stand on it
 		})
 	end
 

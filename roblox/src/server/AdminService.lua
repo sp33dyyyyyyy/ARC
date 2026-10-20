@@ -1,15 +1,15 @@
 -- Admins and the admin panel's powers: ban / unban by username, give or take
 -- gamepasses, send players to the plaza, and game-wide announcements.
 --
--- Security: the admin code only ever lives on the server (AdminConfig), code
--- attempts are rate limited, and every admin action is re-checked here.
--- Clients only get an "IsAdmin" attribute to show the panel.
+-- Security: the admin password only ever lives on the server (AdminConfig),
+-- everyone (owner included) must enter it, guesses are rate limited, and every
+-- admin action is re-checked here. Clients only get an "IsAdmin" attribute to
+-- show the panel.
 local DataStoreService = game:GetService("DataStoreService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local MessagingService = game:GetService("MessagingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -31,14 +31,9 @@ pcall(function()
 	banStore = DataStoreService:GetDataStore(Config.Admin.BanStoreName)
 end)
 
-local function isPermanentAdmin(userId: number): boolean
-	if RunService:IsStudio() then
-		return true -- Studio playtests are only ever run by the game's editors
-	end
-	if game.CreatorType == Enum.CreatorType.User and userId == game.CreatorId then
-		return true
-	end
-	return table.find(AdminConfig.UserIds, userId) ~= nil
+-- The game's owner can't be banned from the panel.
+local function isProtected(userId: number): boolean
+	return game.CreatorType == Enum.CreatorType.User and userId == game.CreatorId
 end
 
 function AdminService.isAdmin(player: Player): boolean
@@ -104,8 +99,9 @@ function actions.ban(admin: Player, args: any)
 		reply(admin, false, "No Roblox user called " .. name .. ".")
 		return
 	end
-	if userId == admin.UserId or isPermanentAdmin(userId) then
-		reply(admin, false, "You can't ban yourself or the game's owners.")
+	local online = Players:GetPlayerByUserId(userId)
+	if userId == admin.UserId or isProtected(userId) or (online and admins[online]) then
+		reply(admin, false, "You can't ban yourself, another admin or the game's owner.")
 		return
 	end
 	local reason = "Banned by an admin."
@@ -258,13 +254,10 @@ function AdminService.start()
 			local ok, ban = pcall(function()
 				return (banStore :: DataStore):GetAsync(tostring(player.UserId))
 			end)
-			if ok and type(ban) == "table" and not isPermanentAdmin(player.UserId) then
+			if ok and type(ban) == "table" and not isProtected(player.UserId) then
 				player:Kick("You are banned. " .. tostring(ban.reason or ""))
 				return
 			end
-		end
-		if isPermanentAdmin(player.UserId) then
-			grant(player)
 		end
 		task.spawn(checkMarketPasses, player)
 	end
@@ -301,12 +294,12 @@ function AdminService.start()
 			reply(player, false, "Too many tries. Wait a few minutes.")
 			return
 		end
-		if Rules.adminCodeMatches(AdminConfig.Code, code) then
+		if Rules.adminCodeMatches(AdminConfig.Password, code) then
 			grant(player)
-			print("[Admin] " .. player.Name .. " unlocked admin with the code")
-			reply(player, true, "Admin panel unlocked.")
+			print("[Admin] " .. player.Name .. " unlocked the admin panel")
+			reply(player, true, "Password accepted. Admin panel unlocked.")
 		else
-			reply(player, false, "Wrong code.")
+			reply(player, false, "Wrong password.")
 		end
 	end)
 

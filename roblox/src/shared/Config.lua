@@ -27,10 +27,13 @@ Config.Fall = {
 
 Config.Climb = {
 	BaseWalkSpeed = 16,
-	-- Hand-over-Hand climbing
-	ClimbSpeed = 10, -- average studs/second climbing up (you move in pulls)
-	SideSpeed = 7, -- studs/second sideways
-	ReachLength = 2.4, -- one hand-over-hand pull
+	-- Rock climbing: you climb in discrete moves. Each move one hand reaches for
+	-- the next hold (body still), then you pull up (opposite leg pushes).
+	ClimbSpeed = 9, -- average studs/second while chaining moves up
+	ReachLength = 3, -- height gained per move
+	ReachFraction = 0.35, -- share of a move spent reaching before the pull
+	SideStep = 2.5, -- studs per traverse move
+	SideSpeed = 6, -- studs/second traversing
 	GripRange = 3.5, -- SPACE grabs a wall this close
 	AutoGripRange = 2.4, -- walking/jumping into a wall this close grabs it
 	RegrabDelay = 0.8, -- after letting go, auto-grip waits this long

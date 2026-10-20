@@ -1,6 +1,7 @@
 -- Plain-Luau test runner for the pure game rules: `luau tests/run.lua`
 local Config = require("../src/shared/Config")
 local Rules = require("../src/shared/Rules")
+local ClimbPose = require("../src/shared/ClimbPose")
 
 local passed, failed = 0, 0
 
@@ -71,14 +72,15 @@ test("stamina clamps to [0, max]", function()
 end)
 
 test("climb speed boost", function()
-	near(Rules.climbSpeed(Config.Climb, B, none), 10)
-	near(Rules.climbSpeed(Config.Climb, B, { ClimbSpeed = 5 }), 15)
+	near(Rules.climbSpeed(Config.Climb, B, none), Config.Climb.ClimbSpeed)
+	near(Rules.climbSpeed(Config.Climb, B, { ClimbSpeed = 5 }), Config.Climb.ClimbSpeed * 1.5)
 end)
 
 test("lunge costs more than crawling the same distance", function()
-	-- climbing 9 studs at 10 studs/s with drain 8/s costs 7.2; a leap is 30% more
-	near(Rules.lungeCost(Config.Climb, -8), 7.2 * 1.3)
-	near(Rules.lungeCost(Config.Climb, -16), 14.4 * 1.3)
+	-- a leap costs the same as climbing its distance, times LungeCostFactor
+	local seconds = Config.Climb.LungeDistance / Config.Climb.ClimbSpeed
+	near(Rules.lungeCost(Config.Climb, -8), 8 * seconds * Config.Climb.LungeCostFactor)
+	near(Rules.lungeCost(Config.Climb, -16), 16 * seconds * Config.Climb.LungeCostFactor)
 end)
 
 test("hanging still on a rest bar recovers; climbing past one still drains", function()
@@ -110,6 +112,47 @@ test("purchase validation", function()
 	eq(Rules.canBuyChalk(C, 0, 75).ok, true)
 end)
 
+-- Climbing animation
+test("climb poses flow from one move into the next with hands swapped", function()
+	local R = Config.Climb.ReachFraction
+	for move = 0, 3 do
+		local finish = ClimbPose.angles("climb", move + 0.9999, 0, R)
+		local start = ClimbPose.angles("climb", move + 1, 0, R)
+		for i = 1, 2 do
+			assert(math.abs(finish.shoulder[i] - start.shoulder[i]) < 0.1, "shoulder pops between moves")
+			assert(math.abs(finish.elbow[i] - start.elbow[i]) < 0.1, "elbow pops between moves")
+			assert(math.abs(finish.hip[i] - start.hip[i]) < 0.1, "hip pops between moves")
+		end
+	end
+end)
+
+test("lead hand reaches highest at the end of the reach, then pulls", function()
+	local R = Config.Climb.ReachFraction
+	local reached = ClimbPose.angles("climb", R, 0, R) -- move 0: left leads
+	local start = ClimbPose.angles("climb", 0, 0, R)
+	assert(reached.shoulder[1] > start.shoulder[1] + 20, "left arm should reach up")
+	assert(reached.shoulder[1] > reached.shoulder[2], "lead arm is the higher one")
+	assert(reached.hip[2] > reached.hip[1] + 20, "opposite (right) foot steps up")
+	local odd = ClimbPose.angles("climb", 1 + R, 0, R) -- move 1: right leads
+	assert(odd.shoulder[2] > odd.shoulder[1], "hands alternate")
+end)
+
+test("climb poses stay physically sensible", function()
+	local R = Config.Climb.ReachFraction
+	for _, mode in { "climb", "rest", "leap" } do
+		for c = 0, 2, 0.05 do
+			local a = ClimbPose.angles(mode, c, c, R)
+			for i = 1, 2 do
+				assert(a.shoulder[i] >= 90 and a.shoulder[i] <= 185, mode .. " shoulder out of range")
+				assert(a.elbow[i] >= 0 and a.elbow[i] <= 100, mode .. " elbow should bend toward the wall")
+				assert(a.hip[i] >= 0 and a.hip[i] <= 80, mode .. " hip out of range")
+				assert(a.knee[i] >= 0 and a.knee[i] <= 110, mode .. " knee out of range")
+			end
+			assert(a.lean <= 0, "lean into the wall, not away")
+		end
+	end
+end)
+
 -- Gamepasses
 test("gamepass perks: VIP cash, Iron Lungs stamina, Featherweight falls", function()
 	local P = Config.GamePasses
@@ -131,6 +174,14 @@ test("admin code: exact match only, empty or short codes never unlock", function
 	eq(Rules.adminCodeMatches("", ""), false)
 	eq(Rules.adminCodeMatches("abc", "abc"), false)
 	eq(Rules.adminCodeMatches("SKY-1234", nil), false)
+end)
+
+test("the admin password is Evan123, exactly", function()
+	local AdminConfig = require("../src/server/AdminConfig")
+	eq(Rules.adminCodeMatches(AdminConfig.Password, "Evan123"), true)
+	eq(Rules.adminCodeMatches(AdminConfig.Password, "evan123"), false)
+	eq(Rules.adminCodeMatches(AdminConfig.Password, "Evan12"), false)
+	eq(Rules.adminCodeMatches(AdminConfig.Password, ""), false)
 end)
 
 test("admin code attempts are rate limited", function()

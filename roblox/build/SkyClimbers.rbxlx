@@ -84,6 +84,112 @@
       </Properties>
       <Item class="ModuleScript" referent="8">
         <Properties>
+          <string name="Name">ClimbPose</string>
+          <string name="Source"><![CDATA[--!strict
+-- Pure pose math for the rock-climbing animation (no Roblox APIs, unit tested).
+--
+-- A climb is a sequence of moves. `cycle` counts them: the whole part is the
+-- move number (even = left hand leads, odd = right hand leads) and the
+-- fraction is progress through that move:
+--   reach  (first `reachFraction`): the lead hand reaches up to the next hold,
+--          the opposite foot steps up high; the body stays put.
+--   pull   (the rest): the body is pulled up; the lead arm pulls down a bit,
+--          the other arm drops to "low hold", and the stepped-up leg pushes.
+-- The pose at the end of one move equals the pose at the start of the next
+-- with the hands swapped, so chained moves flow without pops.
+--
+-- Angles are degrees, "forward/up" positive, per limb { left, right }:
+--   shoulder: 0 = arm down, 90 = arm forward, 180 = straight overhead
+--   elbow:    bend toward the wall (applied as a negative rotation)
+--   hip:      thigh raised toward the wall
+--   knee:     lower leg folded back
+--   neck:     head tilted up;  lean: torso tilted toward the wall
+
+local ClimbPose = {}
+
+export type Angles = {
+	shoulder: { number },
+	elbow: { number },
+	hip: { number },
+	knee: { number },
+	neck: number,
+	lean: number,
+}
+
+local LOW, MID, HIGH = 0.7, 0.85, 1.0 -- arm "raise" levels between holds
+
+local function ease(x: number): number
+	x = math.clamp(x, 0, 1)
+	return x * x * (3 - 2 * x)
+end
+
+local function arm(raise: number): (number, number)
+	-- Higher reach = straighter arm.
+	return 55 + 120 * raise, 15 + (1 - raise) * 140
+end
+
+local function leg(lift: number): (number, number)
+	return 15 + 55 * lift, 25 + 70 * lift
+end
+
+-- Arm raise for the lead and other hand at progress `f` through a move.
+function ClimbPose.armRaise(f: number, reachFraction: number): (number, number)
+	local reach = ease(f / reachFraction)
+	local pull = ease((f - reachFraction) / (1 - reachFraction))
+	local lead = if f < reachFraction then LOW + (HIGH - LOW) * reach else HIGH - (HIGH - MID) * pull
+	local other = MID - (MID - LOW) * pull
+	return lead, other
+end
+
+function ClimbPose.angles(mode: string, cycle: number, t: number, reachFraction: number): Angles
+	if mode == "leap" then
+		local s1, e1 = arm(1.05)
+		return { shoulder = { s1, s1 }, elbow = { e1, e1 }, hip = { 5, 5 }, knee = { 10, 10 }, neck = 28, lean = -4 }
+	elseif mode == "rest" then
+		-- Both hands hooked over the rest bar, legs hanging with a slow sway.
+		local sway = math.sin(t * 1.7) * 6
+		local s1, e1 = arm(0.92)
+		return {
+			shoulder = { s1, s1 },
+			elbow = { e1, e1 },
+			hip = { 8 + sway, 8 - sway },
+			knee = { 15, 15 },
+			neck = 5,
+			lean = -2,
+		}
+	end
+	local move = math.floor(cycle)
+	local f = cycle - move
+	local rightLeads = move % 2 == 1
+	local lead, other = ClimbPose.armRaise(f, reachFraction)
+	-- The foot opposite the lead hand steps up during the reach, then pushes.
+	local reach = ease(f / reachFraction)
+	local pull = ease((f - reachFraction) / (1 - reachFraction))
+	local step = if f < reachFraction then reach else 1 - pull
+	local stepLift, plantLift = 0.25 + 0.75 * step, 0.25
+
+	local leadS, leadE = arm(lead)
+	local otherS, otherE = arm(other)
+	local stepH, stepK = leg(stepLift)
+	local plantH, plantK = leg(plantLift)
+	local angles: Angles = {
+		shoulder = if rightLeads then { otherS, leadS } else { leadS, otherS },
+		elbow = if rightLeads then { otherE, leadE } else { leadE, otherE },
+		-- left hand leads -> right foot steps
+		hip = if rightLeads then { stepH, plantH } else { plantH, stepH },
+		knee = if rightLeads then { stepK, plantK } else { plantK, stepK },
+		neck = 22,
+		lean = -10,
+	}
+	return angles
+end
+
+return ClimbPose
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="9">
+        <Properties>
           <string name="Name">Config</string>
           <string name="Source"><![CDATA[--!strict
 -- Every tunable number in the game lives here. Pure data: no Roblox APIs, so the
@@ -114,10 +220,13 @@ Config.Fall = {
 
 Config.Climb = {
 	BaseWalkSpeed = 16,
-	-- Hand-over-Hand climbing
-	ClimbSpeed = 10, -- average studs/second climbing up (you move in pulls)
-	SideSpeed = 7, -- studs/second sideways
-	ReachLength = 2.4, -- one hand-over-hand pull
+	-- Rock climbing: you climb in discrete moves. Each move one hand reaches for
+	-- the next hold (body still), then you pull up (opposite leg pushes).
+	ClimbSpeed = 9, -- average studs/second while chaining moves up
+	ReachLength = 3, -- height gained per move
+	ReachFraction = 0.35, -- share of a move spent reaching before the pull
+	SideStep = 2.5, -- studs per traverse move
+	SideSpeed = 6, -- studs/second traversing
 	GripRange = 3.5, -- SPACE grabs a wall this close
 	AutoGripRange = 2.4, -- walking/jumping into a wall this close grabs it
 	RegrabDelay = 0.8, -- after letting go, auto-grip waits this long
@@ -381,7 +490,7 @@ return Config
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="9">
+      <Item class="ModuleScript" referent="10">
         <Properties>
           <string name="Name">Remotes</string>
           <string name="Source"><![CDATA[-- RemoteEvents shared by server and client. The server creates them; clients wait.
@@ -426,7 +535,7 @@ return Remotes
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="10">
+      <Item class="ModuleScript" referent="11">
         <Properties>
           <string name="Name">Rules</string>
           <string name="Source"><![CDATA[--!strict
@@ -813,50 +922,46 @@ return Rules
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="11">
+  <Item class="ServerScriptService" referent="12">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="12">
+    <Item class="Folder" referent="13">
       <Properties>
         <string name="Name">Server</string>
       </Properties>
-      <Item class="ModuleScript" referent="13">
+      <Item class="ModuleScript" referent="14">
         <Properties>
           <string name="Name">AdminConfig</string>
           <string name="Source"><![CDATA[-- Server-only admin settings. This ModuleScript lives in ServerScriptService,
--- which clients can never see, so the code is safe here in the live game.
+-- which players can never see, so the password stays secret in the live game.
 --
--- SET YOUR OWN CODE before publishing (at least 6 characters). While Code is
--- empty, typing a code never unlocks anything. The game's owner, anyone in
--- UserIds, and everyone in a Studio playtest are admins without a code.
+-- Everyone (including the game's owner) has to enter this password in
+-- Settings to open the admin panel. Wrong guesses are rate limited.
 --
--- If this repository is public, anyone can read what you put here. Then leave
--- Code empty in the repo and set it only in your published place in Studio.
+-- Note: if this repository is public on GitHub, anyone can read the password
+-- here. Change it in your published place (and keep the repo private) if so.
 return {
-	Code = "",
-	UserIds = {
-		-- 12345678, -- add Roblox user IDs that are always admins
-	},
+	Password = "Evan123",
 }
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">AdminService</string>
           <string name="Source"><![CDATA[-- Admins and the admin panel's powers: ban / unban by username, give or take
 -- gamepasses, send players to the plaza, and game-wide announcements.
 --
--- Security: the admin code only ever lives on the server (AdminConfig), code
--- attempts are rate limited, and every admin action is re-checked here.
--- Clients only get an "IsAdmin" attribute to show the panel.
+-- Security: the admin password only ever lives on the server (AdminConfig),
+-- everyone (owner included) must enter it, guesses are rate limited, and every
+-- admin action is re-checked here. Clients only get an "IsAdmin" attribute to
+-- show the panel.
 local DataStoreService = game:GetService("DataStoreService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local MessagingService = game:GetService("MessagingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local TextService = game:GetService("TextService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -878,14 +983,9 @@ pcall(function()
 	banStore = DataStoreService:GetDataStore(Config.Admin.BanStoreName)
 end)
 
-local function isPermanentAdmin(userId: number): boolean
-	if RunService:IsStudio() then
-		return true -- Studio playtests are only ever run by the game's editors
-	end
-	if game.CreatorType == Enum.CreatorType.User and userId == game.CreatorId then
-		return true
-	end
-	return table.find(AdminConfig.UserIds, userId) ~= nil
+-- The game's owner can't be banned from the panel.
+local function isProtected(userId: number): boolean
+	return game.CreatorType == Enum.CreatorType.User and userId == game.CreatorId
 end
 
 function AdminService.isAdmin(player: Player): boolean
@@ -951,8 +1051,9 @@ function actions.ban(admin: Player, args: any)
 		reply(admin, false, "No Roblox user called " .. name .. ".")
 		return
 	end
-	if userId == admin.UserId or isPermanentAdmin(userId) then
-		reply(admin, false, "You can't ban yourself or the game's owners.")
+	local online = Players:GetPlayerByUserId(userId)
+	if userId == admin.UserId or isProtected(userId) or (online and admins[online]) then
+		reply(admin, false, "You can't ban yourself, another admin or the game's owner.")
 		return
 	end
 	local reason = "Banned by an admin."
@@ -1105,13 +1206,10 @@ function AdminService.start()
 			local ok, ban = pcall(function()
 				return (banStore :: DataStore):GetAsync(tostring(player.UserId))
 			end)
-			if ok and type(ban) == "table" and not isPermanentAdmin(player.UserId) then
+			if ok and type(ban) == "table" and not isProtected(player.UserId) then
 				player:Kick("You are banned. " .. tostring(ban.reason or ""))
 				return
 			end
-		end
-		if isPermanentAdmin(player.UserId) then
-			grant(player)
 		end
 		task.spawn(checkMarketPasses, player)
 	end
@@ -1148,12 +1246,12 @@ function AdminService.start()
 			reply(player, false, "Too many tries. Wait a few minutes.")
 			return
 		end
-		if Rules.adminCodeMatches(AdminConfig.Code, code) then
+		if Rules.adminCodeMatches(AdminConfig.Password, code) then
 			grant(player)
-			print("[Admin] " .. player.Name .. " unlocked admin with the code")
-			reply(player, true, "Admin panel unlocked.")
+			print("[Admin] " .. player.Name .. " unlocked the admin panel")
+			reply(player, true, "Password accepted. Admin panel unlocked.")
 		else
-			reply(player, false, "Wrong code.")
+			reply(player, false, "Wrong password.")
 		end
 	end)
 
@@ -1187,7 +1285,7 @@ return AdminService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">Build</string>
           <string name="Source"><![CDATA[-- Small helpers for creating anchored geometry from code.
@@ -1305,7 +1403,7 @@ return Build
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">ClimbService</string>
           <string name="Source"><![CDATA[-- Climb tracking: base/peak zones, payouts, checkpoints, lifts, trails.
@@ -1638,7 +1736,7 @@ return ClimbService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">DataService</string>
           <string name="Source"><![CDATA[-- Player save data.
@@ -1941,7 +2039,7 @@ return DataService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">EnvironmentService</string>
           <string name="Source"><![CDATA[-- Day/night cycle, blinking aviation lights, street lights and wind gusts.
@@ -2084,7 +2182,7 @@ return EnvironmentService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">LeaderboardService</string>
           <string name="Source"><![CDATA[-- Fills the plaza leaderboard with the all-time top climbers. Falls back to the
@@ -2216,7 +2314,7 @@ return LeaderboardService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="20">
+      <Item class="Script" referent="21">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -2289,7 +2387,7 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">RagdollService</string>
           <string name="Source"><![CDATA[-- Server half of the ragdoll: swaps Motor6Ds for BallSocketConstraints so every
@@ -2479,7 +2577,7 @@ return RagdollService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="22">
+      <Item class="ModuleScript" referent="23">
         <Properties>
           <string name="Name">ShopService</string>
           <string name="Source"><![CDATA[-- Server-authoritative purchases. Clients only ask; every check happens here.
@@ -2631,7 +2729,7 @@ return ShopService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">TowerBuilder</string>
           <string name="Source"><![CDATA[-- Procedural towers for Hand-over-Hand climbing.
@@ -2985,7 +3083,9 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 	-- Roof slab and a climbable parapet you climb over onto the roof.
 	Build.part(model, {
 		Name = "Roof",
-		Size = Vector3.new(h * 2 + 1, 1, h * 2 + 1),
+		-- Sits just inside the glass so its edge never sticks out past the
+		-- climbable wall (a lip there made the wall seem to end early).
+		Size = Vector3.new(h * 2 - 0.2, 1, h * 2 - 0.2),
 		CFrame = towerCF * CFrame.new(0, H - 0.5, 0),
 		Color = Color3.fromRGB(110, 112, 118),
 		Material = Enum.Material.Concrete,
@@ -2997,7 +3097,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 			CFrame = faceCF(towerCF, faceDir(f), h, 0, H + 1),
 			Color = frame,
 			Material = Enum.Material.Concrete,
-			Tags = { "Climbable" },
+			Tags = { "Climbable", "NoStand" }, -- climb over it, don't stand on it
 		})
 	end
 
@@ -3095,7 +3195,7 @@ return TowerBuilder
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="24">
+      <Item class="ModuleScript" referent="25">
         <Properties>
           <string name="Name">WorldBuilder</string>
           <string name="Source"><![CDATA[-- Builds the island map from the top-down design (north = -Z):
@@ -3688,7 +3788,7 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="25">
+  <Item class="StarterPlayer" referent="26">
     <Properties>
       <string name="Name">StarterPlayer</string>
       <float name="CameraMaxZoomDistance">200</float>
@@ -3696,40 +3796,43 @@ return WorldBuilder
       <bool name="CharacterUseJumpPower">true</bool>
       <float name="CharacterWalkSpeed">16</float>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="26">
+    <Item class="StarterPlayerScripts" referent="27">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="27">
+      <Item class="Folder" referent="28">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="28">
+        <Item class="ModuleScript" referent="29">
           <Properties>
             <string name="Name">ClimbAnimator</string>
-            <string name="Source"><![CDATA[-- Procedural climbing animation, no uploaded animation assets.
+            <string name="Source"><![CDATA[-- Rock-climbing animation, procedural (no uploaded animation assets).
 --
--- Every client animates every climbing character by writing Motor6D.Transform
--- each frame (after the Animator, before physics). Poses:
---   climb: hand-over-hand. Arms reach up in turn, the opposite leg steps up,
---          the body leans into the wall and the head looks up.
---   rest:  both hands hooked on the rest bar, legs dangling with a slow sway.
---   leap:  arms flung overhead, legs straight.
--- Your own pose comes straight from the climbing controller (with its exact
--- hand-over-hand phase). Other players' poses come from their character's
--- "ClimbPose" attribute (set by the server), with the phase driven by how fast
--- they're moving.
+-- Poses come from the pure ClimbPose module. They're applied by offsetting each
+-- joint's C0 rather than writing Motor6D.Transform: Roblox's Animator rewrites
+-- Transform every frame, which is why the old animation never showed up and
+-- climbers looked like they were floating. While someone is posed, their
+-- regular animations are stopped (the owner's client does this, and stopping
+-- replicates), so nothing fights the pose.
+--
+-- Every client animates every climbing character: yours from the controller's
+-- exact move progress, others' from their "ClimbPose" attribute (set by the
+-- server) with move progress estimated from how fast they're moving.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local ClimbPose = require(ReplicatedStorage.Shared.ClimbPose)
 
 local ClimbAnimator = {}
 
 local player = Players.LocalPlayer
-local localPose, localPhase = "", 0
-local phases: { [Model]: number } = {}
+local localMode, localCycle = "", 0
+local cycles: { [Model]: number } = {}
+-- Original C0 for every joint we've offset, so it can be put back exactly.
+local originals: { [Motor6D]: CFrame } = {}
 local posed: { [Model]: { Motor6D } } = {}
 
 local R15 = {
@@ -3755,67 +3858,46 @@ local function rad(d: number): number
 	return math.rad(d)
 end
 
--- Joint angles (degrees, "forward/up" positive) for a pose at a phase.
-type Angles = { arm: { number }, elbow: { number }, hip: { number }, knee: { number }, neck: number, lean: number }
-
-local function anglesFor(pose: string, phase: number, t: number): Angles
-	if pose == "leap" then
-		return { arm = { 172, 172 }, elbow = { 0, 0 }, hip = { -8, -8 }, knee = { 0, 0 }, neck = 25, lean = 4 }
-	elseif pose == "rest" then
-		local sway = math.sin(t * 1.7) * 6
-		return { arm = { 155, 155 }, elbow = { 12, 12 }, hip = { 4 + sway, 4 - sway }, knee = { 10, 10 }, neck = -4, lean = 0 }
-	end
-	-- climb: left arm reaches while the right leg steps, then swap.
-	local s = math.sin(phase)
-	local reachL, reachR = math.max(0, s), math.max(0, -s)
-	return {
-		arm = { 135 + 35 * s, 135 - 35 * s },
-		elbow = { 45 - 35 * reachL, 45 - 35 * reachR },
-		hip = { 20 + 45 * reachR, 20 + 45 * reachL },
-		knee = { 25 + 55 * reachR, 25 + 55 * reachL },
-		neck = 18,
-		lean = -8,
-	}
-end
-
-local function motor(character: Model, map: { [string]: string }, joint: string, r15: boolean): Motor6D?
-	local name = map[joint]
-	if not name then
-		return nil
-	end
+local function findMotor(character: Model, r15: boolean, joint: string): Motor6D?
 	local m
 	if r15 then
-		local part = character:FindFirstChild(name)
+		local partName = R15[joint]
+		local part = partName and character:FindFirstChild(partName)
 		m = part and part:FindFirstChild(joint)
 	else
+		local name = R6[joint]
 		local torso = character:FindFirstChild("Torso")
-		m = torso and torso:FindFirstChild(name)
+		m = name and torso and torso:FindFirstChild(name)
 	end
 	return if m and m:IsA("Motor6D") then m else nil
 end
 
-local function apply(character: Model, pose: string, phase: number, t: number): { Motor6D }
+local function apply(character: Model, mode: string, cycle: number, t: number): { Motor6D }
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then
 		return {}
 	end
 	local r15 = humanoid.RigType == Enum.HumanoidRigType.R15
-	local map = if r15 then R15 else R6
-	local a = anglesFor(pose, phase, t)
+	local a = ClimbPose.angles(mode, cycle, t, Config.Climb.ReachFraction)
 	local touched = {}
-	local function set(joint: string, cf: CFrame)
-		local m = motor(character, map, joint, r15)
-		if m then
-			m.Transform = cf
-			table.insert(touched, m)
+	local function set(joint: string, rotation: CFrame)
+		local m = findMotor(character, r15, joint)
+		if not m then
+			return
 		end
+		if not originals[m] then
+			originals[m] = m.C0
+		end
+		m.C0 = originals[m] * rotation
+		m.Transform = CFrame.identity
+		table.insert(touched, m)
 	end
 	if r15 then
-		-- R15 joints share the torso's axes: +X rotation swings a limb forward/up.
-		set("LeftShoulder", CFrame.Angles(rad(a.arm[1]), 0, 0))
-		set("RightShoulder", CFrame.Angles(rad(a.arm[2]), 0, 0))
-		set("LeftElbow", CFrame.Angles(rad(a.elbow[1]), 0, 0))
-		set("RightElbow", CFrame.Angles(rad(a.elbow[2]), 0, 0))
+		-- R15 joints share the torso's axes: +X swings a limb forward/up.
+		set("LeftShoulder", CFrame.Angles(rad(a.shoulder[1]), 0, 0))
+		set("RightShoulder", CFrame.Angles(rad(a.shoulder[2]), 0, 0))
+		set("LeftElbow", CFrame.Angles(-rad(a.elbow[1]), 0, 0)) -- forearm folds toward the wall
+		set("RightElbow", CFrame.Angles(-rad(a.elbow[2]), 0, 0))
 		set("LeftHip", CFrame.Angles(rad(a.hip[1]), 0, 0))
 		set("RightHip", CFrame.Angles(rad(a.hip[2]), 0, 0))
 		set("LeftKnee", CFrame.Angles(-rad(a.knee[1]), 0, 0))
@@ -3823,55 +3905,72 @@ local function apply(character: Model, pose: string, phase: number, t: number): 
 		set("Neck", CFrame.Angles(rad(a.neck), 0, 0))
 		set("Waist", CFrame.Angles(rad(a.lean), 0, 0))
 	else
-		-- R6 joints rotate about Z; left side is mirrored (same as the stock Animate).
-		set("RightShoulder", CFrame.Angles(0, 0, rad(a.arm[2])))
-		set("LeftShoulder", CFrame.Angles(0, 0, -rad(a.arm[1])))
+		-- R6 joints swing about Z with the left side mirrored (like the stock Animate).
+		set("RightShoulder", CFrame.Angles(0, 0, rad(a.shoulder[2])))
+		set("LeftShoulder", CFrame.Angles(0, 0, -rad(a.shoulder[1])))
 		set("RightHip", CFrame.Angles(0, 0, rad(a.hip[2])))
 		set("LeftHip", CFrame.Angles(0, 0, -rad(a.hip[1])))
-		-- (R6's neck joint is rotated oddly, so the head is left to the Animator.)
 	end
 	return touched
 end
 
+local function restore(motors: { Motor6D })
+	for _, m in motors do
+		local original = originals[m]
+		if original and m.Parent then
+			m.C0 = original
+		end
+		originals[m] = nil
+	end
+end
+
 -- Called by the climbing controller every frame for the local player.
-function ClimbAnimator.setLocal(pose: string, phase: number)
-	localPose, localPhase = pose, phase
+-- mode: "" | "climb" | "rest" | "leap"; cycle: move number + progress.
+function ClimbAnimator.setLocal(mode: string, cycle: number)
+	localMode, localCycle = mode, cycle
 end
 
 function ClimbAnimator.start()
 	local reach = Config.Climb.ReachLength
-	RunService.Stepped:Connect(function(t, dt)
+	RunService.RenderStepped:Connect(function(dt)
+		local t = os.clock()
 		local seen = {}
 		for _, other in Players:GetPlayers() do
 			local character = other.Character
 			if not character then
 				continue
 			end
-			local pose, phase
+			local mode, cycle
 			if other == player then
-				pose, phase = localPose, localPhase
+				mode, cycle = localMode, localCycle
+				if mode ~= "" then
+					-- Stop our regular animations so they don't fight the pose.
+					local humanoid = character:FindFirstChildOfClass("Humanoid")
+					local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+					if animator then
+						for _, track in animator:GetPlayingAnimationTracks() do
+							track:Stop(0.1)
+						end
+					end
+				end
 			else
-				pose = character:GetAttribute("ClimbPose") or ""
+				mode = tostring(character:GetAttribute("ClimbPose") or "")
 				local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 				local speed = if root then root.AssemblyLinearVelocity.Magnitude else 0
-				phase = (phases[character] or 0) + speed / reach * math.pi * 2 * dt
-				phases[character] = phase
+				cycle = (cycles[character] or 0) + math.min(speed, 30) / reach * dt
+				cycles[character] = cycle
 			end
-			if pose ~= "" then
-				posed[character] = apply(character, pose, phase, t)
+			if mode ~= "" then
+				posed[character] = apply(character, mode, cycle, t)
 				seen[character] = true
 			end
 		end
-		-- Hand joints back to the Animator once a character stops climbing.
+		-- Put joints back once a character stops climbing (or is gone).
 		for character, motors in posed do
 			if not seen[character] then
-				for _, m in motors do
-					if m.Parent then
-						m.Transform = CFrame.identity
-					end
-				end
+				restore(motors)
 				posed[character] = nil
-				phases[character] = nil
+				cycles[character] = nil
 			end
 		end
 	end)
@@ -3881,26 +3980,29 @@ return ClimbAnimator
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="29">
+        <Item class="ModuleScript" referent="30">
           <Properties>
             <string name="Name">ClimbController</string>
-            <string name="Source"><![CDATA[-- Client climbing: "Hand-over-Hand" wall climbing, stamina, blackouts, ragdoll
--- falls, chalk and wind.
+            <string name="Source"><![CDATA[-- Client climbing: rock climbing, stamina, blackouts, ragdoll falls, chalk, wind.
 --
--- Hand-over-Hand:
+-- Rock climbing:
 --   * Walk or jump into a tower (anything tagged "Climbable") to grab on. SPACE
 --     facing a tower grabs too, and SPACE while falling catches the wall (if
 --     you're not falling too fast).
---   * W/S climb up/down in hand-over-hand pulls; A/D shuffle sideways.
+--   * You climb in discrete moves. Each move, one hand reaches for the next hold
+--     while your body stays put, then you pull up as the opposite leg pushes.
+--     Hands alternate; holding W/S chains moves, A/D traverse sideways.
 --     (Touch / gamepad: push toward the wall to climb.)
---   * SPACE while climbing leaps up the wall: fast, but costs extra stamina.
+--   * SPACE while climbing is a dyno: both hands fling up and you catch a hold
+--     much higher. Fast, but costs extra stamina.
 --   * Q lets go.
 --   * Hang still with your hands on a yellow rest bar to recover stamina; that
 --     also saves a checkpoint. At the top you climb straight over onto the summit.
 --
 -- The body is held on the wall with AlignPosition/AlignOrientation on the
 -- HumanoidRootPart (the client owns its character's physics, so this
--- replicates). ClimbAnimator draws the procedural climbing animation.
+-- replicates). Limbs stop colliding while you climb so they can't snag the wall.
+-- ClimbAnimator draws the climbing animation from the move progress.
 --
 -- Stamina runs on the client because only the owning client knows its exact
 -- climbing state every frame. That is safe: stamina only limits the player
@@ -3918,15 +4020,14 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local ClimbAnimator = require(script.Parent.ClimbAnimator)
 local Effects = require(script.Parent.Effects)
 local Weather = require(script.Parent.Weather)
+local WallClimb = require(script.Parent.WallClimb)
 
 local ClimbController = {}
 
 type Mode = "normal" | "fall" | "blackout" | "ragdoll"
 
 local CC = Config.Climb
-local ROOT_HEIGHT = 3 -- HumanoidRootPart centre above the floor when standing
-local HAND_HEIGHT = 2.5 -- hands above the root while climbing
-local PULSE_AVERAGE = 0.35 + 0.65 / math.pi -- mean of the pull curve below
+local HAND_HEIGHT = WallClimb.HAND_HEIGHT
 
 local player = Players.LocalPlayer
 local ragdollRemote = Remotes.get("Ragdoll")
@@ -3951,10 +4052,12 @@ local lastJumpRequest = 0
 local climbing = false
 local anchor = Vector3.zero -- where the root is held
 local wallNormal = Vector3.zAxis -- horizontal, pointing out of the wall
-local phase = 0 -- hand-over-hand cycle
-local lungeLeft = 0
+type Move = WallClimb.Move
+local move: Move? = nil
+local moveCount = 0 -- drives which hand leads (and the animation cycle)
 local lungeReadyAt = 0
 local climbMoving = false
+local savedCollisions: { [BasePart]: boolean } = {}
 local resting = false
 local restLevel: number? = nil
 local checkpointLevel: number? = nil
@@ -3969,6 +4072,21 @@ local ui: any = nil
 
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local world: WallClimb.World = {
+	cast = function(origin, direction)
+		return Workspace:Raycast(origin, direction, rayParams)
+	end,
+	climbable = function(instance)
+		return instance:HasTag("Climbable")
+	end,
+	solid = function(instance)
+		return instance.CanCollide
+	end,
+	noStand = function(instance)
+		return instance:HasTag("NoStand")
+	end,
+}
 
 local function boosts(): Rules.Boosts
 	local b = {}
@@ -4019,10 +4137,7 @@ local function chalkRemaining(): number
 	return math.max(0, (player:GetAttribute("ChalkUntil") or 0) - Workspace:GetServerTimeNow())
 end
 
-local function horizontal(v: Vector3): Vector3
-	local h = Vector3.new(v.X, 0, v.Z)
-	return if h.Magnitude > 1e-3 then h.Unit else Vector3.zAxis
-end
+local horizontal = WallClimb.horizontal
 
 local function drainContext(tower: Model?, moving: boolean, now: number, y: number): Rules.DrainContext
 	return {
@@ -4037,41 +4152,12 @@ local function drainContext(tower: Model?, moving: boolean, now: number, y: numb
 	}
 end
 
--- Climbable wall straight "into" the wall from `origin`, or nil.
-local function probeWall(origin: Vector3, normal: Vector3): RaycastResult?
-	local result = Workspace:Raycast(origin + normal, -normal * (CC.WallOffset + 3), rayParams)
-	if result and result.Instance:HasTag("Climbable") and math.abs(result.Normal.Y) < 0.7 then
-		return result
-	end
-	return nil
+local function probeWall(origin: Vector3, normal: Vector3): WallClimb.Hit?
+	return WallClimb.probe(world, CC, origin, normal)
 end
 
--- Somewhere to stand at or just above the hold (top of the wall), or nil.
--- Uses rays (exact geometry) rather than bounding boxes, which are far larger
--- than the slanted lattice panels and wrongly reported "no room".
 local function findMantle(): Vector3?
-	local inward = -wallNormal
-	for _, offset in { 0, 1.5, 3, 4.5, 6 } do
-		local p = anchor + inward * offset
-		local top = Vector3.new(p.X, anchor.Y + CC.MantleReach, p.Z)
-		local hit = Workspace:Raycast(top, Vector3.new(0, -(CC.MantleReach + 4), 0), rayParams)
-		if
-			hit
-			and hit.Normal.Y > 0.7
-			and hit.Instance.CanCollide
-			and not hit.Instance:HasTag("Climbable") -- stand on floors, not on trim like the parapet
-			and hit.Position.Y > anchor.Y - ROOT_HEIGHT + 0.5
-		then
-			local stand = hit.Position + Vector3.new(0, ROOT_HEIGHT, 0)
-			local headroom = Workspace:Raycast(hit.Position + Vector3.new(0, 0.1, 0), Vector3.new(0, 5, 0), rayParams)
-			local from = Vector3.new(anchor.X, stand.Y, anchor.Z)
-			local path = if (stand - from).Magnitude > 0.05 then Workspace:Raycast(from, stand - from, rayParams) else nil
-			if not (headroom and headroom.Instance.CanCollide) and not (path and path.Instance.CanCollide) then
-				return stand
-			end
-		end
-	end
-	return nil
+	return WallClimb.findMantle(world, CC, anchor, wallNormal)
 end
 
 local function sendPose(pose: string)
@@ -4089,8 +4175,14 @@ local function release(push: boolean)
 	climbMoving = false
 	resting = false
 	restLevel = nil
-	lungeLeft = 0
+	move = nil
 	regrabAt = os.clock() + CC.RegrabDelay
+	for part, canCollide in savedCollisions do
+		if part.Parent then
+			part.CanCollide = canCollide
+		end
+	end
+	savedCollisions = {}
 	if alignPos then
 		alignPos:Destroy()
 		alignPos = nil
@@ -4130,22 +4222,12 @@ local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
 		end
 		return false
 	end
-	local hit: RaycastResult? = nil
-	for _, height in { 0, 1.5, -1.5 } do
-		local result = Workspace:Raycast(rootPart.Position + Vector3.new(0, height, 0), dir * range, rayParams)
-		if result and result.Instance:HasTag("Climbable") and math.abs(result.Normal.Y) < 0.7 then
-			hit = result
-			break
-		end
-	end
-	if not hit then
+	local hold, normal = WallClimb.grab(world, CC, rootPart.Position, dir, range)
+	if not hold or not normal then
 		return false
 	end
-	local wall = hit :: RaycastResult
-
-	wallNormal = horizontal(wall.Normal)
-	anchor = wall.Position + wall.Normal * CC.WallOffset
-	anchor = Vector3.new(anchor.X, rootPart.Position.Y, anchor.Z)
+	wallNormal = normal
+	anchor = hold
 
 	local att = Instance.new("Attachment")
 	att.Name = "ClimbAttachment"
@@ -4168,7 +4250,18 @@ local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
 
 	hum.PlatformStand = true
 	rootPart.AssemblyLinearVelocity = Vector3.zero
+	-- Limbs reach toward the wall; stop them colliding so they can't snag it.
+	local character = rootPart.Parent
+	if character then
+		for _, part in character:GetDescendants() do
+			if part:IsA("BasePart") and part ~= rootPart then
+				savedCollisions[part] = part.CanCollide
+				part.CanCollide = false
+			end
+		end
+	end
 	climbing = true
+	move = nil
 	autoGripUntil = 0
 	airPeakY, freefallTime = nil, 0
 	Effects.sound(Config.Sounds.Grab, 0.5, 1.3)
@@ -4255,6 +4348,38 @@ function ClimbController.regrip()
 end
 
 -- SPACE / jump button: grab when free, leap when climbing.
+local function startLeap(now: number): boolean
+	local rootPart = root
+	if not rootPart or move ~= nil or now < lungeReadyAt then
+		return false
+	end
+	local tower = currentTower(rootPart.Position)
+	local rate = Rules.staminaRate(
+		Config.Stamina,
+		Config.Chalk,
+		Config.Wind,
+		Config.Boosts,
+		boosts(),
+		drainContext(tower, true, now, rootPart.Position.Y),
+		false
+	)
+	local cost = Rules.lungeCost(CC, rate)
+	if stamina <= cost then
+		ui.overlay:toast("Too tired to leap!", "bad")
+		return false
+	end
+	local leap = WallClimb.planLeap(world, CC, anchor, wallNormal)
+	if not leap then
+		return false
+	end
+	stamina -= cost
+	lungeReadyAt = now + CC.LungeCooldown
+	move = leap
+	Effects.sound(Config.Sounds.Click, 0.4, 0.7)
+	return true
+end
+
+-- SPACE / jump button: grab when free, dyno when climbing.
 local function onJump()
 	local now = os.clock()
 	if now - lastJumpRequest < 0.2 then
@@ -4263,27 +4388,7 @@ local function onJump()
 	lastJumpRequest = now
 	local rootPart = root
 	if climbing and rootPart then
-		if now >= lungeReadyAt and lungeLeft <= 0 then
-			local tower = currentTower(rootPart.Position)
-			local rate = Rules.staminaRate(
-				Config.Stamina,
-				Config.Chalk,
-				Config.Wind,
-				Config.Boosts,
-				boosts(),
-				drainContext(tower, true, now, rootPart.Position.Y),
-				false
-			)
-			local cost = Rules.lungeCost(CC, rate)
-			if stamina > cost then
-				stamina -= cost
-				lungeLeft = CC.LungeDistance
-				lungeReadyAt = now + CC.LungeCooldown
-				Effects.sound(Config.Sounds.Click, 0.4, 0.7)
-			else
-				ui.overlay:toast("Too tired to leap!", "bad")
-			end
-		end
+		startLeap(now)
 	elseif mode == "normal" and rootPart then
 		grab(horizontal(rootPart.CFrame.LookVector), CC.GripRange + 1)
 	end
@@ -4342,104 +4447,90 @@ local function climbInput(hum: Humanoid): (number, number)
 	return math.clamp(move:Dot(-wallNormal), -1, 1), math.clamp(move:Dot(right), -1, 1)
 end
 
--- Moves the hold point along the wall. Returns true if the climber mantled.
+local function setHold(position: Vector3)
+	anchor = position
+	local ap, ao = alignPos, alignOri
+	if ap and ao then
+		ap.Position = anchor
+		ao.CFrame = CFrame.lookAt(anchor, anchor - wallNormal)
+	end
+end
+
+-- Advance the current move (or start the next one). Returns true if the
+-- climber left the wall this frame (mantled onto a ledge or stepped off).
 local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Model?): boolean
 	local vert, lat = climbInput(hum)
 	local speed = Rules.climbSpeed(CC, Config.Boosts, b)
-	local up = 0
-	if lungeLeft > 0 then
-		up = math.min(lungeLeft, CC.LungeSpeed * dt)
-		lungeLeft -= up
-		phase += dt * 6
-	elseif vert ~= 0 then
-		-- Hand-over-hand: you surge on each pull and slow between them.
-		phase += dt * (speed / CC.ReachLength) * math.pi * 2 * math.abs(vert)
-		local pulse = 0.35 + 0.65 * math.max(0, math.sin(phase * 2))
-		up = vert * speed * dt * pulse / PULSE_AVERAGE
-	end
-	if lat ~= 0 and lungeLeft <= 0 then
-		phase += dt * (CC.SideSpeed / CC.ReachLength) * math.pi * math.abs(lat)
-	end
-	local side = lat * CC.SideSpeed * dt
-	climbMoving = math.abs(up) > 1e-3 or math.abs(side) > 1e-3
 
-	local probe = probeWall(anchor, wallNormal)
-	local n = if probe then probe.Normal else wallNormal
-	local wallUp = (Vector3.yAxis - n * n:Dot(Vector3.yAxis)).Unit
-	local right = (-wallNormal):Cross(Vector3.yAxis)
-
-	-- Going up into something solid overhead: climb onto it if there's room.
-	if up > 0 then
-		local ceiling = Workspace:Raycast(anchor + Vector3.new(0, 2.4, 0), Vector3.new(0, up + 0.6, 0), rayParams)
-		if ceiling and ceiling.Instance.CanCollide then
+	if not move and (vert ~= 0 or lat ~= 0) then
+		local planned, action = WallClimb.plan(world, CC, anchor, wallNormal, vert, lat, speed)
+		if action == "mantle" then
 			local stand = findMantle()
 			if stand then
 				mantle(stand)
 				return true
 			end
-			up = 0
-			lungeLeft = 0
-		end
-	end
-	-- Going down: feet reach the ground -> step off.
-	if up < 0 then
-		local floor = Workspace:Raycast(anchor, Vector3.new(0, -(ROOT_HEIGHT + 0.3 - up), 0), rayParams)
-		if floor and floor.Normal.Y > 0.7 then
+		elseif action == "stepoff" then
 			release(false)
-			return false
-		end
-	end
-
-	local candidate = anchor + wallUp * up
-	if up > 0 and not probeWall(candidate + Vector3.new(0, 1.5, 0), wallNormal) then
-		-- The wall ends above us: climb over the top.
-		local stand = findMantle()
-		if stand then
-			mantle(stand)
 			return true
 		end
-		candidate = anchor
-		lungeLeft = 0
-	end
-	local hit = probeWall(candidate, wallNormal)
-	if hit then
-		candidate = hit.Position + hit.Normal * CC.WallOffset
-	else
-		candidate = anchor
-	end
-
-	if side ~= 0 then
-		local sideHit = probeWall(candidate + right * side, wallNormal)
-		if sideHit then
-			candidate = sideHit.Position + sideHit.Normal * CC.WallOffset
+		if planned then
+			move = planned
+			if planned.kind ~= "side" then
+				moveCount += 1 -- the other hand leads this time
+			end
 		end
 	end
 
+	local current = move
+	if current then
+		current.t += dt
+		local f = math.clamp(current.t / current.duration, 0, 1)
+		if current.kind == "side" then
+			setHold(current.from:Lerp(current.to, f * f * (3 - 2 * f)))
+		elseif current.kind == "leap" then
+			-- Explosive launch, then hang on the catch.
+			local launch = math.clamp(current.t / (current.duration - 0.15), 0, 1)
+			setHold(current.from:Lerp(current.to, 1 - (1 - launch) ^ 3))
+		else
+			-- Reach first (body still), then pull up.
+			local pull = math.clamp((f - CC.ReachFraction) / (1 - CC.ReachFraction), 0, 1)
+			setHold(current.from:Lerp(current.to, pull * pull * (3 - 2 * pull)))
+		end
+		local probe = probeWall(anchor, wallNormal)
+		if probe then
+			wallNormal = horizontal(probe.Normal)
+		end
+		if f >= 1 then
+			move = nil
+			if current.mantleAfter then
+				local stand = findMantle()
+				if stand then
+					mantle(stand)
+					return true
+				end
+			end
+		end
+	end
+	climbMoving = move ~= nil
+
 	-- Rest bars: stop with your hands on one to hang there and breathe.
-	restLevel = restBarAt(tower, candidate.Y + HAND_HEIGHT)
-	resting = restLevel ~= nil and not climbMoving and lungeLeft <= 0
+	restLevel = restBarAt(tower, anchor.Y + HAND_HEIGHT)
+	resting = restLevel ~= nil and not climbMoving
 	if resting and restLevel then
-		-- Settle the hands onto the bar.
 		local targetY = restLevel - HAND_HEIGHT
-		candidate = Vector3.new(candidate.X, candidate.Y + (targetY - candidate.Y) * math.min(1, dt * 6), candidate.Z)
+		setHold(Vector3.new(anchor.X, anchor.Y + (targetY - anchor.Y) * math.min(1, dt * 6), anchor.Z))
 		if checkpointLevel ~= restLevel then
 			checkpointLevel = restLevel
 			restRemote:FireServer(wallNormal)
 		end
 	end
 
-	if probe then
-		wallNormal = horizontal(probe.Normal)
-	end
-	anchor = candidate
-	local ap, ao = alignPos, alignOri
-	if ap and ao then
-		ap.Position = anchor
-		ao.CFrame = CFrame.lookAt(anchor, anchor - wallNormal)
-	end
-
-	local pose = if lungeLeft > 0 then "leap" elseif resting then "rest" else "climb"
-	ClimbAnimator.setLocal(pose, phase)
+	-- Animation: cycle = move number + progress through it (frozen when still).
+	local m = move
+	local pose = if m and m.kind == "leap" then "leap" elseif resting then "rest" else "climb"
+	local progress = if m and m.kind ~= "side" then math.clamp(m.t / m.duration, 0, 0.9999) else 0.9999
+	ClimbAnimator.setLocal(pose, (moveCount - 1) + progress)
 	sendPose(pose)
 	return false
 end
@@ -4456,7 +4547,7 @@ local function statusFor(grounded: boolean, frac: number, nearWall: boolean): (s
 	elseif climbing and frac < Config.Stamina.DangerFraction then
 		return "Out of breath! Get to a rest bar!", Color3.fromRGB(255, 86, 86)
 	elseif climbing and climbMoving then
-		return "Climbing...  (SPACE: leap, Q: let go)", nil
+		return "Climbing...  (SPACE: dyno, Q: let go)", nil
 	elseif climbing and restLevel == nil then
 		return "Holding on (still draining)", Color3.fromRGB(255, 200, 60)
 	elseif nearWall then
@@ -4538,7 +4629,7 @@ local function step(dt: number)
 			enterRagdoll("fall", airPeakY)
 		end
 
-		local ctx = drainContext(tower, climbMoving or lungeLeft > 0, now, pos.Y)
+		local ctx = drainContext(tower, climbMoving, now, pos.Y)
 		local rate = Rules.staminaRate(Config.Stamina, Config.Chalk, Config.Wind, Config.Boosts, b, ctx, grounded)
 		stamina = Rules.stepStamina(stamina, rate, dt, max)
 
@@ -4625,7 +4716,7 @@ return ClimbController
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="30">
+        <Item class="ModuleScript" referent="31">
           <Properties>
             <string name="Name">Effects</string>
             <string name="Source"><![CDATA[-- Sounds, confetti, camera shake and the "out of breath" screen effect.
@@ -4737,7 +4828,7 @@ return Effects
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="31">
+        <Item class="ModuleScript" referent="32">
           <Properties>
             <string name="Name">Emotes</string>
             <string name="Source"><![CDATA[-- Plays emotes from the avatar's own Animate script (no uploaded animations),
@@ -4863,7 +4954,7 @@ return Emotes
 ]]></string>
           </Properties>
         </Item>
-        <Item class="LocalScript" referent="32">
+        <Item class="LocalScript" referent="33">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[-- Client entry point: builds the UI, wires input and server notifications.
@@ -5162,11 +5253,11 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="33">
+        <Item class="Folder" referent="34">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="34">
+          <Item class="ModuleScript" referent="35">
             <Properties>
               <string name="Name">AdminPanel</string>
               <string name="Source"><![CDATA[-- Admin panel: pick a player, then ban / unban / send to plaza / give or take
@@ -5405,7 +5496,7 @@ return AdminPanel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="35">
+          <Item class="ModuleScript" referent="36">
             <Properties>
               <string name="Name">Components</string>
               <string name="Source"><![CDATA[-- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
@@ -5436,6 +5527,20 @@ function C.new(className: string, props: { [string]: any }?, children: { Instanc
 	end
 	for _, child in (children or {}) :: { Instance } do
 		child.Parent = inst
+	end
+	-- Text can never spill out of its box: labels and buttons shrink their text
+	-- to fit (never above their normal size); text boxes clip what you type.
+	-- Auto-sized text (toasts, banners) grows its box instead, so it's left alone.
+	local p = props or {}
+	if (inst:IsA("TextLabel") or inst:IsA("TextButton")) and p.TextScaled == nil and p.AutomaticSize == nil then
+		local text = inst :: TextLabel
+		local fit = Instance.new("UITextSizeConstraint")
+		fit.MaxTextSize = text.TextSize
+		fit.MinTextSize = math.min(9, text.TextSize)
+		fit.Parent = text
+		text.TextScaled = true
+	elseif inst:IsA("TextBox") then
+		(inst :: TextBox).ClipsDescendants = true
 	end
 	inst.Parent = parent
 	return inst
@@ -5518,16 +5623,19 @@ function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
 	local scale = C.new("UIScale")
 	local button = C.new("TextButton", merged, { C.corner(10), C.stroke(nil, 1, 0.8), scale })
 	button.BackgroundTransparency = merged.BackgroundTransparency
-	-- Hover only scales: callers recolour buttons (affordable / maxed) and a
-	-- colour tween back to the creation colour would undo that.
+	-- Hover lights up the outline. It doesn't grow the button (that pushed it
+	-- and its text past panel edges) or recolour it (callers recolour buttons
+	-- for affordable / maxed states).
+	local outline = button:FindFirstChildOfClass("UIStroke") :: UIStroke
 	button.MouseEnter:Connect(function()
-		C.tween(scale, 0.15, { Scale = 1.05 })
+		C.tween(outline, 0.15, { Transparency = 0.15, Thickness = 2 })
 	end)
 	button.MouseLeave:Connect(function()
+		C.tween(outline, 0.15, { Transparency = 0.8, Thickness = 1 })
 		C.tween(scale, 0.15, { Scale = 1 })
 	end)
 	button.MouseButton1Down:Connect(function()
-		C.tween(scale, 0.08, { Scale = 0.94 })
+		C.tween(scale, 0.08, { Scale = 0.96 })
 	end)
 	button.MouseButton1Up:Connect(function()
 		C.tween(scale, 0.15, { Scale = 1 }, Enum.EasingStyle.Back)
@@ -5716,7 +5824,7 @@ return C
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="36">
+          <Item class="ModuleScript" referent="37">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[-- Always-on HUD: climb counter, cash, stamina, height meter, action buttons,
@@ -6156,7 +6264,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="37">
+          <Item class="ModuleScript" referent="38">
             <Properties>
               <string name="Name">Overlay</string>
               <string name="Source"><![CDATA[-- Full-screen moments: blackout, summit celebration, hurt flash, toasts.
@@ -6425,10 +6533,10 @@ return Overlay
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="38">
+          <Item class="ModuleScript" referent="39">
             <Properties>
               <string name="Name">Settings</string>
-              <string name="Source"><![CDATA[-- Settings window: name tags, camera shake, and the admin code box.
+              <string name="Source"><![CDATA[-- Settings window: name tags, camera shake, and the admin password box.
 local Theme = require(script.Parent.Theme)
 local C = require(script.Parent.Components)
 
@@ -6504,12 +6612,29 @@ function Settings.new(handlers: Handlers)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = admin,
 	})
+	-- Password box: what you type is hidden and shown as dots.
 	self.codeBox = C.textbox({
 		Position = UDim2.fromOffset(0, 32),
 		Size = UDim2.new(1, -130, 0, 44),
-		PlaceholderText = "Enter admin code",
+		PlaceholderText = "",
+		TextTransparency = 1,
 		Parent = admin,
 	})
+	local dots = C.new("TextLabel", {
+		Size = UDim2.new(1, -24, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+		Font = Theme.Bold,
+		Text = "Admin password",
+		TextSize = 16,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = self.codeBox,
+	})
+	self.codeBox:GetPropertyChangedSignal("Text"):Connect(function()
+		local length = #self.codeBox.Text
+		dots.Text = if length == 0 then "Admin password" else string.rep("•", math.min(length, 24))
+		dots.TextColor3 = if length == 0 then Theme.Muted else Theme.Text
+	end)
 	self.unlock = C.button({
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, 0, 0, 32),
@@ -6543,7 +6668,7 @@ function Settings.new(handlers: Handlers)
 		Position = UDim2.fromOffset(0, 86),
 		Size = UDim2.new(1, 0, 0, 36),
 		Font = Theme.Body,
-		Text = "Admins: enter your code to unlock the admin panel.",
+		Text = "Enter the admin password to open the admin panel.",
 		TextSize = 14,
 		TextColor3 = Theme.Muted,
 		TextWrapped = true,
@@ -6559,7 +6684,8 @@ function Settings:setAdmin(isAdmin: boolean)
 	self.unlock.Visible = not isAdmin
 	self.openAdmin.Visible = isAdmin
 	if isAdmin then
-		self.adminStatus.Text = "You're an admin."
+		self.codeBox.Text = ""
+		self.adminStatus.Text = "Password accepted. You're an admin for this session."
 		self.adminStatus.TextColor3 = Theme.Good
 	end
 end
@@ -6584,7 +6710,7 @@ return Settings
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="39">
+          <Item class="ModuleScript" referent="40">
             <Properties>
               <string name="Name">Shop</string>
               <string name="Source"><![CDATA[-- Shop window: boost cards with level pips and a chalk card.
@@ -6899,7 +7025,7 @@ return Shop
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="40">
+          <Item class="ModuleScript" referent="41">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[-- One place for the HUD's look: dark glass panels, hazard-yellow accent.
@@ -6951,7 +7077,204 @@ return Theme
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="41">
+        <Item class="ModuleScript" referent="42">
+          <Properties>
+            <string name="Name">WallClimb</string>
+            <string name="Source"><![CDATA[--!strict
+-- Wall logic for rock climbing: finding the wall, planning moves, leaps and
+-- climbing over the top. It only uses Vector3 maths and a `World` (raycast +
+-- tag checks), so tests run this exact code against real tower geometry.
+
+local WallClimb = {}
+
+export type Hit = { Instance: any, Position: Vector3, Normal: Vector3 }
+export type World = {
+	cast: (origin: Vector3, direction: Vector3) -> Hit?,
+	climbable: (instance: any) -> boolean,
+	solid: (instance: any) -> boolean,
+	noStand: (instance: any) -> boolean, -- thin trim (roof parapets) you climb over
+}
+export type Move = {
+	kind: string, -- "up" | "down" | "side" | "leap"
+	t: number,
+	duration: number,
+	from: Vector3,
+	to: Vector3,
+	mantleAfter: boolean,
+}
+
+WallClimb.ROOT_HEIGHT = 3 -- HumanoidRootPart centre above the floor when standing
+WallClimb.HAND_HEIGHT = 2.5 -- hands above the root while climbing
+
+local function horizontal(v: Vector3): Vector3
+	local h = Vector3.new(v.X, 0, v.Z)
+	return if h.Magnitude > 1e-3 then h.Unit else Vector3.new(0, 0, 1)
+end
+WallClimb.horizontal = horizontal
+
+-- Climbable wall straight "into" the wall from `origin`, or nil.
+function WallClimb.probe(world: World, cfg: any, origin: Vector3, normal: Vector3): Hit?
+	local hit = world.cast(origin + normal, -normal * (cfg.WallOffset + 3))
+	if hit and world.climbable(hit.Instance) and math.abs(hit.Normal.Y) < 0.7 then
+		return hit
+	end
+	return nil
+end
+
+-- Direction "up the wall" (follows the taper of lattice faces).
+function WallClimb.wallUp(n: Vector3): Vector3
+	local up = Vector3.new(0, 1, 0)
+	return (up - n * n:Dot(up)).Unit
+end
+
+-- Grab a wall in front of `position` along `dir`. Returns hold point + normal.
+function WallClimb.grab(world: World, cfg: any, position: Vector3, dir: Vector3, range: number): (Vector3?, Vector3?)
+	for _, height in { 0, 1.5, -1.5 } do
+		local hit = world.cast(position + Vector3.new(0, height, 0), dir * range)
+		if hit and world.climbable(hit.Instance) and math.abs(hit.Normal.Y) < 0.7 then
+			local hold = hit.Position + hit.Normal * cfg.WallOffset
+			return Vector3.new(hold.X, position.Y, hold.Z), horizontal(hit.Normal)
+		end
+	end
+	return nil, nil
+end
+
+-- Somewhere to stand at or just above the hold (a ledge or the top of the
+-- wall), or nil. Uses rays, i.e. exact geometry.
+function WallClimb.findMantle(world: World, cfg: any, anchor: Vector3, wallNormal: Vector3): Vector3?
+	local inward = -wallNormal
+	local R = WallClimb.ROOT_HEIGHT
+	for _, offset in { 0, 1.5, 3, 4.5, 6 } do
+		local p = anchor + inward * offset
+		local top = Vector3.new(p.X, anchor.Y + cfg.MantleReach, p.Z)
+		local hit = world.cast(top, Vector3.new(0, -(cfg.MantleReach + 4), 0))
+		if
+			hit
+			and hit.Normal.Y > 0.7
+			and world.solid(hit.Instance)
+			and not world.noStand(hit.Instance) -- not on trim like the roof parapet
+			and hit.Position.Y > anchor.Y - R + 0.5
+		then
+			local stand = hit.Position + Vector3.new(0, R, 0)
+			local headroom = world.cast(hit.Position + Vector3.new(0, 0.1, 0), Vector3.new(0, 5, 0))
+			local from = Vector3.new(anchor.X, stand.Y, anchor.Z)
+			local path = if (stand - from).Magnitude > 0.05 then world.cast(from, stand - from) else nil
+			local blocked = (headroom and world.solid(headroom.Instance)) or (path and world.solid(path.Instance))
+			if not blocked then
+				return stand
+			end
+		end
+	end
+	return nil
+end
+
+-- Plan the next move. Returns (move, nil), or (nil, "mantle") to climb over
+-- the top, (nil, "stepoff") at the bottom, or (nil, nil) when blocked.
+function WallClimb.plan(
+	world: World,
+	cfg: any,
+	anchor: Vector3,
+	wallNormal: Vector3,
+	vert: number,
+	lat: number,
+	speed: number
+): (Move?, string?)
+	local probe = WallClimb.probe(world, cfg, anchor, wallNormal)
+	local n = if probe then probe.Normal else wallNormal
+	local wallUp = WallClimb.wallUp(n)
+	local right = (-wallNormal):Cross(Vector3.new(0, 1, 0))
+
+	local function moveTo(kind: string, hit: Hit, duration: number): Move
+		return {
+			kind = kind,
+			t = 0,
+			duration = duration,
+			from = anchor,
+			to = hit.Position + hit.Normal * cfg.WallOffset,
+			mantleAfter = false,
+		}
+	end
+
+	if vert > 0 then
+		local ceiling = world.cast(anchor + Vector3.new(0, 2.4, 0), Vector3.new(0, cfg.ReachLength + 0.6, 0))
+		if ceiling and world.solid(ceiling.Instance) then
+			return nil, "mantle" -- something overhead: climb onto it if there's room
+		end
+		local target = anchor + wallUp * cfg.ReachLength
+		if not WallClimb.probe(world, cfg, target + Vector3.new(0, 1.5, 0), wallNormal) then
+			return nil, "mantle" -- the wall ends: climb over the top
+		end
+		local hit = WallClimb.probe(world, cfg, target, wallNormal)
+		if not hit then
+			return nil, nil
+		end
+		return moveTo("up", hit :: Hit, cfg.ReachLength / speed), nil
+	elseif vert < 0 then
+		local floor = world.cast(anchor, Vector3.new(0, -(WallClimb.ROOT_HEIGHT + cfg.ReachLength), 0))
+		if floor and floor.Normal.Y > 0.7 then
+			return nil, "stepoff"
+		end
+		local hit = WallClimb.probe(world, cfg, anchor - wallUp * cfg.ReachLength, wallNormal)
+		if not hit then
+			return nil, nil
+		end
+		return moveTo("down", hit :: Hit, cfg.ReachLength / speed), nil
+	elseif lat ~= 0 then
+		local hit = WallClimb.probe(world, cfg, anchor + right * (cfg.SideStep * math.sign(lat)), wallNormal)
+		if not hit then
+			return nil, nil
+		end
+		return moveTo("side", hit :: Hit, cfg.SideStep / cfg.SideSpeed), nil
+	end
+	return nil, nil
+end
+
+-- A dyno: how far up the wall a leap can go (stopping under anything overhead
+-- or at the top, in which case you climb over after landing).
+function WallClimb.planLeap(world: World, cfg: any, anchor: Vector3, wallNormal: Vector3): Move?
+	local probe = WallClimb.probe(world, cfg, anchor, wallNormal)
+	local n = if probe then probe.Normal else wallNormal
+	local wallUp = WallClimb.wallUp(n)
+	local reached, mantleAfter = 0, false
+	for d = 1, cfg.LungeDistance do
+		local p = anchor + wallUp * d
+		local ceiling = world.cast(anchor + Vector3.new(0, 2.4, 0), Vector3.new(0, d + 0.6, 0))
+		if ceiling and world.solid(ceiling.Instance) then
+			break
+		end
+		if not WallClimb.probe(world, cfg, p + Vector3.new(0, 1.5, 0), wallNormal) then
+			mantleAfter = true
+			reached = d
+			break
+		end
+		if not WallClimb.probe(world, cfg, p, wallNormal) then
+			break
+		end
+		reached = d
+	end
+	if reached < 1 then
+		return nil
+	end
+	local target = anchor + wallUp * reached
+	local hit = WallClimb.probe(world, cfg, target, wallNormal)
+	if hit then
+		target = hit.Position + hit.Normal * cfg.WallOffset
+	end
+	return {
+		kind = "leap",
+		t = 0,
+		duration = math.max(0.22, reached / cfg.LungeSpeed) + 0.15, -- + a beat to catch the hold
+		from = anchor,
+		to = target,
+		mantleAfter = mantleAfter,
+	}
+end
+
+return WallClimb
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="43">
           <Properties>
             <string name="Name">Weather</string>
             <string name="Source"><![CDATA[-- Client weather: rain that follows the camera, lightning flashes, and the
@@ -7047,7 +7370,7 @@ return Weather
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="42">
+  <Item class="Workspace" referent="44">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-400</float>
@@ -7055,7 +7378,7 @@ return Weather
       <bool name="NeedsPivotMigration">false</bool>
       <bool name="StreamingEnabled">false</bool>
     </Properties>
-    <Item class="SpawnLocation" referent="43">
+    <Item class="SpawnLocation" referent="45">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

@@ -27,6 +27,20 @@ function C.new(className: string, props: { [string]: any }?, children: { Instanc
 	for _, child in (children or {}) :: { Instance } do
 		child.Parent = inst
 	end
+	-- Text can never spill out of its box: labels and buttons shrink their text
+	-- to fit (never above their normal size); text boxes clip what you type.
+	-- Auto-sized text (toasts, banners) grows its box instead, so it's left alone.
+	local p = props or {}
+	if (inst:IsA("TextLabel") or inst:IsA("TextButton")) and p.TextScaled == nil and p.AutomaticSize == nil then
+		local text = inst :: TextLabel
+		local fit = Instance.new("UITextSizeConstraint")
+		fit.MaxTextSize = text.TextSize
+		fit.MinTextSize = math.min(9, text.TextSize)
+		fit.Parent = text
+		text.TextScaled = true
+	elseif inst:IsA("TextBox") then
+		(inst :: TextBox).ClipsDescendants = true
+	end
 	inst.Parent = parent
 	return inst
 end
@@ -108,16 +122,19 @@ function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
 	local scale = C.new("UIScale")
 	local button = C.new("TextButton", merged, { C.corner(10), C.stroke(nil, 1, 0.8), scale })
 	button.BackgroundTransparency = merged.BackgroundTransparency
-	-- Hover only scales: callers recolour buttons (affordable / maxed) and a
-	-- colour tween back to the creation colour would undo that.
+	-- Hover lights up the outline. It doesn't grow the button (that pushed it
+	-- and its text past panel edges) or recolour it (callers recolour buttons
+	-- for affordable / maxed states).
+	local outline = button:FindFirstChildOfClass("UIStroke") :: UIStroke
 	button.MouseEnter:Connect(function()
-		C.tween(scale, 0.15, { Scale = 1.05 })
+		C.tween(outline, 0.15, { Transparency = 0.15, Thickness = 2 })
 	end)
 	button.MouseLeave:Connect(function()
+		C.tween(outline, 0.15, { Transparency = 0.8, Thickness = 1 })
 		C.tween(scale, 0.15, { Scale = 1 })
 	end)
 	button.MouseButton1Down:Connect(function()
-		C.tween(scale, 0.08, { Scale = 0.94 })
+		C.tween(scale, 0.08, { Scale = 0.96 })
 	end)
 	button.MouseButton1Up:Connect(function()
 		C.tween(scale, 0.15, { Scale = 1 }, Enum.EasingStyle.Back)

@@ -16,6 +16,7 @@ MODULES = {
     "Build": ROOT / "src/server/Build.lua",
     "TowerBuilder": ROOT / "src/server/TowerBuilder.lua",
     "WorldBuilder": ROOT / "src/server/WorldBuilder.lua",
+    "WallClimb": ROOT / "src/client/WallClimb.lua",
 }
 REQUIRE = re.compile(r"require\((?:script\.Parent|ReplicatedStorage\.Shared|Shared)\.(\w+)\)")
 
@@ -29,7 +30,7 @@ def bundle() -> str:
                  "end\n")
     for name, path in MODULES.items():
         src = REQUIRE.sub(lambda m: f'__req("{m.group(1)}")', path.read_text())
-        src = src.replace("--!strict", "")
+        src = src.replace("--!strict", "").replace("export type ", "type ")
         parts.append(f"__mods[{name!r}] = function()\n{src}\nend\n".replace("'", '"', 2))
     parts.append((HERE / "check.lua").read_text())
     return "\n".join(parts)

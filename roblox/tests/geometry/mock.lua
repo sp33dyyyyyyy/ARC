@@ -43,6 +43,10 @@ Vector3Meta.__index = function(self, key)
 		return function(a, b)
 			return a.X * b.X + a.Y * b.Y + a.Z * b.Z
 		end
+	elseif key == "Lerp" then
+		return function(a, b, t)
+			return v3(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, a.Z + (b.Z - a.Z) * t)
+		end
 	end
 	return nil
 end
@@ -303,3 +307,41 @@ game = {
 	end,
 }
 workspace = game:GetService("Workspace")
+
+-- Ray vs oriented box (parts are treated as boxes). Mirrors Roblox: a ray that
+-- starts inside a part doesn't hit that part. Returns a RaycastResult-like table.
+function mockRaycast(parts, origin, direction)
+	local best, bestT = nil, math.huge
+	for _, part in parts do
+		local cf = part.CFrame
+		local inv = cf:Inverse()
+		local o = inv * origin
+		local d = (inv * (origin + direction)) - o
+		local h = part.Size / 2
+		local tnear, tfar = -math.huge, math.huge
+		local axis, sign = nil, 0
+		local hit = true
+		for _, a in { "X", "Y", "Z" } do
+			local oa, da, ha = o[a], d[a], h[a]
+			if math.abs(da) < 1e-9 then
+				if math.abs(oa) > ha then
+					hit = false
+					break
+				end
+			else
+				local t1, t2 = (-ha - oa) / da, (ha - oa) / da
+				local lo, hi = math.min(t1, t2), math.max(t1, t2)
+				if lo > tnear then
+					tnear, axis, sign = lo, a, if da > 0 then -1 else 1
+				end
+				tfar = math.min(tfar, hi)
+			end
+		end
+		if hit and axis and tnear <= tfar and tnear >= 0 and tnear <= 1 and tnear < bestT then
+			local n = if axis == "X" then cf.r elseif axis == "Y" then cf.u else cf.b
+			bestT = tnear
+			best = { Instance = part, Position = origin + direction * tnear, Normal = n * sign }
+		end
+	end
+	return best
+end

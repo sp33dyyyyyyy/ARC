@@ -227,6 +227,136 @@ for _, tower in towers:GetChildren() do
 	print(string.format("ok   %-16s height %5d  %2d rest levels  %5d parts", name, H, #levels, count))
 end
 
+-- Climb simulation: run the client's real WallClimb code up every face of
+-- every tower, against ray-cast tower geometry.
+local WallClimb = __req("WallClimb")
+local islandTop = workspace:FindFirstChild("World"):FindFirstChild("IslandTop")
+for _, tower in towers:GetChildren() do
+	local H = tower:GetAttribute("Height")
+	local towerCF = tower.WorldPivot
+	local inv = towerCF:Inverse()
+	local parts = { islandTop }
+	local climbables = {}
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part.CanQuery ~= false then
+			table.insert(parts, part)
+			if part:HasTag("Climbable") then
+				table.insert(climbables, box(inv, part))
+			end
+		end
+	end
+	local world = {
+		cast = function(origin, direction)
+			return mockRaycast(parts, origin, direction)
+		end,
+		climbable = function(instance)
+			return instance:HasTag("Climbable")
+		end,
+		solid = function(instance)
+			return instance.CanCollide ~= false
+		end,
+		noStand = function(instance)
+			return instance:HasTag("NoStand")
+		end,
+	}
+	local levels = {}
+	for value in string.gmatch(tower:GetAttribute("RestLevels") or "", "[^,]+") do
+		table.insert(levels, tonumber(value))
+	end
+	local speed = CC.ClimbSpeed
+	local summits, moves = 0, 0
+	for run = 0, 11 do
+		local fi, startY = run % 4 + 1, 3 + math.floor(run / 4)
+		local axis = AXES[fi]
+		local face = string.format("%s face %d start y=%d (sim)", tower.Name, fi - 1, startY)
+		local ext = faceExtent(climbables, axis, startY)
+		local outward = towerCF:PointToWorldSpace(axis) - towerCF.p
+		local start = towerCF:PointToWorldSpace(onAxis(axis, ext + 2, startY))
+		local firstRun = run < 4
+		local anchor, normal = WallClimb.grab(world, CC, start, -outward, CC.GripRange)
+		if not anchor then
+			fail(face .. ": can't grab the wall from the ground")
+			continue
+		end
+		local closest = {}
+		local traversed, leapt, descended = not firstRun, not firstRun, false
+		for _ = 1, 3000 do
+			for i, y in levels do
+				local gap = math.abs(anchor.Y + WallClimb.HAND_HEIGHT - y)
+				closest[i] = math.min(closest[i] or math.huge, gap)
+			end
+			-- Partway up, check that traversing, leaping and down-climbing work.
+			if not traversed and anchor.Y > 12 then
+				traversed = true
+				local right = WallClimb.plan(world, CC, anchor, normal, 0, 1, speed)
+				local left = WallClimb.plan(world, CC, anchor, normal, 0, -1, speed)
+				if not right or not left then
+					fail(face .. string.format(": can't traverse sideways at y=%.0f", anchor.Y))
+				end
+				local down = WallClimb.plan(world, CC, anchor, normal, -1, 0, speed)
+				if not down or down.to.Y >= anchor.Y then
+					fail(face .. string.format(": can't climb down at y=%.0f", anchor.Y))
+				end
+			end
+			if not leapt and anchor.Y > H * 0.5 then
+				leapt = true
+				local leap = WallClimb.planLeap(world, CC, anchor, normal)
+				if not leap or leap.to.Y <= anchor.Y + 1 then
+					fail(face .. string.format(": can't leap at y=%.0f", anchor.Y))
+				end
+			end
+			local move, action = WallClimb.plan(world, CC, anchor, normal, 1, 0, speed)
+			if move then
+				anchor = move.to
+				moves += 1
+				local probe = WallClimb.probe(world, CC, anchor, normal)
+				if probe then
+					normal = WallClimb.horizontal(probe.Normal)
+				end
+			elseif action == "mantle" then
+				local stand = WallClimb.findMantle(world, CC, anchor, normal)
+				if not stand then
+					fail(face .. string.format(": stuck under something at y=%.0f, can't climb over", anchor.Y))
+				elseif math.abs(stand.Y - (H + WallClimb.ROOT_HEIGHT)) > 0.6 then
+					fail(face .. string.format(": climbed onto something at y=%.0f before the summit", stand.Y))
+				else
+					summits += 1
+				end
+				break
+			else
+				fail(face .. string.format(": stuck at y=%.0f (no wall to reach)", anchor.Y))
+				break
+			end
+		end
+		for i, y in levels do
+			if (closest[i] or math.huge) > CC.RestBarReach then
+				fail(face .. string.format(": hands never get within reach of the rest bar at y=%d", y))
+			end
+		end
+		-- And back down from the first few moves: step off at the bottom.
+		local low, lowNormal = WallClimb.grab(world, CC, start, -outward, CC.GripRange)
+		if low and firstRun then
+			for _ = 1, 20 do
+				local move, action = WallClimb.plan(world, CC, low, lowNormal, -1, 0, speed)
+				if action == "stepoff" then
+					descended = true
+					break
+				elseif move then
+					low = move.to
+				else
+					break
+				end
+			end
+			if not descended then
+				fail(face .. ": can't step off at the bottom")
+			end
+		elseif not low then
+			fail(face .. ": can't grab the wall again from the ground")
+		end
+	end
+	print(string.format("sim  %-16s %d/12 climbs reached the summit (4 faces x 3 start heights, %d moves)", tower.Name, summits, moves))
+end
+
 -- The spawn plaza and island top must be at ground level (y = 0..0.5), not buried.
 local world = workspace:FindFirstChild("World")
 for _, name in { "IslandTop", "Plaza", "MainPath", "ShopYard" } do

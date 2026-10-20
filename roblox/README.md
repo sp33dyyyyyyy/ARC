@@ -23,7 +23,7 @@ spawn pad and lighting).
 **From source with Rojo 7:** `rojo build default.project.json -o build/SkyClimbers.rbxlx`,
 or `rojo serve` and connect from the Studio plugin.
 
-## Controls: Hand-over-Hand climbing
+## Controls: rock climbing
 
 There are no ladders: you climb the towers themselves (the lattice of the
 telecom towers and the glass of the skyscrapers). Nothing sticks out of a tower
@@ -32,8 +32,8 @@ to block you; you rest on yellow rest bars instead.
 | Input | Action |
 |---|---|
 | Walk or jump into a tower | Grab on (SPACE facing a tower works too) |
-| W / S, A / D | Climb up / down hand over hand, shuffle sideways |
-| SPACE while climbing | Leap up the wall (costs extra stamina) |
+| W / S, A / D | Climb up / down one move at a time (hold to chain moves), traverse sideways |
+| SPACE while climbing | Dyno: leap up to a much higher hold (costs extra stamina) |
 | SPACE while falling | Catch the wall (if you're not falling too fast) |
 | Q | Let go |
 | Stop with your hands on a yellow rest bar | Hang there to recover stamina (also saves a checkpoint) |
@@ -46,10 +46,13 @@ to block you; you rest on yellow rest bars instead.
 | O (or the SETTINGS button) | Settings: name tags, camera shake, admin code |
 | E at a summit lift | Ride down |
 
-On touch screens, push the stick toward the wall to climb; the jump button
-grabs and leaps, and the HUD has a LET GO button. The climbing animation is
-procedural (arms reach in turn, legs step, a hanging rest pose and a leap pose)
-and is shared with every player, so no animation uploads are needed.
+Climbing works like rock climbing: each move, one hand reaches up for the next
+hold while your body stays put, then you pull up as the opposite leg steps high
+and pushes. Hands alternate every move. On touch screens, push the stick toward
+the wall to climb; the jump button grabs and dynos, and the HUD has a LET GO
+button. The animation is procedural (posed through joint offsets, so Roblox's
+own animations can't override it), shared with every player, and needs no
+uploaded animations.
 
 ## Map
 
@@ -100,13 +103,12 @@ Skyscraper 3, and windows that light up at night.
 **Settings** (O or the bottom-left button): toggle other players' name tags (only
 on your screen) and camera shake. Both save with your progress.
 
-**Admin panel:** enter the admin code in Settings to unlock it. **Set the code
-first** in `src/server/AdminConfig.lua` (at least 6 characters; while it's empty,
-no code works). That file lives in ServerScriptService, so players can never see
-it, but if this repo is public, set the code only in your published place.
-The game's owner, any user IDs listed in `AdminConfig.UserIds`, and everyone in
-a Studio playtest are admins automatically. Wrong codes are limited to 5 tries
-every 10 minutes, and every admin action is checked again on the server.
+**Admin panel:** everyone, including the game's owner, has to enter the admin
+password in Settings to open it. The password is `Evan123` (case-sensitive),
+set in `src/server/AdminConfig.lua`. That file lives in ServerScriptService, so
+players can never see it, but anyone who can read this repository can. The box
+shows dots while you type. Wrong passwords are limited to 5 tries every 10
+minutes, and every admin action is checked again on the server.
 
 | Admin tool | What it does |
 |---|---|
@@ -123,11 +125,11 @@ them for Robux; until then they can only be granted by an admin.
 ## Layout
 
 ```
-src/shared   Config (all tuning), Rules (pure game logic), Remotes
+src/shared   Config (all tuning), Rules (pure game logic), ClimbPose (animation maths), Remotes
 src/server   Main, WorldBuilder, TowerBuilder, Build, DataService,
              ClimbService, RagdollService, ShopService, AdminService,
              AdminConfig (server-only code), EnvironmentService, LeaderboardService
-src/client   Main, ClimbController, ClimbAnimator, Emotes, Weather, Effects,
+src/client   Main, ClimbController, WallClimb, ClimbAnimator, Emotes, Weather, Effects,
              UI/{Theme,Components,Hud,Overlay,Shop,Settings,AdminPanel}
 tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 ```
@@ -135,11 +137,12 @@ tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 ## Checks
 
 ```
-luau tests/run.lua                          # 27 unit tests for the game rules and balance
-python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock and
-                                            # verifies every face of every tower is climbable:
-                                            # grip from ground to summit, nothing in the way,
-                                            # rest bars at every level, climb over the top
+luau tests/run.lua                          # 31 unit tests for the game rules and balance
+python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock with
+                                            # ray casting, then runs the game's own climbing code
+                                            # (WallClimb) up every face of every tower from three
+                                            # start heights: grab, chain moves, rest bars in reach,
+                                            # traverse, dyno, climb down, climb over the summit
 ```
 
 Stamina runs on the client, because only the owning client knows its exact

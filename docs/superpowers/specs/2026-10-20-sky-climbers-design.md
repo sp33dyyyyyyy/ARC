@@ -154,3 +154,24 @@ Changes requested after the first playable build:
 - **Gamepasses:** VIP (2x payout), Iron Lungs (+50 stamina), Featherweight
   (0.5x fall damage). Ownership is a Robux purchase OR an admin grant
   (`GrantedPasses` in the profile). Perks are applied in Rules.
+
+## 13. Revision: rock climbing, text fitting, admin password (2026-10-20)
+
+- **Rock climbing:** climbing is a sequence of discrete moves (reach with one
+  hand while the body is still, then pull up while the opposite leg pushes),
+  with alternating hands, traverse moves, and a dyno on SPACE. Wall logic is in
+  `WallClimb` (pure Vector3 maths plus an injected raycaster). The geometry test
+  runs it up all 4 faces of all 6 towers from 3 start heights. This caught two
+  real bugs, both now fixed: the skyscraper roof lip made the wall end early,
+  and the roof top was rejected as somewhere to stand.
+- **Animation:** poses come from `ClimbPose` (pure, unit-tested for smooth
+  move-to-move continuity and limb ranges) and are applied via Motor6D.C0
+  offsets. The old version wrote `Transform`, which Roblox's Animator
+  overwrites every frame, so the animation never showed and climbers seemed to
+  float. Limb collisions are off while climbing, and default animation tracks
+  are stopped.
+- **UI:** labels and buttons auto-shrink text to fit (capped at their design
+  size), text boxes clip, and button hover highlights the outline instead of
+  scaling.
+- **Admin:** the password `Evan123` is required for everyone. Auto-admin for
+  the owner and Studio is removed. The box masks input.

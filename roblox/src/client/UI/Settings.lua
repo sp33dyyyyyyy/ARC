@@ -1,4 +1,4 @@
--- Settings window: name tags, camera shake, and the admin code box.
+-- Settings window: name tags, camera shake, and the admin password box.
 local Theme = require(script.Parent.Theme)
 local C = require(script.Parent.Components)
 
@@ -74,12 +74,29 @@ function Settings.new(handlers: Handlers)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Parent = admin,
 	})
+	-- Password box: what you type is hidden and shown as dots.
 	self.codeBox = C.textbox({
 		Position = UDim2.fromOffset(0, 32),
 		Size = UDim2.new(1, -130, 0, 44),
-		PlaceholderText = "Enter admin code",
+		PlaceholderText = "",
+		TextTransparency = 1,
 		Parent = admin,
 	})
+	local dots = C.new("TextLabel", {
+		Size = UDim2.new(1, -24, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+		Font = Theme.Bold,
+		Text = "Admin password",
+		TextSize = 16,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = self.codeBox,
+	})
+	self.codeBox:GetPropertyChangedSignal("Text"):Connect(function()
+		local length = #self.codeBox.Text
+		dots.Text = if length == 0 then "Admin password" else string.rep("•", math.min(length, 24))
+		dots.TextColor3 = if length == 0 then Theme.Muted else Theme.Text
+	end)
 	self.unlock = C.button({
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, 0, 0, 32),
@@ -113,7 +130,7 @@ function Settings.new(handlers: Handlers)
 		Position = UDim2.fromOffset(0, 86),
 		Size = UDim2.new(1, 0, 0, 36),
 		Font = Theme.Body,
-		Text = "Admins: enter your code to unlock the admin panel.",
+		Text = "Enter the admin password to open the admin panel.",
 		TextSize = 14,
 		TextColor3 = Theme.Muted,
 		TextWrapped = true,
@@ -129,7 +146,8 @@ function Settings:setAdmin(isAdmin: boolean)
 	self.unlock.Visible = not isAdmin
 	self.openAdmin.Visible = isAdmin
 	if isAdmin then
-		self.adminStatus.Text = "You're an admin."
+		self.codeBox.Text = ""
+		self.adminStatus.Text = "Password accepted. You're an admin for this session."
 		self.adminStatus.TextColor3 = Theme.Good
 	end
 end
