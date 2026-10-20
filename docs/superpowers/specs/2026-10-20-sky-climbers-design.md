@@ -122,3 +122,21 @@ Changes requested after the first playable build:
 - **Emotes** are bought at the Power Up Shop (server-validated, saved in the
   profile). G opens an emote bar, and the equipped summit emote auto-plays at
   every peak. Animations come from the avatar's own Animate script.
+
+## 11. Revision: Hand-over-Hand climbing, rest bars, calmer wind (2026-10-20)
+
+- Rest platforms and balconies (the "flat bits" left over from the ladder era)
+  are gone. Nothing solid sticks out of a climbable face. Rest spots are
+  non-colliding yellow rest bars, published as the tower's `RestLevels`
+  attribute. Hanging still on one recovers stamina at 70% of the ground rate
+  and saves a checkpoint (you respawn gripping the wall).
+- Climbing is now Hand-over-Hand: auto-grip by walking or jumping into a tower,
+  movement in rhythmic pulls, SPACE to leap, and climbing over the top onto a
+  flush summit deck or roof.
+- The climbing animation is procedural (Motor6D.Transform). The server shares
+  each climber's pose as the character's `ClimbPose` attribute, so every
+  client animates everyone.
+- Mantle checks use rays instead of bounding boxes. The boxes were inflated by
+  the slanted lattice panels and wrongly reported "no room".
+- Wind gusts now come every 110-130s, are softer, and only knock off climbers
+  below 15% stamina.

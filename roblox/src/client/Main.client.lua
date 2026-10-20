@@ -169,6 +169,8 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 		overlay:toast(string.format("Daily reward: +$%d  (streak %d)", payload.reward or 0, payload.streak or 0), "gold")
 	elseif kind == "Unlock" then
 		overlay:toast(tostring(payload.text), "gold")
+	elseif kind == "Regrip" then
+		ClimbController.regrip()
 	elseif kind == "Hurt" then
 		overlay:hurtFlash(payload.damage or 0)
 		Effects.shake(0.4, math.clamp((payload.damage or 0) / 60, 0.1, 0.6))
@@ -178,6 +180,6 @@ end)
 -- First-time hint.
 task.delay(2, function()
 	if climbsValue.Value == 0 then
-		overlay:toast("Start with the Tutorial Tower: face it and press SPACE to grab on. W to climb, SPACE to lunge!", "info")
+		overlay:toast("Start with the Tutorial Tower: walk into it to grab on, hold W to climb, SPACE to leap. Hang on the yellow rest bars to breathe!", "info")
 	end
 end)

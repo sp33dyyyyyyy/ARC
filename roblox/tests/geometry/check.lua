@@ -1,11 +1,10 @@
 -- Runs the real WorldBuilder against the mock and verifies every tower can be
--- climbed with Grip & Lunge, mirroring the client's rules:
+-- climbed Hand-over-Hand, mirroring the client's rules:
 --   * every face has climbable surface from the ground to the summit
---   * every rest platform/balcony sticks out far enough to stop a climber
---     (who hangs WallOffset studs off the wall) so they mantle onto it
---   * at every rest level and at the summit there's a free spot to mantle onto,
---     found the same way the client searches (offsets 0, 1.5, 3, 4.5 inward)
---   * nothing solid blocks the middle of each face between rests
+--   * nothing solid is in the climbing lane anywhere (no leftover platforms)
+--   * rest bars on every face at every rest level, non-colliding, matching
+--     the RestLevels attribute the client reads
+--   * every face can climb over the top onto the summit (ray-style mantle)
 --   * zones and attributes line up with the geometry
 -- (Bundled after mock.lua and the game modules by run_geometry.py.)
 
@@ -88,9 +87,10 @@ local function onAxis(axis, d, y)
 	return Vector3.new(axis.X * d, y, axis.Z * d)
 end
 
--- Client mantle search: first offset with a non-climbable floor at `floorY`
--- under it and a free 2x4.6x2 box to stand in.
-local function canMantle(solids, climbables, axis, ext, floorY)
+-- Client mantle search (mirrors ClimbController.findMantle): first inward
+-- offset with a non-climbable floor at `floorY`, headroom above it, and a clear
+-- path from the hold to the standing spot.
+local function canMantle(solids, axis, ext, floorY)
 	local anchorD = ext + CC.WallOffset
 	for _, offset in { 0, 1.5, 3, 4.5, 6 } do
 		local d = anchorD - offset
@@ -102,15 +102,13 @@ local function canMantle(solids, climbables, axis, ext, floorY)
 			end
 		end
 		if floored then
-			local stand = boxAt(onAxis(axis, d, floorY + 3 + 0.3), Vector3.new(2, 4.6, 2))
+			local standY = floorY + 3
+			local head = boxAt(onAxis(axis, d, floorY + 2.6), Vector3.new(0.2, 4.9, 0.2))
+			local a, b = onAxis(axis, anchorD, standY), onAxis(axis, d, standY)
+			local path = { min = Vector3.new(math.min(a.X, b.X), standY - 0.05, math.min(a.Z, b.Z)) - Vector3.new(0.05, 0, 0.05), max = Vector3.new(math.max(a.X, b.X), standY + 0.05, math.max(a.Z, b.Z)) + Vector3.new(0.05, 0, 0.05) }
 			local free = true
 			for _, S in solids do
-				if overlaps(stand, S) then
-					free = false
-				end
-			end
-			for _, C in climbables do
-				if overlaps(stand, C) then
+				if overlaps(head, S) or overlaps(path, S) then
 					free = false
 				end
 			end
@@ -127,15 +125,20 @@ for _, tower in towers:GetChildren() do
 	local name = tower.Name
 	local inv = tower.WorldPivot:Inverse()
 	local H = tower:GetAttribute("Height")
-	local climbables, solids, rests = {}, {}, {}
+	local climbables, solids = {}, {}
 	local peak, baseZone
-	local count = 0
+	local count, restBars = 0, 0
 	for _, part in tower:GetDescendants() do
 		if part:IsA("BasePart") then
 			count += 1
 			local b = box(inv, part)
 			if part.ClassName == "TrussPart" then
 				fail(name .. ": still has a ladder")
+			elseif part:HasTag("RestBar") then
+				restBars += 1
+				if part.CanCollide ~= false or part.CanQuery ~= false then
+					fail(name .. ": rest bars must not collide or block climbing raycasts")
+				end
 			elseif part:HasTag("Climbable") then
 				table.insert(climbables, b)
 			elseif part.Name == "PeakZone" then
@@ -144,25 +147,38 @@ for _, tower in towers:GetChildren() do
 				baseZone = b
 			elseif part.CanCollide ~= false then
 				table.insert(solids, b)
-				if part:GetAttribute("Checkpoint") then
-					table.insert(rests, b)
-				end
 			end
 		end
 	end
 	totalParts += count
 
-	-- Rest levels, bottom to top.
+	-- Rest levels from the attribute the client reads.
 	local levels = {}
-	for _, r in rests do
-		local y = math.round(r.max.Y * 100) / 100
-		if not table.find(levels, y) then
-			table.insert(levels, y)
-		end
+	for value in string.gmatch(tower:GetAttribute("RestLevels") or "", "[^,]+") do
+		table.insert(levels, tonumber(value))
 	end
-	table.sort(levels)
-	if #levels == 0 or math.abs(levels[#levels] - H) > EPS then
-		fail(string.format("%s: summit rest surface should be at the Height attribute %s", name, tostring(H)))
+	local prev = 0
+	for _, y in levels do
+		if y <= prev then
+			fail(name .. ": rest levels must increase")
+		end
+		prev = y
+	end
+	local def = Config.TowerTypes[(function()
+		for _, entry in Config.Layout do
+			if entry.Name == name then
+				return entry.Type
+			end
+		end
+		return ""
+	end)()]
+	local spacing = if def.Kind == "Telecom" then def.SectionHeight else def.BalconyEvery
+	local expected = math.round(H / spacing) - 1
+	if #levels ~= expected then
+		fail(string.format("%s: expected %d rest levels, got %d", name, expected, #levels))
+	end
+	if restBars ~= #levels * 4 then
+		fail(string.format("%s: expected a rest bar on each face at each level (%d), got %d", name, #levels * 4, restBars))
 	end
 
 	for fi, axis in AXES do
@@ -174,51 +190,31 @@ for _, tower in towers:GetChildren() do
 				break
 			end
 		end
-
-		local prev = 0
-		for _, ly in levels do
-			local ext = faceExtent(climbables, axis, ly - 1.5)
-			if not ext then
-				fail(string.format("%s: no wall just below the rest at y=%.1f", face, ly))
-				continue
-			end
-			-- Something overhead must stop the climber (except at a wall-top summit,
-			-- where the client mantles over the top instead).
-			local head = boxAt(onAxis(axis, ext + CC.WallOffset, ly - 0.5), Vector3.new(1, 1, 1))
-			local blocked = false
-			for _, S in solids do
-				if overlaps(head, S) then
-					blocked = true
-				end
-			end
-			local wallEndsHere = faceExtent(climbables, axis, ly + 3) == nil
-			if not blocked and not wallEndsHere then
-				fail(string.format("%s: rest at y=%.1f doesn't stick out past the climber, they'd climb straight past it", face, ly))
-			end
-			if not canMantle(solids, climbables, axis, ext, ly) then
-				fail(string.format("%s: no free spot to mantle onto at y=%.1f", face, ly))
-			end
-
-			-- Corridor in the middle of the face between rests must be clear.
-			local lo, hi = prev + 1.5, ly - 2.5
-			if hi > lo then
-				local mid = (lo + hi) / 2
-				local extMid = faceExtent(climbables, axis, mid) or ext
-				local d0, d1 = extMid + 0.6, extMid + 2.6
-				local a = onAxis(axis, d0, lo)
-				local b = onAxis(axis, d1, hi)
+		-- Nothing solid anywhere in the climbing lane, ground to summit
+		-- (checked in 10-stud slices so the lane follows the taper).
+		for y0 = 1, H - 3, 10 do
+			local y1 = math.min(y0 + 10, H - 2)
+			local ext = faceExtent(climbables, axis, (y0 + y1) / 2)
+			if ext then
+				local a, b = onAxis(axis, ext + 0.6, y0), onAxis(axis, ext + 2.6, y1)
 				local lateral = if math.abs(axis.X) > 0.5 then Vector3.new(0, 0, 1.5) else Vector3.new(1.5, 0, 0)
-				local corridor = {
-					min = Vector3.new(math.min(a.X, b.X), lo, math.min(a.Z, b.Z)) - lateral,
-					max = Vector3.new(math.max(a.X, b.X), hi, math.max(a.Z, b.Z)) + lateral,
+				local lane = {
+					min = Vector3.new(math.min(a.X, b.X), y0, math.min(a.Z, b.Z)) - lateral,
+					max = Vector3.new(math.max(a.X, b.X), y1, math.max(a.Z, b.Z)) + lateral,
 				}
 				for _, S in solids do
-					if overlaps(corridor, S) then
-						fail(string.format("%s: %s blocks the climb between y=%.0f and y=%.0f", face, S.part.Name, lo, hi))
+					if overlaps(lane, S) then
+						fail(string.format("%s: %s is in the way at y=%.0f-%.0f", face, S.part.Name, S.min.Y, S.max.Y))
 					end
 				end
 			end
-			prev = ly
+		end
+		-- Climb over the top onto the summit.
+		local topExt = faceExtent(climbables, axis, H - 1.5)
+		if not topExt then
+			fail(face .. ": no wall just below the summit")
+		elseif not canMantle(solids, axis, topExt, H) then
+			fail(face .. ": no free spot to climb over onto the summit")
 		end
 	end
 

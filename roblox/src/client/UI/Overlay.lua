@@ -8,13 +8,13 @@ local Overlay = {}
 Overlay.__index = Overlay
 
 local BLACKOUT_TIPS = {
-	"Tip: stand on a platform to get your breath back.",
+	"Tip: hang still on a yellow rest bar to get your breath back.",
 	"Tip: Endurance boosts let you climb further without resting.",
 	"Tip: chalk halves stamina drain for a while. Press C.",
 	"Tip: skyscraper glass is slippery. Sticky Gloves help.",
-	"Tip: gripping the wall without moving still costs stamina.",
+	"Tip: holding on between rest bars still costs stamina.",
 	"Tip: press SPACE while falling to catch the wall.",
-	"Tip: lunging is fast but costs more stamina than crawling.",
+	"Tip: leaping is fast but costs more stamina than climbing.",
 	"Tip: wind gusts can blow tired climbers clean off.",
 }
 

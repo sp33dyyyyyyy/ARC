@@ -36,6 +36,7 @@ export type DrainContext = {
 	chalk: boolean,
 	gust: boolean,
 	weatherMultiplier: number?, -- rain soaks the walls
+	resting: boolean?, -- hands on a rest bar
 }
 
 -- Stamina change per second for the given situation. Negative = draining.
@@ -48,6 +49,11 @@ function Rules.staminaRate(
 	ctx: DrainContext,
 	grounded: boolean
 ): number
+	local rec = boostDef(boostDefs, "Recovery")
+	local recovery = staminaCfg.RecoverPerSecond * (1 + (rec and rec.PerLevel or 0) * level(boosts, "Recovery"))
+	if ctx.climbing and ctx.resting and not ctx.moving then
+		return recovery * staminaCfg.RestBarRecoveryFraction
+	end
 	if ctx.climbing then
 		local rate = staminaCfg.DrainPerSecond * ctx.towerMultiplier
 		if not ctx.moving then
@@ -66,8 +72,7 @@ function Rules.staminaRate(
 		rate *= ctx.weatherMultiplier or 1
 		return -rate
 	elseif grounded then
-		local rec = boostDef(boostDefs, "Recovery")
-		return staminaCfg.RecoverPerSecond * (1 + (rec and rec.PerLevel or 0) * level(boosts, "Recovery"))
+		return recovery
 	end
 	return 0
 end
@@ -82,7 +87,7 @@ function Rules.climbSpeed(climbCfg: any, boostDefs: { any }, boosts: Boosts): nu
 	return climbCfg.ClimbSpeed * (1 + (def and def.PerLevel or 0) * level(boosts, "ClimbSpeed"))
 end
 
--- Stamina a lunge costs, given the (negative) stamina rate of crawling right now:
+-- Stamina a leap costs, given the (negative) stamina rate of climbing right now:
 -- the same as crawling LungeDistance at base speed, times LungeCostFactor.
 function Rules.lungeCost(climbCfg: any, climbingRate: number): number
 	return math.abs(climbingRate) * (climbCfg.LungeDistance / climbCfg.ClimbSpeed) * climbCfg.LungeCostFactor

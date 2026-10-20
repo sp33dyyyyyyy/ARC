@@ -56,7 +56,7 @@ test("grip only helps on slippery towers, chalk and gust stack", function()
 	local grip = { Grip = 5 }
 	near(Rules.staminaRate(S, C, W, B, grip, ctx({ climbing = true, moving = true }), false), -8)
 	near(Rules.staminaRate(S, C, W, B, grip, ctx({ climbing = true, moving = true, slippery = true }), false), -8 * 0.6)
-	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, chalk = true, gust = true }), false), -8 * 0.5 * 1.6)
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, chalk = true, gust = true }), false), -8 * 0.5 * W.DrainMultiplier)
 end)
 
 test("grounded recovers, boosted by recovery; airborne is neutral", function()
@@ -76,9 +76,15 @@ test("climb speed boost", function()
 end)
 
 test("lunge costs more than crawling the same distance", function()
-	-- crawling 8 studs at 10 studs/s with drain 8/s costs 6.4; lunge is 30% more
-	near(Rules.lungeCost(Config.Climb, -8), 6.4 * 1.3)
-	near(Rules.lungeCost(Config.Climb, -16), 12.8 * 1.3)
+	-- climbing 9 studs at 10 studs/s with drain 8/s costs 7.2; a leap is 30% more
+	near(Rules.lungeCost(Config.Climb, -8), 7.2 * 1.3)
+	near(Rules.lungeCost(Config.Climb, -16), 14.4 * 1.3)
+end)
+
+test("hanging still on a rest bar recovers; climbing past one still drains", function()
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, resting = true }), false), 22 * 0.7)
+	near(Rules.staminaRate(S, C, W, B, { Recovery = 2 }, ctx({ climbing = true, resting = true }), false), 33 * 0.7)
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, resting = true }), false), -8)
 end)
 
 test("rain soaks the walls", function()

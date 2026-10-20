@@ -10,6 +10,8 @@ local NAMES = {
 	"EquipEmote", -- client -> server: emoteId (played automatically at summits)
 	"UseChalk", -- client -> server
 	"Ragdoll", -- client -> server: isRagdolled, fallStartY?
+	"RestCheckpoint", -- client -> server: wallNormal (hanging on a rest bar)
+	"ClimbPose", -- client -> server: "" | "climb" | "rest" | "leap" (shared climbing animation)
 	"ResetToPlaza", -- client -> server
 	"Notify", -- server -> client: kind, payload
 	"Gust", -- server -> all clients: phase, direction, duration

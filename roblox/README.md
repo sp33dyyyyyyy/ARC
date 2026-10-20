@@ -14,7 +14,8 @@ spawn pad and lighting).
 
 - To keep the towers in the place for editing, press Play, then in the
   Explorer copy `Workspace.World` and `Workspace.Towers`, stop, and paste them
-  into Workspace. The server reuses them instead of rebuilding.
+  into Workspace. The server reuses them instead of rebuilding, so **delete
+  them again after updating the game** or you'll keep the old towers.
 - Saving progress needs a published place with **Game Settings > Security >
   Enable Studio Access to API Services** on. Without it the game still runs and
   tells you progress won't save.
@@ -22,19 +23,21 @@ spawn pad and lighting).
 **From source with Rojo 7:** `rojo build default.project.json -o build/SkyClimbers.rbxlx`,
 or `rojo serve` and connect from the Studio plugin.
 
-## Controls: Grip & Lunge climbing
+## Controls: Hand-over-Hand climbing
 
 There are no ladders: you climb the towers themselves (the lattice of the
-telecom towers and the glass of the skyscrapers).
+telecom towers and the glass of the skyscrapers). Nothing sticks out of a tower
+to block you; you rest on yellow rest bars instead.
 
 | Input | Action |
 |---|---|
-| SPACE facing a tower | Grab on |
-| W / S, A / D | Crawl up / down, sideways |
-| SPACE while climbing | Lunge: a fast leap up the wall (costs extra stamina) |
+| Walk or jump into a tower | Grab on (SPACE facing a tower works too) |
+| W / S, A / D | Climb up / down hand over hand, shuffle sideways |
+| SPACE while climbing | Leap up the wall (costs extra stamina) |
 | SPACE while falling | Catch the wall (if you're not falling too fast) |
 | Q | Let go |
-| Climb into a platform / balcony / roof edge | Mantle onto it automatically to rest |
+| Stop with your hands on a yellow rest bar | Hang there to recover stamina (also saves a checkpoint) |
+| Keep climbing at the top | Climb over onto the summit |
 | B (or the Power Up Shop) | Shop |
 | C | Use chalk (halves drain for 12s) |
 | R | Ragdoll / get up |
@@ -42,8 +45,10 @@ telecom towers and the glass of the skyscrapers).
 | G | Emote bar (play any emote you own) |
 | E at a summit lift | Ride down |
 
-On touch screens the jump button grabs and lunges, pushing the stick toward the
-wall climbs, and the HUD has a LET GO button.
+On touch screens, push the stick toward the wall to climb; the jump button
+grabs and leaps, and the HUD has a LET GO button. The climbing animation is
+procedural (arms reach in turn, legs step, a hanging rest pose and a leap pose)
+and is shared with every player, so no animation uploads are needed.
 
 ## Map
 
@@ -63,10 +68,10 @@ tree-covered cliff island in the sea.
 | Skyscraper 3 (large, hard) | 2,800 | 200 | 3x, slippery | $10,000 |
 
 Telecom towers are modelled on self-supporting lattice towers: four tapering
-red/white legs, X-bracing, a railed rest platform on every section, dishes,
-panel antennas and blinking aviation lights. Skyscrapers are glass towers with
-a frame grid, a railed maintenance balcony every rest interval, rooftop AC units,
-a helipad on Skyscraper 3, and windows that light up at night.
+red/white legs, X-bracing, rest bars at every section, dishes, panel antennas,
+and blinking aviation lights. Skyscrapers are glass towers with a frame grid,
+window-washer rest bars at every rest interval, rooftop AC units, a helipad on
+Skyscraper 3, and windows that light up at night.
 
 ## Features
 
@@ -74,7 +79,8 @@ a helipad on Skyscraper 3, and windows that light up at night.
   on solid ground recovers it, and the screen loses colour when you're low. At
   zero you black out and ragdoll-fall, with height-based fall damage.
 - Boosts: Endurance, Deep Breaths, Quick Hands, Sticky Gloves, Rubber Bones
-- Chalk, and wind gusts (with a warning) that can blow tired climbers off
+- Chalk, and a wind gust about every two minutes (with a warning) that can
+  blow climbers who are nearly out of stamina off the wall
 - Weather: clear, fog and rain cycles. The server tweens the haze, clouds and
   light. Rain falls around you with lightning flashes, and every wall gets
   slippery (+25% stamina drain).
@@ -82,7 +88,7 @@ a helipad on Skyscraper 3, and windows that light up at night.
   Dance 1-3. Play them with G. Your starred summit emote plays automatically
   when you reach a peak. They use the animations built into every avatar, so no
   uploads are needed.
-- Checkpoints on every platform and balcony, summit service lifts
+- Checkpoints on rest bars (you respawn hanging on the wall), summit service lifts
 - `Tower climbs: N` counter, summit banner and confetti, leaderstats,
   all-time leaderboard board, daily streak reward, unlockable trails
 - Day/night cycle with street lights, string lights, lit windows and aviation lights
@@ -102,11 +108,11 @@ tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 ## Checks
 
 ```
-luau tests/run.lua                          # 21 unit tests for the game rules and balance
+luau tests/run.lua                          # 22 unit tests for the game rules and balance
 python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock and
                                             # verifies every face of every tower is climbable:
-                                            # grip from ground to summit, rests stop you, free
-                                            # mantle spots, clear climbing lanes, ground level
+                                            # grip from ground to summit, nothing in the way,
+                                            # rest bars at every level, climb over the top
 ```
 
 Stamina runs on the client, because only the owning client knows its exact

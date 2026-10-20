@@ -320,9 +320,9 @@ local function buildPlaza(world: Instance)
 	local face = CFrame.Angles(0, math.pi, 0)
 	sign(world, CFrame.new(PLAZA + Vector3.new(-105, 7, -70)) * face, 18, 11, {
 		{ text = "HOW TO CLIMB", size = 64, color = Color3.fromRGB(255, 210, 60) },
-		{ text = "SPACE at a tower: grab on", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
-		{ text = "WASD: crawl  ·  SPACE: lunge up  ·  Q: let go", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
-		{ text = "Climbing burns stamina. Mantle onto platforms to breathe.", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
+		{ text = "Walk into a tower to grab on", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
+		{ text = "WASD: climb  ·  SPACE: leap up  ·  Q: let go", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
+		{ text = "Hang still on a yellow rest bar to breathe.", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
 		{ text = "Run out and you BLACK OUT and fall.", size = 34, color = Color3.fromRGB(255, 120, 120), font = Enum.Font.GothamMedium },
 		{ text = "SPACE while falling: catch the wall!", size = 34, color = Color3.fromRGB(110, 230, 140), font = Enum.Font.GothamBold },
 		{ text = "Rain makes walls slippery · G: emotes", size = 34, color = Color3.fromRGB(150, 190, 255), font = Enum.Font.GothamMedium },

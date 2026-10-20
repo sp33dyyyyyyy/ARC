@@ -9,6 +9,7 @@ Config.Stamina = {
 	DrainPerSecond = 8, -- while actively climbing, before the tower multiplier
 	HangDrainFraction = 0.25, -- gripping a wall without moving drains at 25% of climbing
 	RecoverPerSecond = 22, -- standing on solid ground
+	RestBarRecoveryFraction = 0.7, -- hanging still on a rest bar recovers at 70% of that
 	DangerFraction = 0.2, -- HUD pulses red below this
 	WakeFraction = 0.4, -- stamina you wake up with after a blackout
 }
@@ -26,21 +27,24 @@ Config.Fall = {
 
 Config.Climb = {
 	BaseWalkSpeed = 16,
-	-- Grip & Lunge climbing
-	ClimbSpeed = 10, -- studs/second crawling up a wall
+	-- Hand-over-Hand climbing
+	ClimbSpeed = 10, -- average studs/second climbing up (you move in pulls)
 	SideSpeed = 7, -- studs/second sideways
-	GripRange = 3.5, -- how close a wall must be to grab it
+	ReachLength = 2.4, -- one hand-over-hand pull
+	GripRange = 3.5, -- SPACE grabs a wall this close
+	AutoGripRange = 2.4, -- walking/jumping into a wall this close grabs it
+	RegrabDelay = 0.8, -- after letting go, auto-grip waits this long
 	WallOffset = 1.6, -- distance kept between the body and the wall
-	LungeDistance = 8, -- a lunge throws you this far up the wall
+	LungeDistance = 9, -- a leap throws you this far up the wall
 	LungeSpeed = 40,
 	LungeCooldown = 0.7,
-	LungeCostFactor = 1.3, -- lunging costs 30% more than crawling the same distance
+	LungeCostFactor = 1.3, -- leaping costs 30% more than climbing the same distance
 	CatchMaxFallSpeed = 70, -- you can only catch the wall if falling slower than this
 	MantleReach = 7, -- ledges up to this far above your waist can be climbed onto
+	RestBarReach = 1.6, -- hands within this of a rest bar count as resting on it
 	-- Anti-cheat: nobody legitimately climbs faster than this (studs/second),
 	-- so a peak touched sooner than height / this after the base is rejected.
 	MaxPlausibleSpeed = 40,
-	CheckpointRespawnLift = 3,
 }
 
 Config.Chalk = {
@@ -51,14 +55,14 @@ Config.Chalk = {
 }
 
 Config.Wind = {
-	MinInterval = 25,
-	MaxInterval = 45,
-	WarningTime = 3,
-	Duration = 4,
+	MinInterval = 110, -- roughly one gust every two minutes
+	MaxInterval = 130,
+	WarningTime = 4,
+	Duration = 3,
 	MinHeight = 60, -- gusts only matter above this height
-	DrainMultiplier = 1.6,
-	KnockOffFraction = 0.25, -- climbers below this stamina get blown off
-	AirPush = 45,
+	DrainMultiplier = 1.3,
+	KnockOffFraction = 0.15, -- only climbers nearly out of stamina get blown off
+	AirPush = 30,
 }
 
 Config.DayLengthSeconds = 600
@@ -144,10 +148,10 @@ Config.Boosts = {
 	},
 }
 
--- Tower archetypes. Telecom towers are tapered lattice towers with a rest
--- platform on top of every section; skyscrapers are glass boxes with a
--- maintenance balcony every `BalconyEvery` studs. Platforms and balconies are
--- the only places to catch your breath.
+-- Tower archetypes. Telecom towers are tapered lattice towers; skyscrapers are
+-- glass boxes. Every face has a yellow rest bar at the top of each telecom
+-- section / every `BalconyEvery` studs on a skyscraper: hang still on one to
+-- catch your breath. Nothing sticks out far enough to block a climber.
 Config.TowerTypes = {
 	Tutorial = {
 		Kind = "Telecom",

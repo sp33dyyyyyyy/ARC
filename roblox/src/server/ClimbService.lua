@@ -13,7 +13,7 @@ local DataService = require(script.Parent.DataService)
 
 local ClimbService = {}
 
-type Checkpoint = { tower: string, position: Vector3 }
+type Checkpoint = { tower: string, position: Vector3, normal: Vector3 }
 
 local active: { [Player]: Rules.ActiveClimb } = {}
 local checkpoints: { [Player]: Checkpoint } = {}
@@ -21,6 +21,8 @@ local lastRejectNotice: { [Player]: number } = {}
 local plazaSpawn: CFrame = CFrame.new(0, 4, 24)
 
 local notify: RemoteEvent
+local towersById: { [string]: Model } = {}
+local POSES = { [""] = true, climb = true, rest = true, leap = true }
 
 local function playerFromHit(hit: BasePart): (Player?, Humanoid?)
 	local character = hit:FindFirstAncestorOfClass("Model")
@@ -135,8 +137,61 @@ local function onPeak(tower: Model, player: Player)
 	end
 end
 
+local function restLevels(tower: Model): { number }
+	local levels = {}
+	for value in string.gmatch(tostring(tower:GetAttribute("RestLevels") or ""), "[^,]+") do
+		table.insert(levels, tonumber(value) :: number)
+	end
+	return levels
+end
+
+-- The client says it's hanging on a rest bar; check that's plausible and save
+-- a checkpoint there (you respawn hanging on the wall at that spot).
+local function onRestCheckpoint(player: Player, normal: any)
+	if typeof(normal) ~= "Vector3" or normal.Magnitude < 0.5 or normal.Magnitude > 1.5 then
+		return
+	end
+	local climb = active[player]
+	local root = rootOf(player)
+	if not climb or climb.paid or not root then
+		return
+	end
+	local tower = towersById[climb.tower]
+	if not tower then
+		return
+	end
+	local pivot = tower.WorldPivot.Position
+	local radius = tower:GetAttribute("Radius") or 0
+	local pos = root.Position
+	if math.abs(pos.X - pivot.X) > radius or math.abs(pos.Z - pivot.Z) > radius then
+		return
+	end
+	local handY = pos.Y + 2.5
+	local nearBar = false
+	for _, y in restLevels(tower) do
+		if math.abs(handY - y) <= Config.Climb.RestBarReach + 1 then
+			nearBar = true
+		end
+	end
+	if not nearBar then
+		return
+	end
+	local cp = checkpoints[player]
+	if cp and cp.tower == climb.tower and pos.Y <= cp.position.Y + 4 then
+		return
+	end
+	local flat = Vector3.new(normal.X, 0, normal.Z)
+	checkpoints[player] = {
+		tower = climb.tower,
+		position = pos,
+		normal = if flat.Magnitude > 0.1 then flat.Unit else Vector3.zAxis,
+	}
+	ClimbService.toast(player, "Checkpoint saved", "good")
+end
+
 local function hookTower(tower: Model)
 	local id = tower:GetAttribute("TowerId") :: string
+	towersById[id] = tower
 	local base = tower:FindFirstChild("BaseZone") :: BasePart
 	local peak = tower:FindFirstChild("PeakZone") :: BasePart
 
@@ -167,34 +222,6 @@ local function hookTower(tower: Model)
 		end
 	end)
 
-	for _, part in tower:GetDescendants() do
-		if part:IsA("BasePart") and part:GetAttribute("Checkpoint") then
-			part.Touched:Connect(function(hit)
-				local player = playerFromHit(hit)
-				local root = player and rootOf(player)
-				if not player or not root then
-					return
-				end
-				local climb = active[player]
-				if not climb or climb.tower ~= id or climb.paid then
-					return
-				end
-				-- Only count it when standing on top, not brushing the underside.
-				local topY = part.Position.Y + part.Size.Y / 2
-				if root.Position.Y < topY then
-					return
-				end
-				local cp = checkpoints[player]
-				if not cp or cp.tower ~= id or root.Position.Y > cp.position.Y + 4 then
-					checkpoints[player] = { tower = id, position = root.Position + Vector3.new(0, Config.Climb.CheckpointRespawnLift, 0) }
-					if cp and cp.tower == id then
-						ClimbService.toast(player, "Checkpoint saved", "good")
-					end
-				end
-			end)
-		end
-	end
-
 	local lift = tower:FindFirstChild("Lift")
 	local prompt = lift and lift:FindFirstChild("LiftPrompt") :: ProximityPrompt?
 	if prompt then
@@ -219,7 +246,9 @@ local function onCharacter(player: Player, character: Model)
 	if cp then
 		task.wait(0.1)
 		if character.Parent then
-			character:PivotTo(CFrame.new(cp.position))
+			-- Back on the wall, facing it; the client grabs on straight away.
+			character:PivotTo(CFrame.lookAt(cp.position, cp.position - cp.normal))
+			notify:FireClient(player, "Regrip", {})
 			ClimbService.toast(player, "Respawned at your last checkpoint", "info")
 		end
 	end
@@ -250,6 +279,27 @@ function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
 		active[player] = nil
 		checkpoints[player] = nil
 		lastRejectNotice[player] = nil
+	end)
+
+	local lastRest: { [Player]: number } = {}
+	Remotes.get("RestCheckpoint").OnServerEvent:Connect(function(player, normal)
+		local now = os.clock()
+		if now - (lastRest[player] or 0) < 0.5 then
+			return
+		end
+		lastRest[player] = now
+		onRestCheckpoint(player, normal)
+	end)
+
+	-- Share each climber's pose so every client can animate them.
+	Remotes.get("ClimbPose").OnServerEvent:Connect(function(player, pose)
+		if typeof(pose) ~= "string" or not POSES[pose] then
+			return
+		end
+		local character = player.Character
+		if character then
+			character:SetAttribute("ClimbPose", pose)
+		end
 	end)
 
 	Remotes.get("ResetToPlaza").OnServerEvent:Connect(function(player)

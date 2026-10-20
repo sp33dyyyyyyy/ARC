@@ -1,24 +1,25 @@
--- Procedural towers for Grip & Lunge climbing (no ladders).
+-- Procedural towers for Hand-over-Hand climbing.
 --
 -- Climbable surfaces carry the "Climbable" tag; the client climbing controller
--- raycasts against them. Anything solid that sticks out from a climbable wall
--- (platforms, balconies) blocks you, and you mantle onto it to rest.
+-- raycasts against them. Nothing solid sticks out of a climbable face, so a
+-- climber can go from the ground to the summit without being blocked, then
+-- climbs straight over the top onto the summit deck / roof.
+--
+-- Rest spots are yellow rest bars across every face (decorative, non-colliding).
+-- Their heights are published as the tower's "RestLevels" attribute; the
+-- client lets you hang still there to recover stamina.
 --
 -- Telecom towers follow real self-supporting lattice towers: four tapering
--- legs, X-bracing, a railed rest platform on top of every section, dishes,
--- panel antennas and aviation lights. Each face of each section has an
--- invisible climb panel lying in the lattice face, so you climb the lattice.
---
--- Skyscrapers are glass towers with a frame grid, a railed maintenance balcony
--- every `BalconyEvery` studs (the only rest spots), rooftop AC units, an
--- optional helipad, and windows that light up at night.
+-- legs, X-bracing, dishes, panel antennas and aviation lights. Each face of
+-- each section has an invisible climb panel lying in the lattice face, so you
+-- climb the lattice. Skyscrapers are glass towers with a frame grid, rooftop AC
+-- units, an optional helipad, and windows that light up at night.
 
 local Build = require(script.Parent.Build)
 
 local TowerBuilder = {}
 
 local WHITE = Color3.fromRGB(235, 235, 235)
-local CONCRETE = Color3.fromRGB(170, 168, 160)
 local MAX_PART = 2000 -- Roblox parts are capped at 2048 studs per side
 
 local FACES = {
@@ -37,6 +38,25 @@ end
 local function faceCF(towerCF: CFrame, o: Vector3, u: number, v: number, y: number): CFrame
 	local along = o:Cross(Vector3.yAxis)
 	return towerCF * CFrame.fromMatrix(o * u + along * v + Vector3.new(0, y, 0), o, Vector3.yAxis)
+end
+
+local REST_BAR_COLOR = Color3.fromRGB(255, 200, 40)
+
+-- A rest bar across face `o` at height y, `halfWidth` either side of centre.
+-- It sits just proud of the wall (less than the climber's wall offset), so it
+-- never blocks anyone, and isn't queryable so climbing raycasts ignore it.
+local function restBar(model: Model, towerCF: CFrame, o: Vector3, faceU: number, y: number, halfWidth: number)
+	Build.part(model, {
+		Name = "RestBar",
+		Size = Vector3.new(0.5, 0.5, halfWidth * 2 * 0.9),
+		CFrame = faceCF(towerCF, o, faceU + 0.3, 0, y),
+		Color = REST_BAR_COLOR,
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		Tags = { "RestBar" },
+	})
 end
 
 local function liftKiosk(model: Model, cf: CFrame)
@@ -85,44 +105,13 @@ local function zones(model: Model, towerCF: CFrame, baseHalf: number, peakY: num
 	})
 end
 
--- Railing around a square platform/balcony of half-size p whose top is at y.
-local function railing(model: Model, towerCF: CFrame, p: number, y: number, props: { [string]: any }, postEvery: number)
-	for f = 0, 3 do
-		local o = faceDir(f)
-		local rail = {
-			Name = "Rail",
-			Size = Vector3.new(0.3, 0.3, p * 2),
-			CFrame = faceCF(towerCF, o, p - 0.15, 0, y + 3),
-		}
-		for k, v in props do
-			rail[k] = v
-		end
-		Build.part(model, rail)
-		for v = -p, p, postEvery do
-			local post = {
-				Name = "RailPost",
-				Size = Vector3.new(0.3, 3, 0.3),
-				CFrame = faceCF(towerCF, o, p - 0.15, v, y + 1.5),
-				CanCollide = false,
-				CanQuery = false,
-			}
-			for k, val in props do
-				if post[k] == nil then
-					post[k] = val
-				end
-			end
-			Build.part(model, post)
-		end
-	end
-end
-
 -- Telecom lattice tower --------------------------------------------------------
 
-local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, number)
+local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, number, { number })
 	local S, n = def.SectionHeight, def.Sections
 	local H = S * n
 	local paint = Color3.fromRGB(def.Color[1], def.Color[2], def.Color[3])
-	local overhang = 4
+	local restLevels = {}
 
 	local function hw(y: number): number
 		return def.BaseHalfWidth + (def.TopHalfWidth - def.BaseHalfWidth) * (y / H)
@@ -170,18 +159,23 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 			})
 		end
 
-		-- Rest platform on top of the section, sticking out past the lattice so
-		-- climbers bump into it and mantle up.
-		local p = hw(top) + overhang
-		Build.part(model, {
-			Name = "Platform",
-			Size = Vector3.new(p * 2, 1, p * 2),
-			CFrame = towerCF * CFrame.new(0, top - 0.5, 0),
-			Color = Color3.fromRGB(120, 124, 130),
-			Material = Enum.Material.DiamondPlate,
-			Attributes = { Checkpoint = true },
-		})
-		railing(model, towerCF, p, top, { Color = Color3.fromRGB(255, 220, 60), Material = Enum.Material.Metal }, 12)
+		if k < n - 1 then
+			-- Rest bars across every face at the top of the section.
+			for f = 0, 3 do
+				restBar(model, towerCF, faceDir(f), hw(top), top, hw(top))
+			end
+			table.insert(restLevels, top)
+		else
+			-- Summit deck, flush with the lattice so you climb straight over onto it.
+			local p = hw(top) + 0.5
+			Build.part(model, {
+				Name = "SummitDeck",
+				Size = Vector3.new(p * 2, 1, p * 2),
+				CFrame = towerCF * CFrame.new(0, top - 0.5, 0),
+				Color = Color3.fromRGB(120, 124, 130),
+				Material = Enum.Material.DiamondPlate,
+			})
+		end
 
 		-- Microwave dishes on a couple of faces per section.
 		if k > 0 and k < n - 1 and k % 2 == 1 then
@@ -200,10 +194,10 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 				})
 			end
 		end
-		-- Aviation lights every few sections, like the real thing.
+		-- Aviation lights on the legs every few sections, like the real thing.
 		if k % 3 == 2 then
 			for _, c in { { 1, 1 }, { -1, -1 } } do
-				Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(c[1] * (p - 0.5), top + 0.8, c[2] * (p - 0.5))), 1.2)
+				Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(c[1] * (hw(top) + 0.6), top, c[2] * (hw(top) + 0.6))), 1.2)
 			end
 		end
 	end
@@ -236,17 +230,17 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 	})
 	Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(0, H + 7 + mastHeight + 0.8, 0)), 2)
 
-	return H, hw(H) + overhang
+	return H, hw(H) + 0.5, restLevels
 end
 
 -- Glass skyscraper -----------------------------------------------------------------
 
-local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number, number)
+local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number, number, { number })
 	local H, h, every = def.Height, def.HalfWidth, def.BalconyEvery
 	local glass = Color3.fromRGB(def.Color[1], def.Color[2], def.Color[3])
 	local frame = Color3.fromRGB(def.Frame[1], def.Frame[2], def.Frame[3])
 	local rng = Random.new(H + h) -- deterministic window pattern per tower
-	local balconyDepth = 4
+	local restLevels = {}
 
 	-- Facade, in segments (part size limit) between balconies.
 	for y0 = 0, H - every, every do
@@ -321,23 +315,13 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 			})
 		end
 
-		-- Maintenance balcony on top of this segment (the roof for the last one).
+		-- Window-washer rest bars across every face on top of this segment.
 		local top = y0 + seg
 		if top < H then
-			local p = h + balconyDepth
-			Build.part(model, {
-				Name = "Balcony",
-				Size = Vector3.new(p * 2, 1, p * 2),
-				CFrame = towerCF * CFrame.new(0, top - 0.5, 0),
-				Color = CONCRETE,
-				Material = Enum.Material.Concrete,
-				Attributes = { Checkpoint = true },
-			})
-			railing(model, towerCF, p, top, {
-				Color = Color3.fromRGB(180, 210, 230),
-				Material = Enum.Material.Glass,
-				Transparency = 0.4,
-			}, 10)
+			for f = 0, 3 do
+				restBar(model, towerCF, faceDir(f), h, top, h - 2)
+			end
+			table.insert(restLevels, top)
 		end
 	end
 
@@ -369,7 +353,6 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 		CFrame = towerCF * CFrame.new(0, H - 0.5, 0),
 		Color = Color3.fromRGB(110, 112, 118),
 		Material = Enum.Material.Concrete,
-		Attributes = { Checkpoint = true },
 	})
 	for f = 0, 3 do
 		Build.part(model, {
@@ -438,7 +421,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 		Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(c[1] * (h - 0.8), H + 2.8, c[2] * (h - 0.8))), 1.4)
 	end
 	liftKiosk(model, towerCF * CFrame.new(0, H, if def.Helipad then h * 0.55 else 0))
-	return H, h + 0.5
+	return H, h + 0.5, restLevels
 end
 
 -- Public -------------------------------------------------------------------------
@@ -449,11 +432,11 @@ function TowerBuilder.build(parent: Instance, entry: any, def: any, towerCF: CFr
 	local model = Instance.new("Model")
 	model.Name = entry.Name
 
-	local height, peakHalf
+	local height, peakHalf, restLevels
 	if def.Kind == "Telecom" then
-		height, peakHalf = buildTelecom(model, towerCF, def)
+		height, peakHalf, restLevels = buildTelecom(model, towerCF, def)
 	else
-		height, peakHalf = buildSkyscraper(model, towerCF, def)
+		height, peakHalf, restLevels = buildSkyscraper(model, towerCF, def)
 	end
 	zones(model, towerCF, lotHalf - 2, height, peakHalf)
 
@@ -466,6 +449,7 @@ function TowerBuilder.build(parent: Instance, entry: any, def: any, towerCF: CFr
 	model:SetAttribute("DrainMultiplier", def.DrainMultiplier)
 	model:SetAttribute("Slippery", def.Slippery)
 	model:SetAttribute("Radius", lotHalf)
+	model:SetAttribute("RestLevels", table.concat(restLevels, ","))
 	model.WorldPivot = towerCF
 	model.Parent = parent
 	return model

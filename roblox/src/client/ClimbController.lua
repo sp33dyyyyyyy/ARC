@@ -1,17 +1,20 @@
--- Client climbing: "Grip & Lunge" wall climbing, stamina, blackouts, ragdoll
+-- Client climbing: "Hand-over-Hand" wall climbing, stamina, blackouts, ragdoll
 -- falls, chalk and wind.
 --
--- Grip & Lunge:
---   * SPACE facing a tower (anything tagged "Climbable") grabs on. SPACE while
---     falling catches the wall, if you're not falling too fast.
---   * W/S crawl up/down, A/D sideways (touch/gamepad: push toward the wall).
---   * SPACE while climbing lunges: a fast leap up the wall that costs extra stamina.
+-- Hand-over-Hand:
+--   * Walk or jump into a tower (anything tagged "Climbable") to grab on. SPACE
+--     facing a tower grabs too, and SPACE while falling catches the wall (if
+--     you're not falling too fast).
+--   * W/S climb up/down in hand-over-hand pulls; A/D shuffle sideways.
+--     (Touch / gamepad: push toward the wall to climb.)
+--   * SPACE while climbing leaps up the wall: fast, but costs extra stamina.
 --   * Q lets go.
---   * Anything solid sticking out of the wall (platforms, balconies) blocks you
---     and you mantle up onto it. Reaching the top of a wall mantles onto the roof.
+--   * Hang still with your hands on a yellow rest bar to recover stamina; that
+--     also saves a checkpoint. At the top you climb straight over onto the summit.
 --
 -- The body is held on the wall with AlignPosition/AlignOrientation on the
--- HumanoidRootPart (the client owns its character's physics, so this replicates).
+-- HumanoidRootPart (the client owns its character's physics, so this
+-- replicates). ClimbAnimator draws the procedural climbing animation.
 --
 -- Stamina runs on the client because only the owning client knows its exact
 -- climbing state every frame. That is safe: stamina only limits the player
@@ -26,6 +29,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local ClimbAnimator = require(script.Parent.ClimbAnimator)
 local Effects = require(script.Parent.Effects)
 local Weather = require(script.Parent.Weather)
 
@@ -35,14 +39,17 @@ type Mode = "normal" | "fall" | "blackout" | "ragdoll"
 
 local CC = Config.Climb
 local ROOT_HEIGHT = 3 -- HumanoidRootPart centre above the floor when standing
+local HAND_HEIGHT = 2.5 -- hands above the root while climbing
+local PULSE_AVERAGE = 0.35 + 0.65 / math.pi -- mean of the pull curve below
 
 local player = Players.LocalPlayer
 local ragdollRemote = Remotes.get("Ragdoll")
+local restRemote = Remotes.get("RestCheckpoint")
+local poseRemote = Remotes.get("ClimbPose")
 local rng = Random.new()
 
 local humanoid: Humanoid? = nil
 local root: BasePart? = nil
-local character: Model? = nil
 local stamina = Config.Stamina.Base
 local mode: Mode = "normal"
 local ragdollTime, settleTime = 0, 0
@@ -58,20 +65,24 @@ local lastJumpRequest = 0
 local climbing = false
 local anchor = Vector3.zero -- where the root is held
 local wallNormal = Vector3.zAxis -- horizontal, pointing out of the wall
+local phase = 0 -- hand-over-hand cycle
 local lungeLeft = 0
 local lungeReadyAt = 0
 local climbMoving = false
+local resting = false
+local restLevel: number? = nil
+local checkpointLevel: number? = nil
+local regrabAt = 0
+local autoGripUntil = 0
+local sentPose = ""
 local alignPos: AlignPosition? = nil
 local alignOri: AlignOrientation? = nil
 local climbAttachment: Attachment? = nil
-local climbTrack: AnimationTrack? = nil
 
 local ui: any = nil
 
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
-local overlapParams = OverlapParams.new()
-overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function boosts(): Rules.Boosts
 	local b = {}
@@ -98,6 +109,21 @@ local function currentTower(pos: Vector3): Model?
 	return nil
 end
 
+-- The rest bar your hands are on (its height), if any.
+local function restBarAt(tower: Model?, handY: number): number?
+	if not tower then
+		return nil
+	end
+	local levels = tostring((tower :: Model):GetAttribute("RestLevels") or "")
+	for value in string.gmatch(levels, "[^,]+") do
+		local y = tonumber(value)
+		if y and math.abs(handY - y) <= CC.RestBarReach then
+			return y
+		end
+	end
+	return nil
+end
+
 local function chalkRemaining(): number
 	return math.max(0, (player:GetAttribute("ChalkUntil") or 0) - Workspace:GetServerTimeNow())
 end
@@ -105,6 +131,19 @@ end
 local function horizontal(v: Vector3): Vector3
 	local h = Vector3.new(v.X, 0, v.Z)
 	return if h.Magnitude > 1e-3 then h.Unit else Vector3.zAxis
+end
+
+local function drainContext(tower: Model?, moving: boolean, now: number, y: number): Rules.DrainContext
+	return {
+		climbing = climbing,
+		moving = moving,
+		towerMultiplier = if tower then tower:GetAttribute("DrainMultiplier") or 1 else 1,
+		slippery = if tower then tower:GetAttribute("Slippery") == true else false,
+		chalk = chalkRemaining() > 0,
+		gust = now < gustUntil and y > Config.Wind.MinHeight,
+		weatherMultiplier = Weather.drainMultiplier(),
+		resting = resting,
+	}
 end
 
 -- Climbable wall straight "into" the wall from `origin`, or nil.
@@ -116,31 +155,27 @@ local function probeWall(origin: Vector3, normal: Vector3): RaycastResult?
 	return nil
 end
 
--- Somewhere to stand at or just above the current hold, or nil.
+-- Somewhere to stand at or just above the hold (top of the wall), or nil.
+-- Uses rays (exact geometry) rather than bounding boxes, which are far larger
+-- than the slanted lattice panels and wrongly reported "no room".
 local function findMantle(): Vector3?
 	local inward = -wallNormal
 	for _, offset in { 0, 1.5, 3, 4.5, 6 } do
 		local p = anchor + inward * offset
 		local top = Vector3.new(p.X, anchor.Y + CC.MantleReach, p.Z)
 		local hit = Workspace:Raycast(top, Vector3.new(0, -(CC.MantleReach + 4), 0), rayParams)
-		-- Stand on floors, not on climbable trim like the roof parapet.
 		if
 			hit
 			and hit.Normal.Y > 0.7
 			and hit.Instance.CanCollide
-			and not hit.Instance:HasTag("Climbable")
+			and not hit.Instance:HasTag("Climbable") -- stand on floors, not on trim like the parapet
 			and hit.Position.Y > anchor.Y - ROOT_HEIGHT + 0.5
 		then
 			local stand = hit.Position + Vector3.new(0, ROOT_HEIGHT, 0)
-			local blockers = Workspace:GetPartBoundsInBox(CFrame.new(stand + Vector3.new(0, 0.3, 0)), Vector3.new(2, 4.6, 2), overlapParams)
-			local free = true
-			for _, part in blockers do
-				if part.CanCollide then
-					free = false
-					break
-				end
-			end
-			if free then
+			local headroom = Workspace:Raycast(hit.Position + Vector3.new(0, 0.1, 0), Vector3.new(0, 5, 0), rayParams)
+			local from = Vector3.new(anchor.X, stand.Y, anchor.Z)
+			local path = if (stand - from).Magnitude > 0.05 then Workspace:Raycast(from, stand - from, rayParams) else nil
+			if not (headroom and headroom.Instance.CanCollide) and not (path and path.Instance.CanCollide) then
 				return stand
 			end
 		end
@@ -148,27 +183,10 @@ local function findMantle(): Vector3?
 	return nil
 end
 
-local function playClimbAnimation()
-	local hum = humanoid
-	local char = character
-	if not hum or not char then
-		return
-	end
-	if not climbTrack then
-		local animate = char:FindFirstChild("Animate")
-		local folder = animate and animate:FindFirstChild("climb")
-		local anim = folder and folder:FindFirstChildOfClass("Animation")
-		local animator = hum:FindFirstChildOfClass("Animator")
-		if anim and animator then
-			local ok, track = pcall(animator.LoadAnimation, animator, anim)
-			if ok then
-				climbTrack = track
-				track.Priority = Enum.AnimationPriority.Action
-			end
-		end
-	end
-	if climbTrack and not climbTrack.IsPlaying then
-		climbTrack:Play(0.15)
+local function sendPose(pose: string)
+	if pose ~= sentPose then
+		sentPose = pose
+		poseRemote:FireServer(pose)
 	end
 end
 
@@ -178,7 +196,10 @@ local function release(push: boolean)
 	end
 	climbing = false
 	climbMoving = false
+	resting = false
+	restLevel = nil
 	lungeLeft = 0
+	regrabAt = os.clock() + CC.RegrabDelay
 	if alignPos then
 		alignPos:Destroy()
 		alignPos = nil
@@ -191,9 +212,8 @@ local function release(push: boolean)
 		climbAttachment:Destroy()
 		climbAttachment = nil
 	end
-	if climbTrack then
-		climbTrack:Stop(0.2)
-	end
+	ClimbAnimator.setLocal("", 0)
+	sendPose("")
 	local hum, rootPart = humanoid, root
 	if hum then
 		hum.PlatformStand = false
@@ -207,19 +227,21 @@ local function release(push: boolean)
 	cooldownUntil = os.clock() + 0.3
 end
 
-local function grab(): boolean
+-- Grab the climbable wall along `dir` within `range`, if any.
+local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
 	local hum, rootPart = humanoid, root
 	if climbing or mode ~= "normal" or not hum or not rootPart or hum.Health <= 0 then
 		return false
 	end
 	if rootPart.AssemblyLinearVelocity.Y < -CC.CatchMaxFallSpeed then
-		ui.overlay:toast("Falling too fast to grab!", "bad")
+		if not quiet then
+			ui.overlay:toast("Falling too fast to grab!", "bad")
+		end
 		return false
 	end
-	local look = horizontal(rootPart.CFrame.LookVector)
 	local hit: RaycastResult? = nil
 	for _, height in { 0, 1.5, -1.5 } do
-		local result = Workspace:Raycast(rootPart.Position + Vector3.new(0, height, 0), look * (CC.GripRange + 1), rayParams)
+		local result = Workspace:Raycast(rootPart.Position + Vector3.new(0, height, 0), dir * range, rayParams)
 		if result and result.Instance:HasTag("Climbable") and math.abs(result.Normal.Y) < 0.7 then
 			hit = result
 			break
@@ -256,8 +278,8 @@ local function grab(): boolean
 	hum.PlatformStand = true
 	rootPart.AssemblyLinearVelocity = Vector3.zero
 	climbing = true
+	autoGripUntil = 0
 	airPeakY, freefallTime = nil, 0
-	playClimbAnimation()
 	Effects.sound(Config.Sounds.Grab, 0.5, 1.3)
 	return true
 end
@@ -335,26 +357,32 @@ function ClimbController.isClimbing(): boolean
 	return climbing
 end
 
--- SPACE / jump button: grab when free, lunge when climbing.
+-- After respawning at a checkpoint: grab the wall in front without any input.
+function ClimbController.regrip()
+	autoGripUntil = os.clock() + 2
+	regrabAt = 0
+end
+
+-- SPACE / jump button: grab when free, leap when climbing.
 local function onJump()
 	local now = os.clock()
 	if now - lastJumpRequest < 0.2 then
 		return
 	end
 	lastJumpRequest = now
-	if climbing then
+	local rootPart = root
+	if climbing and rootPart then
 		if now >= lungeReadyAt and lungeLeft <= 0 then
-			local tower = root and currentTower((root :: BasePart).Position)
-			local b = boosts()
-			local rate = Rules.staminaRate(Config.Stamina, Config.Chalk, Config.Wind, Config.Boosts, b, {
-				climbing = true,
-				moving = true,
-				towerMultiplier = if tower then tower:GetAttribute("DrainMultiplier") or 1 else 1,
-				slippery = if tower then tower:GetAttribute("Slippery") == true else false,
-				chalk = chalkRemaining() > 0,
-				gust = now < gustUntil,
-				weatherMultiplier = Weather.drainMultiplier(),
-			}, false)
+			local tower = currentTower(rootPart.Position)
+			local rate = Rules.staminaRate(
+				Config.Stamina,
+				Config.Chalk,
+				Config.Wind,
+				Config.Boosts,
+				boosts(),
+				drainContext(tower, true, now, rootPart.Position.Y),
+				false
+			)
 			local cost = Rules.lungeCost(CC, rate)
 			if stamina > cost then
 				stamina -= cost
@@ -362,26 +390,26 @@ local function onJump()
 				lungeReadyAt = now + CC.LungeCooldown
 				Effects.sound(Config.Sounds.Click, 0.4, 0.7)
 			else
-				ui.overlay:toast("Too tired to lunge!", "bad")
+				ui.overlay:toast("Too tired to leap!", "bad")
 			end
 		end
-	elseif mode == "normal" then
-		grab()
+	elseif mode == "normal" and rootPart then
+		grab(horizontal(rootPart.CFrame.LookVector), CC.GripRange + 1)
 	end
 end
 
-local function onGust(phase: string, dir: Vector3, duration: number)
+local function onGust(phase_: string, dir: Vector3, duration: number)
 	if typeof(dir) ~= "Vector3" or typeof(duration) ~= "number" then
 		return
 	end
-	if phase == "warn" then
+	if phase_ == "warn" then
 		ui.hud:setWind("WIND GUST INCOMING - HOLD ON!")
 		task.delay(duration, function()
 			if os.clock() >= gustUntil then
 				ui.hud:setWind(nil)
 			end
 		end)
-	elseif phase == "start" then
+	elseif phase_ == "start" then
 		gustUntil = os.clock() + duration
 		gustDir = dir
 		ui.hud:setWind("GUST! Stamina drains faster")
@@ -394,9 +422,9 @@ local function onGust(phase: string, dir: Vector3, duration: number)
 		if not rootPart or not hum or mode ~= "normal" or rootPart.Position.Y < Config.Wind.MinHeight then
 			return
 		end
-		Effects.shake(duration * 0.5, 0.25)
+		Effects.shake(duration * 0.5, 0.2)
 		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
-		if climbing and stamina < max * Config.Wind.KnockOffFraction then
+		if climbing and not resting and stamina < max * Config.Wind.KnockOffFraction then
 			-- Too tired to hold on: the wind rips you off the wall.
 			local y = rootPart.Position.Y
 			enterRagdoll("fall", y)
@@ -424,15 +452,22 @@ local function climbInput(hum: Humanoid): (number, number)
 end
 
 -- Moves the hold point along the wall. Returns true if the climber mantled.
-local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts): boolean
+local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Model?): boolean
 	local vert, lat = climbInput(hum)
 	local speed = Rules.climbSpeed(CC, Config.Boosts, b)
 	local up = 0
 	if lungeLeft > 0 then
 		up = math.min(lungeLeft, CC.LungeSpeed * dt)
 		lungeLeft -= up
-	else
-		up = vert * speed * dt
+		phase += dt * 6
+	elseif vert ~= 0 then
+		-- Hand-over-hand: you surge on each pull and slow between them.
+		phase += dt * (speed / CC.ReachLength) * math.pi * 2 * math.abs(vert)
+		local pulse = 0.35 + 0.65 * math.max(0, math.sin(phase * 2))
+		up = vert * speed * dt * pulse / PULSE_AVERAGE
+	end
+	if lat ~= 0 and lungeLeft <= 0 then
+		phase += dt * (CC.SideSpeed / CC.ReachLength) * math.pi * math.abs(lat)
 	end
 	local side = lat * CC.SideSpeed * dt
 	climbMoving = math.abs(up) > 1e-3 or math.abs(side) > 1e-3
@@ -442,7 +477,7 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts): boolean
 	local wallUp = (Vector3.yAxis - n * n:Dot(Vector3.yAxis)).Unit
 	local right = (-wallNormal):Cross(Vector3.yAxis)
 
-	-- Going up: blocked by something overhead (platform / balcony) -> mantle.
+	-- Going up into something solid overhead: climb onto it if there's room.
 	if up > 0 then
 		local ceiling = Workspace:Raycast(anchor + Vector3.new(0, 2.4, 0), Vector3.new(0, up + 0.6, 0), rayParams)
 		if ceiling and ceiling.Instance.CanCollide then
@@ -483,10 +518,22 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts): boolean
 	end
 
 	if side ~= 0 then
-		local sideways = candidate + right * side
-		local sideHit = probeWall(sideways, wallNormal)
+		local sideHit = probeWall(candidate + right * side, wallNormal)
 		if sideHit then
 			candidate = sideHit.Position + sideHit.Normal * CC.WallOffset
+		end
+	end
+
+	-- Rest bars: stop with your hands on one to hang there and breathe.
+	restLevel = restBarAt(tower, candidate.Y + HAND_HEIGHT)
+	resting = restLevel ~= nil and not climbMoving and lungeLeft <= 0
+	if resting and restLevel then
+		-- Settle the hands onto the bar.
+		local targetY = restLevel - HAND_HEIGHT
+		candidate = Vector3.new(candidate.X, candidate.Y + (targetY - candidate.Y) * math.min(1, dt * 6), candidate.Z)
+		if checkpointLevel ~= restLevel then
+			checkpointLevel = restLevel
+			restRemote:FireServer(wallNormal)
 		end
 	end
 
@@ -499,9 +546,10 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts): boolean
 		ap.Position = anchor
 		ao.CFrame = CFrame.lookAt(anchor, anchor - wallNormal)
 	end
-	if climbTrack then
-		climbTrack:AdjustSpeed(if climbMoving then 1 + (speed - CC.ClimbSpeed) / CC.ClimbSpeed else 0)
-	end
+
+	local pose = if lungeLeft > 0 then "leap" elseif resting then "rest" else "climb"
+	ClimbAnimator.setLocal(pose, phase)
+	sendPose(pose)
 	return false
 end
 
@@ -512,14 +560,16 @@ local function statusFor(grounded: boolean, frac: number, nearWall: boolean): (s
 		return "Falling! (SPACE to catch the wall)", Color3.fromRGB(255, 86, 86)
 	elseif mode == "ragdoll" then
 		return "Ragdolling (press R to get up)", Color3.fromRGB(255, 196, 46)
+	elseif climbing and resting then
+		return "Resting on a rest bar...", Color3.fromRGB(88, 224, 132)
 	elseif climbing and frac < Config.Stamina.DangerFraction then
-		return "Out of breath! Get to a platform!", Color3.fromRGB(255, 86, 86)
+		return "Out of breath! Get to a rest bar!", Color3.fromRGB(255, 86, 86)
 	elseif climbing and climbMoving then
-		return "Climbing...  (SPACE: lunge, Q: let go)", nil
-	elseif climbing then
-		return "Gripping on (still draining)", Color3.fromRGB(255, 200, 60)
+		return "Climbing...  (SPACE: leap, Q: let go)", nil
+	elseif climbing and restLevel == nil then
+		return "Holding on (still draining)", Color3.fromRGB(255, 200, 60)
 	elseif nearWall then
-		return "Press SPACE to grab the tower", Color3.fromRGB(255, 196, 46)
+		return "Walk into the tower to climb", Color3.fromRGB(255, 196, 46)
 	elseif grounded and frac < 0.999 then
 		return "Catching your breath...", Color3.fromRGB(88, 224, 132)
 	end
@@ -561,9 +611,18 @@ local function step(dt: number)
 			exitRagdoll()
 		end
 	else
+		local tower = currentTower(rootPart.Position)
 		if climbing then
-			if stepClimb(hum, dt, b) then
-				return -- mantled this frame
+			if stepClimb(hum, dt, b, tower) then
+				return -- climbed over the top this frame
+			end
+		elseif tower and now >= regrabAt then
+			-- Auto-grip: walking or jumping into a tower grabs it.
+			local move = hum.MoveDirection
+			if now < autoGripUntil then
+				grab(horizontal(rootPart.CFrame.LookVector), CC.GripRange, true)
+			elseif move.Magnitude > 0.5 then
+				grab(horizontal(move), CC.AutoGripRange, true)
 			end
 		end
 		local pos = rootPart.Position
@@ -588,16 +647,7 @@ local function step(dt: number)
 			enterRagdoll("fall", airPeakY)
 		end
 
-		local tower = currentTower(pos)
-		local ctx: Rules.DrainContext = {
-			climbing = climbing,
-			moving = climbMoving or lungeLeft > 0,
-			towerMultiplier = if tower then tower:GetAttribute("DrainMultiplier") or 1 else 1,
-			slippery = if tower then tower:GetAttribute("Slippery") == true else false,
-			chalk = chalkRemaining() > 0,
-			gust = now < gustUntil and pos.Y > Config.Wind.MinHeight,
-			weatherMultiplier = Weather.drainMultiplier(),
-		}
+		local ctx = drainContext(tower, climbMoving or lungeLeft > 0, now, pos.Y)
 		local rate = Rules.staminaRate(Config.Stamina, Config.Chalk, Config.Wind, Config.Boosts, b, ctx, grounded)
 		stamina = Rules.stepStamina(stamina, rate, dt, max)
 
@@ -644,16 +694,16 @@ end
 
 local function onCharacter(char: Model)
 	release(false)
-	humanoid, root, character = nil, nil, nil -- stop stepping the old body while the new one loads
-	climbTrack = nil
+	humanoid, root = nil, nil -- stop stepping the old body while the new one loads
 	local hum = char:WaitForChild("Humanoid") :: Humanoid
 	local rootPart = char:WaitForChild("HumanoidRootPart") :: BasePart
-	humanoid, root, character = hum, rootPart, char
+	humanoid, root = hum, rootPart
 	rayParams.FilterDescendantsInstances = { char }
-	overlapParams.FilterDescendantsInstances = { char }
 	mode = "normal"
 	ragdollTime, settleTime, freefallTime = 0, 0, 0
 	airPeakY = nil
+	checkpointLevel = nil
+	sentPose = ""
 	cooldownUntil = os.clock() + 1.5 -- respawning at a checkpoint can start mid-air
 	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
 	ui.overlay:blackout(false)
@@ -670,6 +720,7 @@ end
 
 function ClimbController.start(uiRefs: any)
 	ui = uiRefs
+	ClimbAnimator.start()
 	Remotes.get("Gust").OnClientEvent:Connect(onGust)
 	UserInputService.JumpRequest:Connect(onJump)
 	player.CharacterAdded:Connect(onCharacter)
