@@ -250,7 +250,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 				CanQuery = false,
 			})
 		end
-		local count = math.floor(h * 2 / 9)
+		local count = math.floor(h * 2 / 16)
 		local spacing = h * 2 / count
 		for f = 0, 3 do
 			local o = faceDir(f)
@@ -267,8 +267,8 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 				})
 			end
 		end
-		-- Floor bands every 15 studs.
-		for y = y0 + 15, y0 + seg - 5, 15 do
+		-- Floor bands every 25 studs.
+		for y = y0 + 25, y0 + seg - 5, 25 do
 			Build.part(model, {
 				Name = "FloorBand",
 				Size = Vector3.new(h * 2 + 0.6, 1, h * 2 + 0.6),
@@ -283,7 +283,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 		-- A few windows that light up at night.
 		for _ = 1, 6 do
 			local f = rng:NextInteger(0, 3)
-			local y = y0 + rng:NextInteger(1, math.floor(seg / 15) - 1) * 15 - 7.5
+			local y = y0 + rng:NextInteger(1, math.floor(seg / 25) - 1) * 25 - 12.5
 			local v = -h + (rng:NextInteger(1, count) - 0.5) * spacing
 			Build.part(model, {
 				Name = "NightWindow",

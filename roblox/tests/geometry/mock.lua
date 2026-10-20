@@ -345,3 +345,5 @@ function mockRaycast(parts, origin, direction)
 	end
 	return best
 end
+
+task = { wait = function() end }

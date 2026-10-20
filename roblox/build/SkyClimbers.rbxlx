@@ -1208,6 +1208,19 @@ return AdminService
           <string name="Source"><![CDATA[-- Small helpers for creating anchored geometry from code.
 local Build = {}
 
+local BATCH = 300 -- parts per frame while batching
+local batching = false
+local created = 0
+
+-- While on, every BATCH parts the builder pauses a frame (see WorldBuilder.build).
+function Build.setBatching(on: boolean)
+	batching = on
+end
+
+function Build.count(): number
+	return created
+end
+
 -- Create an instance, apply properties, then parent it last (cheaper replication).
 function Build.part(parent: Instance, props: { [string]: any }): BasePart
 	local part = Instance.new(props.ClassName or "Part") :: BasePart
@@ -1234,6 +1247,10 @@ function Build.part(parent: Instance, props: { [string]: any }): BasePart
 		end
 	end
 	part.Parent = parent
+	created += 1
+	if batching and created % BATCH == 0 then
+		task.wait()
+	end
 	return part
 end
 
@@ -3060,7 +3077,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 				CanQuery = false,
 			})
 		end
-		local count = math.floor(h * 2 / 9)
+		local count = math.floor(h * 2 / 16)
 		local spacing = h * 2 / count
 		for f = 0, 3 do
 			local o = faceDir(f)
@@ -3077,8 +3094,8 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 				})
 			end
 		end
-		-- Floor bands every 15 studs.
-		for y = y0 + 15, y0 + seg - 5, 15 do
+		-- Floor bands every 25 studs.
+		for y = y0 + 25, y0 + seg - 5, 25 do
 			Build.part(model, {
 				Name = "FloorBand",
 				Size = Vector3.new(h * 2 + 0.6, 1, h * 2 + 0.6),
@@ -3093,7 +3110,7 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 		-- A few windows that light up at night.
 		for _ = 1, 6 do
 			local f = rng:NextInteger(0, 3)
-			local y = y0 + rng:NextInteger(1, math.floor(seg / 15) - 1) * 15 - 7.5
+			local y = y0 + rng:NextInteger(1, math.floor(seg / 25) - 1) * 25 - 12.5
 			local v = -h + (rng:NextInteger(1, count) - 0.5) * spacing
 			Build.part(model, {
 				Name = "NightWindow",
@@ -3418,18 +3435,17 @@ local function fence(world: Instance, a: Vector3, b: Vector3, style: string, gap
 			})
 		end
 		if not wood then
-			-- iron fences get thin pickets
-			for d = d0 + 2, d1 - 1, 4 do
-				Build.part(world, {
-					Name = "Picket",
-					Size = Vector3.new(0.15, 4, 0.15),
-					CFrame = CFrame.new(a + dir * d + Vector3.new(0, 2, 0)),
-					Color = color,
-					Material = material,
-					CanCollide = false,
-					CanQuery = false,
-				})
-			end
+			-- One see-through mesh panel instead of hundreds of thin pickets.
+			Build.part(world, {
+				Name = "FenceMesh",
+				Size = Vector3.new(0.1, 2.6, d1 - d0),
+				CFrame = CFrame.lookAt(a + dir * ((d0 + d1) / 2), b) * CFrame.new(0, 2.3, 0),
+				Color = color,
+				Material = Enum.Material.DiamondPlate,
+				Transparency = 0.55,
+				CanCollide = false,
+				CanQuery = false,
+			})
 		end
 	end
 	local d = 0
@@ -3811,31 +3827,40 @@ end
 
 -- Public -------------------------------------------------------------------------------
 
+-- Builds in batches, pausing every few hundred parts, so Studio stays
+-- responsive and the server never hits the script time limit (building ~9,000
+-- parts in one go froze or "crashed" Studio on slower PCs). The ground and
+-- plaza go in first, so players never spawn over nothing.
 function WorldBuilder.build()
+	local started = os.clock()
 	local world = Workspace:FindFirstChild("World")
 	local towers = Workspace:FindFirstChild("Towers")
 	if not world then
 		world = Instance.new("Folder")
 		world.Name = "World"
+		world.Parent = Workspace
 		local rng = Random.new(2024)
 		buildIsland(world, rng)
 		buildPlaza(world)
+		Build.setBatching(true)
 		buildPaths(world)
 		for _, entry in Config.Layout do
 			buildLot(world, rng, entry, Config.TowerTypes[entry.Type])
 		end
 		buildShop(world)
 		scatterTrees(world, rng)
-		world.Parent = Workspace
 	end
 	if not towers then
+		Build.setBatching(true)
 		towers = Instance.new("Folder")
 		towers.Name = "Towers"
+		towers.Parent = Workspace
 		for _, entry in Config.Layout do
 			TowerBuilder.build(towers, entry, Config.TowerTypes[entry.Type], towerCFrame(entry), M.LotHalf)
 		end
-		towers.Parent = Workspace
 	end
+	Build.setBatching(false)
+	print(string.format("[World] built %d parts in %.1fs", Build.count(), os.clock() - started))
 	return world, towers
 end
 

@@ -1,6 +1,19 @@
 -- Small helpers for creating anchored geometry from code.
 local Build = {}
 
+local BATCH = 300 -- parts per frame while batching
+local batching = false
+local created = 0
+
+-- While on, every BATCH parts the builder pauses a frame (see WorldBuilder.build).
+function Build.setBatching(on: boolean)
+	batching = on
+end
+
+function Build.count(): number
+	return created
+end
+
 -- Create an instance, apply properties, then parent it last (cheaper replication).
 function Build.part(parent: Instance, props: { [string]: any }): BasePart
 	local part = Instance.new(props.ClassName or "Part") :: BasePart
@@ -27,6 +40,10 @@ function Build.part(parent: Instance, props: { [string]: any }): BasePart
 		end
 	end
 	part.Parent = parent
+	created += 1
+	if batching and created % BATCH == 0 then
+		task.wait()
+	end
 	return part
 end
 
