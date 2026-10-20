@@ -1,6 +1,8 @@
 -- Runs the real WorldBuilder against the mock and verifies every tower can be
 -- climbed Hand-over-Hand, mirroring the client's rules:
---   * every face has climbable surface from the ground to the summit
+--   * skyscrapers: every face has climbable glass from the ground to the summit
+--   * telecom towers: no invisible climbable walls at all - only the real
+--     members (tagged ClimbHold), which the lattice sim climbs
 --   * nothing solid is in the climbing lane anywhere (no leftover platforms)
 --   * rest bars on every face at every rest level, non-colliding, matching
 --     the RestLevels attribute the client reads
@@ -9,6 +11,7 @@
 -- (Bundled after mock.lua and the game modules by run_geometry.py.)
 
 local Config = __req("Config")
+local Lattice = __req("Lattice")
 local WorldBuilder = __req("WorldBuilder")
 local _, towers = WorldBuilder.build()
 
@@ -181,7 +184,14 @@ for _, tower in towers:GetChildren() do
 		fail(string.format("%s: expected a rest bar on each face at each level (%d), got %d", name, #levels * 4, restBars))
 	end
 
+	local isTelecom = tower:GetAttribute("Kind") == "Telecom"
+	if isTelecom and #climbables > 0 then
+		fail(name .. ": telecom towers must only be climbable on their real members, not a Climbable surface")
+	end
 	for fi, axis in AXES do
+		if isTelecom then
+			break -- lattice coverage is checked by the lattice sim below
+		end
 		local face = string.format("%s face %d", name, fi - 1)
 		-- Continuous climbable surface from the ground to the summit.
 		for y = 1, H - 1, 2 do
@@ -242,7 +252,8 @@ for _, tower in towers:GetChildren() do
 		if part:IsA("BasePart") and part:HasTag("ClipBar") then
 			table.insert(clipBars, part)
 		end
-		if part:IsA("BasePart") and part.CanQuery ~= false then
+		-- The client's climbing rays skip non-colliding parts (RespectCanCollide).
+		if part:IsA("BasePart") and part.CanQuery ~= false and part.CanCollide ~= false then
 			table.insert(parts, part)
 			if part:HasTag("Climbable") then
 				table.insert(climbables, box(inv, part))
@@ -250,20 +261,29 @@ for _, tower in towers:GetChildren() do
 		end
 	end
 	local isTelecom = tower:GetAttribute("Kind") == "Telecom"
+	local segments, barSegments = {}, {}
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part:HasTag("ClimbHold") then
+			table.insert(segments, Lattice.segment(part))
+		end
+	end
+	for _, bar in clipBars do
+		table.insert(barSegments, Lattice.segment(bar))
+	end
 	if isTelecom and #clipBars == 0 then
 		fail(tower.Name .. ": telecom tower has no beams to clip a rope to")
 	end
-	-- Mirrors ClimbController.findClipPoint for telecom towers.
+	-- Mirrors ClimbController.findClipPoint for telecom towers, then checks
+	-- RopeService's validation (same Lattice maths) accepts the point.
 	local function nearestClip(hands)
-		local best = math.huge
-		for _, bar in clipBars do
-			local cf = bar.CFrame
-			local look = -cf.b -- a beam's length runs along its look vector
-			local half = bar.Size.Z / 2
-			local d = math.clamp((hands - cf.p):Dot(look), -half, half)
-			best = math.min(best, ((cf.p + look * d) - hands).Magnitude)
+		local q = Lattice.nearest(barSegments, hands, Config.Rope.Reach)
+		if not q then
+			return math.huge
 		end
-		return best
+		if not Lattice.nearest(barSegments, q, 1) then
+			fail(tower.Name .. ": the server would reject the client's clip point")
+		end
+		return (q - hands).Magnitude
 	end
 	local world = {
 		cast = function(origin, direction)
@@ -278,22 +298,75 @@ for _, tower in towers:GetChildren() do
 		noStand = function(instance)
 			return instance:HasTag("NoStand")
 		end,
+		holds = function()
+			return segments
+		end,
+		faceNormal = function(point)
+			return Lattice.faceNormal(towerCF, point)
+		end,
 	}
+	-- The client picks surface or lattice climbing by tower kind.
+	local function plan(anchor, normal, vert, lat)
+		if isTelecom then
+			return WallClimb.latticePlan(world, CC, anchor, normal, vert, lat, CC.ClimbSpeed)
+		end
+		return WallClimb.plan(world, CC, anchor, normal, vert, lat, CC.ClimbSpeed)
+	end
+	local function grabFrom(start, dir)
+		if isTelecom then
+			return WallClimb.latticeGrab(world, CC, start, dir, CC.AutoGripRange)
+		end
+		return WallClimb.grab(world, CC, start, dir, CC.GripRange)
+	end
+	local function afterMove(anchor, normal)
+		if isTelecom then
+			return Lattice.faceNormal(towerCF, anchor)
+		end
+		local probe = WallClimb.probe(world, CC, anchor, normal)
+		return if probe then WallClimb.horizontal(probe.Normal) else normal
+	end
+	-- How far a face's outer members are from the centre at height y.
+	local function latticeExtent(axis, y)
+		local best = nil
+		for _, seg in segments do
+			local dy = seg.b.Y - seg.a.Y
+			if math.abs(dy) > 1e-6 and y >= seg.minY and y <= seg.maxY then
+				local p = seg.a + (seg.b - seg.a) * ((y - seg.a.Y) / dy)
+				local e = (inv * p):Dot(axis)
+				best = if best then math.max(best, e) else e
+			end
+		end
+		return best
+	end
 	local levels = {}
 	for value in string.gmatch(tower:GetAttribute("RestLevels") or "", "[^,]+") do
 		table.insert(levels, tonumber(value))
 	end
-	local speed = CC.ClimbSpeed
 	local summits, moves = 0, 0
 	for run = 0, 11 do
-		local fi, startY = run % 4 + 1, 3 + math.floor(run / 4)
+		local fi, k = run % 4 + 1, math.floor(run / 4)
 		local axis = AXES[fi]
-		local face = string.format("%s face %d start y=%d (sim)", tower.Name, fi - 1, startY)
-		local ext = faceExtent(climbables, axis, startY)
 		local outward = towerCF:PointToWorldSpace(axis) - towerCF.p
-		local start = towerCF:PointToWorldSpace(onAxis(axis, ext + 2, startY))
+		local start, face
+		if isTelecom then
+			-- Walk up to the face at three spots: the middle, halfway out, and
+			-- right next to a leg.
+			local ext = latticeExtent(axis, 3)
+			if not ext then
+				fail(string.format("%s face %d: no members at the bottom", tower.Name, fi - 1))
+				continue
+			end
+			local side = Vector3.new(-axis.Z, 0, axis.X) * ({ 0, 0.5 * ext, -(ext - 1) })[k + 1]
+			start = towerCF:PointToWorldSpace(onAxis(axis, ext + 1.2, 3) + side)
+			face = string.format("%s face %d lateral %d (sim)", tower.Name, fi - 1, k)
+		else
+			local startY = 3 + k
+			local ext = faceExtent(climbables, axis, startY)
+			start = towerCF:PointToWorldSpace(onAxis(axis, ext + 2, startY))
+			face = string.format("%s face %d start y=%d (sim)", tower.Name, fi - 1, startY)
+		end
 		local firstRun = run < 4
-		local anchor, normal = WallClimb.grab(world, CC, start, -outward, CC.GripRange)
+		local anchor, normal = grabFrom(start, -outward)
 		if not anchor then
 			fail(face .. ": can't grab the wall from the ground")
 			continue
@@ -308,19 +381,42 @@ for _, tower in towers:GetChildren() do
 			-- Partway up, check that traversing, leaping and down-climbing work.
 			if not traversed and anchor.Y > 12 then
 				traversed = true
-				local right = WallClimb.plan(world, CC, anchor, normal, 0, 1, speed)
-				local left = WallClimb.plan(world, CC, anchor, normal, 0, -1, speed)
+				local right = plan(anchor, normal, 0, 1)
+				local left = plan(anchor, normal, 0, -1)
 				if not right or not left then
 					fail(face .. string.format(": can't traverse sideways at y=%.0f", anchor.Y))
 				end
-				local down = WallClimb.plan(world, CC, anchor, normal, -1, 0, speed)
+				if isTelecom then
+					-- Traverse right all the way round a corner onto the next face.
+					local a, n, turned = anchor, normal, false
+					for _ = 1, 80 do
+						local m = plan(a, n, 0, 1)
+						if not m then
+							fail(face .. string.format(": traverse got stuck at y=%.0f", a.Y))
+							break
+						end
+						a = m.to
+						local n2 = afterMove(a, n)
+						if n2:Dot(normal) < 0.5 then
+							turned = true
+							break
+						end
+						n = n2
+					end
+					if not turned then
+						fail(face .. ": traversing never reached the next face round the corner")
+					end
+				end
+				local down = plan(anchor, normal, -1, 0)
 				if not down or down.to.Y >= anchor.Y then
 					fail(face .. string.format(": can't climb down at y=%.0f", anchor.Y))
 				end
 			end
 			if not leapt and anchor.Y > H * 0.5 then
 				leapt = true
-				local leap = WallClimb.planLeap(world, CC, anchor, normal)
+				local leap = if isTelecom
+					then WallClimb.latticeLeap(world, CC, anchor, normal)
+					else WallClimb.planLeap(world, CC, anchor, normal)
 				if not leap or leap.to.Y <= anchor.Y + 1 then
 					fail(face .. string.format(": can't leap at y=%.0f", anchor.Y))
 				end
@@ -331,14 +427,18 @@ for _, tower in towers:GetChildren() do
 					fail(face .. string.format(": no beam to clip the rope to within reach at y=%.0f (nearest %.1f)", anchor.Y, reach))
 				end
 			end
-			local move, action = WallClimb.plan(world, CC, anchor, normal, 1, 0, speed)
+			local move, action = plan(anchor, normal, 1, 0)
 			if move then
+				if isTelecom then
+					-- Hands are always on a real member.
+					local hand = WallClimb.handFor(CC, move.to, Lattice.faceNormal(towerCF, move.to))
+					if not Lattice.nearest(segments, hand, 0.05) then
+						fail(face .. string.format(": hands not on a beam at y=%.0f", hand.Y))
+					end
+				end
 				anchor = move.to
 				moves += 1
-				local probe = WallClimb.probe(world, CC, anchor, normal)
-				if probe then
-					normal = WallClimb.horizontal(probe.Normal)
-				end
+				normal = afterMove(anchor, normal)
 			elseif action == "mantle" then
 				local stand = WallClimb.findMantle(world, CC, anchor, normal)
 				if not stand then
@@ -347,6 +447,23 @@ for _, tower in towers:GetChildren() do
 					fail(face .. string.format(": climbed onto something at y=%.0f before the summit", stand.Y))
 				else
 					summits += 1
+					if isTelecom and firstRun then
+						-- Rappel Kit: slide all the way down the lattice.
+						local a, n, ok = anchor, normal, true
+						while a.Y > WallClimb.ROOT_HEIGHT + 2 do
+							local nextPos = WallClimb.latticeSlide(world, CC, a, n, Config.Rope.RappelSpeed / 60)
+							if not nextPos or nextPos.Y >= a.Y then
+								fail(face .. string.format(": rappel stopped at y=%.0f", a.Y))
+								ok = false
+								break
+							end
+							a = nextPos
+							n = Lattice.faceNormal(towerCF, a)
+						end
+						if ok and (a - anchor).Magnitude < H * 0.9 then
+							fail(face .. ": rappel didn't get down")
+						end
+					end
 				end
 				break
 			else
@@ -360,10 +477,10 @@ for _, tower in towers:GetChildren() do
 			end
 		end
 		-- And back down from the first few moves: step off at the bottom.
-		local low, lowNormal = WallClimb.grab(world, CC, start, -outward, CC.GripRange)
+		local low, lowNormal = grabFrom(start, -outward)
 		if low and firstRun then
 			for _ = 1, 20 do
-				local move, action = WallClimb.plan(world, CC, low, lowNormal, -1, 0, speed)
+				local move, action = plan(low, lowNormal, -1, 0)
 				if action == "stepoff" then
 					descended = true
 					break
@@ -380,7 +497,16 @@ for _, tower in towers:GetChildren() do
 			fail(face .. ": can't grab the wall again from the ground")
 		end
 	end
-	print(string.format("sim  %-16s %d/12 climbs reached the summit (4 faces x 3 start heights, %d moves)", tower.Name, summits, moves))
+	print(string.format(
+		"sim  %-16s %d/12 climbs reached the summit (4 faces x 3 %s, %d moves)",
+		tower.Name,
+		summits,
+		if isTelecom then "spots, on the lattice" else "start heights",
+		moves
+	))
+	if summits ~= 12 then
+		fail(tower.Name .. ": not every simulated climb reached the summit")
+	end
 end
 
 -- The spawn plaza and island top must be at ground level (y = 0..0.5), not buried.

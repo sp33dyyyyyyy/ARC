@@ -1,7 +1,9 @@
 -- Client climbing: rock climbing, stamina, blackouts, ragdoll falls, chalk, wind.
 --
 -- Rock climbing:
---   * Walk or jump into a tower (anything tagged "Climbable") to grab on. SPACE
+--   * Walk or jump into a tower to grab on. Skyscraper glass ("Climbable") can
+--     be gripped anywhere; telecom towers only on their actual members (legs,
+--     braces and girts, tagged "ClimbHold" - see WallClimb's lattice mode). SPACE
 --     facing a tower grabs too, and SPACE while falling catches the wall (if
 --     you're not falling too fast).
 --   * You climb in discrete moves. Each move, one hand reaches for the next hold
@@ -38,6 +40,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Lattice = require(ReplicatedStorage.Shared.Lattice)
 local ClimbAnimator = require(script.Parent.ClimbAnimator)
 local Effects = require(script.Parent.Effects)
 local Weather = require(script.Parent.Weather)
@@ -80,6 +83,7 @@ local lungeReadyAt = 0
 local climbMoving = false
 local savedCollisions: { [BasePart]: boolean } = {}
 local ropeTaut = false -- last move was blocked by the rope's length
+local noHold = false -- nothing on the lattice within reach above
 local nextClipScan, clipInReach = 0, false
 local groundedSince = 0
 -- Rappel (Rappel Kit power-up)
@@ -96,8 +100,40 @@ local climbAttachment: Attachment? = nil
 
 local ui: any = nil
 
+-- Lattice climbing: the telecom tower you're on (or reaching for), and each
+-- tower's members as segments (built once per tower).
+local holdTower: Model? = nil
+local segmentCache: { [Model]: { Lattice.Segment } } = {}
+local clipBarCache: { [Model]: { Lattice.Segment } } = {}
+
+local function towerSegments(maybeTower: Model?): { Lattice.Segment }
+	if not maybeTower then
+		return {}
+	end
+	local tower = maybeTower :: Model
+	local cached = segmentCache[tower]
+	if cached then
+		return cached
+	end
+	local list = {}
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part:HasTag("ClimbHold") then
+			table.insert(list, Lattice.segment(part))
+		end
+	end
+	if #list > 0 then
+		segmentCache[tower] = list -- (empty means it hasn't replicated yet)
+	end
+	return list
+end
+
+local function isLattice(tower: Model?): boolean
+	return tower ~= nil and tower:GetAttribute("Kind") == "Telecom"
+end
+
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.RespectCanCollide = true -- decorations you can walk through aren't walls
 
 local world: WallClimb.World = {
 	cast = function(origin, direction)
@@ -111,6 +147,13 @@ local world: WallClimb.World = {
 	end,
 	noStand = function(instance)
 		return instance:HasTag("NoStand")
+	end,
+	holds = function()
+		return towerSegments(holdTower)
+	end,
+	faceNormal = function(point)
+		local tower = holdTower
+		return if tower then Lattice.faceNormal(tower.WorldPivot, point) else wallNormal
 	end,
 }
 
@@ -193,6 +236,7 @@ local function release(push: boolean)
 	end
 	climbing = false
 	climbMoving = false
+	noHold = false
 	resting = false
 	restLevel = nil
 	move = nil
@@ -248,7 +292,14 @@ local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
 		end
 		return false
 	end
-	local hold, normal = WallClimb.grab(world, CC, rootPart.Position, dir, range)
+	local tower = currentTower(rootPart.Position)
+	local hold, normal
+	holdTower = if isLattice(tower) then tower else nil
+	if holdTower then
+		hold, normal = WallClimb.latticeGrab(world, CC, rootPart.Position, dir, range)
+	else
+		hold, normal = WallClimb.grab(world, CC, rootPart.Position, dir, range)
+	end
 	if not hold or not normal then
 		return false
 	end
@@ -394,21 +445,22 @@ local function findClipPoint(): (Vector3?, string?)
 		return nil, nil
 	end
 	local hands = if climbing then anchor + Vector3.new(0, HAND_HEIGHT, 0) else rootPart.Position + Vector3.new(0, 1.5, 0)
-	if tower:GetAttribute("Kind") == "Telecom" then
-		-- Carabiner onto the nearest horizontal beam.
-		local best, bestDist = nil, Config.Rope.Reach
-		for _, bar in CollectionService:GetTagged("ClipBar") do
-			if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
-				local cf = bar.CFrame
-				local half = bar.Size.Z / 2
-				local d = math.clamp((hands - cf.Position):Dot(cf.LookVector), -half, half)
-				local point = cf.Position + cf.LookVector * d
-				local dist = (point - hands).Magnitude
-				if dist < bestDist then
-					best, bestDist = point, dist
+	if isLattice(tower) then
+		-- Carabiner onto the nearest horizontal beam (the server checks it with
+		-- the same Lattice maths, so they always agree).
+		local bars = clipBarCache[tower]
+		if not bars then
+			bars = {}
+			for _, bar in CollectionService:GetTagged("ClipBar") do
+				if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
+					table.insert(bars, Lattice.segment(bar))
 				end
 			end
+			if #bars > 0 then
+				clipBarCache[tower] = bars
+			end
 		end
+		local best = Lattice.nearest(bars, hands, Config.Rope.Reach)
 		return best, if best then "carabiner" else nil
 	end
 	-- Suction cup straight onto the glass in front of your hands.
@@ -434,12 +486,27 @@ function ClimbController.clip()
 	end
 	ropeRemote:FireServer("clip", point)
 	ropeTaut = false
-	Effects.sound(Config.Sounds.Grab, 0.6, if kind == "suction" then 0.7 else 1.6)
+	-- Reach up and clip it in (the server flies the gear onto the beam).
+	ClimbAnimator.gesture("point", 0.5, 1.6)
+	Effects.sound(Config.Sounds.Grab, 0.4, if kind == "suction" then 0.7 else 1.6)
+end
+
+-- The server's answer to a clip request (see RopeService).
+function ClimbController.onRopeResult(ok: boolean, text: string, kind: string?)
+	if ok then
+		Effects.sound(Config.Sounds.Click, 0.6, if kind == "suction" then 0.6 else 2.2)
+		ui.overlay:toast(text, "good")
+		nextClipScan = 0
+	else
+		ui.overlay:toast(text, "bad")
+	end
 end
 
 function ClimbController.unclip()
 	if player:GetAttribute("RopeAnchor") ~= nil then
 		ropeRemote:FireServer("unclip")
+		ClimbAnimator.gesture("point", 0.35, 2)
+		Effects.sound(Config.Sounds.Click, 0.4, 1.4)
 	end
 end
 
@@ -478,7 +545,21 @@ function ClimbController.rappel()
 		local out = pivot:VectorToWorldSpace(axis)
 		local radius = tower:GetAttribute("Radius") or 60
 		local origin = Vector3.new(pivot.X, height - 4, pivot.Z) + out * radius
-		local hold, normal = WallClimb.grab(world, CC, origin, -out, radius + 5)
+		local hold, normal
+		if isLattice(tower) then
+			-- The outermost member on that face, just below the top.
+			holdTower = tower
+			local q = Lattice.nearest(towerSegments(tower), Vector3.new(pivot.X, height - 4, pivot.Z) + out * 200, 260, function(p)
+				return p.Y < height - 2 and Lattice.faceNormal(pivot, p):Dot(out) > 0.9
+			end)
+			if q then
+				normal = out
+				hold = q + out * CC.WallOffset - Vector3.new(0, HAND_HEIGHT, 0)
+			end
+		else
+			holdTower = nil
+			hold, normal = WallClimb.grab(world, CC, origin, -out, radius + 5)
+		end
 		if not hold or not normal then
 			return
 		end
@@ -551,7 +632,9 @@ local function startLeap(now: number): boolean
 		ui.overlay:toast("Too tired to leap!", "bad")
 		return false
 	end
-	local leap = WallClimb.planLeap(world, CC, anchor, wallNormal)
+	local leap = if isLattice(holdTower)
+		then WallClimb.latticeLeap(world, CC, anchor, wallNormal)
+		else WallClimb.planLeap(world, CC, anchor, wallNormal)
 	if not leap then
 		return false
 	end
@@ -658,15 +741,25 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 			ui.overlay:toast("Touched down. Nice rappel!", "good")
 			return true
 		end
-		local probe = probeWall(anchor, wallNormal)
-		local n = if probe then probe.Normal else wallNormal
-		local target = anchor - WallClimb.wallUp(n) * (Config.Rope.RappelSpeed * dt)
-		local hit = probeWall(target, wallNormal)
-		if not hit then
-			release(true) -- ran out of wall: drop the last bit
-			return true
+		if isLattice(holdTower) then
+			-- Slide down following the lattice's taper.
+			local nextPos = WallClimb.latticeSlide(world, CC, anchor, wallNormal, Config.Rope.RappelSpeed * dt)
+			if not nextPos then
+				release(true)
+				return true
+			end
+			setHold(nextPos)
+		else
+			local probe = probeWall(anchor, wallNormal)
+			local n = if probe then probe.Normal else wallNormal
+			local target = anchor - WallClimb.wallUp(n) * (Config.Rope.RappelSpeed * dt)
+			local hit = probeWall(target, wallNormal)
+			if not hit then
+				release(true) -- ran out of wall: drop the last bit
+				return true
+			end
+			setHold(hit.Position + hit.Normal * CC.WallOffset)
 		end
-		setHold(hit.Position + hit.Normal * CC.WallOffset)
 		climbMoving = false
 		resting = false
 		ClimbAnimator.set("rappel")
@@ -677,10 +770,17 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 	local speed = Rules.climbSpeed(CC, Config.Boosts, b)
 
 	if not move and (vert ~= 0 or lat ~= 0) then
-		local planned, action = WallClimb.plan(world, CC, anchor, wallNormal, vert, lat, speed)
+		local planned, action
+		if isLattice(holdTower) then
+			planned, action = WallClimb.latticePlan(world, CC, anchor, wallNormal, vert, lat, speed)
+		else
+			planned, action = WallClimb.plan(world, CC, anchor, wallNormal, vert, lat, speed)
+		end
+		noHold = isLattice(holdTower) and planned == nil and vert > 0 and action ~= "stepoff"
 		if action == "mantle" then
 			local stand = findMantle()
 			if stand then
+				noHold = false
 				mantle(stand)
 				return true
 			end
@@ -716,9 +816,18 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 			local pull = math.clamp((f - CC.ReachFraction) / (1 - CC.ReachFraction), 0, 1)
 			setHold(current.from:Lerp(current.to, pull * pull * (3 - 2 * pull)))
 		end
-		local probe = probeWall(anchor, wallNormal)
-		if probe then
-			wallNormal = horizontal(probe.Normal)
+		if isLattice(holdTower) then
+			-- Turn to face whichever face of the tower you're on (corners).
+			local n = world.faceNormal(anchor)
+			if n:Dot(wallNormal) < 0.99 then
+				wallNormal = n
+				setHold(anchor)
+			end
+		else
+			local probe = probeWall(anchor, wallNormal)
+			if probe then
+				wallNormal = horizontal(probe.Normal)
+			end
 		end
 		if f >= 1 then
 			move = nil
@@ -765,6 +874,8 @@ local function statusFor(grounded: boolean, frac: number, nearWall: boolean): (s
 		return "Ragdolling (press R to get up)", Color3.fromRGB(255, 196, 46)
 	elseif rappelling then
 		return "Rappelling down...  (V: stop, Q: let go)", Color3.fromRGB(110, 200, 255)
+	elseif climbing and noHold and not climbMoving then
+		return "No beam within reach above - move sideways (A/D) or dyno", Color3.fromRGB(255, 200, 60)
 	elseif climbing and ropeTaut then
 		return "Rope's at full length - clip in higher (F)", Color3.fromRGB(255, 200, 60)
 	elseif climbing and resting then
@@ -884,8 +995,13 @@ local function step(dt: number)
 
 		if not climbing and tower then
 			local look = horizontal(rootPart.CFrame.LookVector)
-			local hit = Workspace:Raycast(pos, look * (CC.GripRange + 1), rayParams)
-			nearWall = hit ~= nil and hit.Instance:HasTag("Climbable")
+			if isLattice(tower) then
+				local reach = pos + Vector3.new(0, HAND_HEIGHT, 0) + look * 1.5
+				nearWall = Lattice.nearest(towerSegments(tower), reach, CC.GripRange) ~= nil
+			else
+				local hit = Workspace:Raycast(pos, look * (CC.GripRange + 1), rayParams)
+				nearWall = hit ~= nil and hit.Instance:HasTag("Climbable")
+			end
 		end
 	end
 

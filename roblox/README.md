@@ -28,9 +28,12 @@ or `rojo serve` and connect from the Studio plugin.
 
 ## Controls: rock climbing
 
-There are no ladders: you climb the towers themselves (the lattice of the
-telecom towers and the glass of the skyscrapers). Nothing sticks out of a tower
-to block you; you rest on yellow rest bars instead.
+There are no ladders: you climb the towers themselves. On a telecom tower your
+hands have to be on an actual beam (a leg, a diagonal brace or a horizontal
+girt), so you climb the real lattice, not an invisible wall around it, and you
+can swing round a corner leg onto the next face. Skyscraper glass can be
+gripped anywhere. Nothing sticks out of a tower to block you; you rest on
+yellow rest bars instead.
 
 | Input | Action |
 |---|---|
@@ -58,7 +61,11 @@ On touch screens, push the stick toward the wall to climb; the jump button grabs
 and dynos, and the HUD has LET GO, CLIP ROPE and RAPPEL buttons.
 
 **Climbing rope:** the rope is 16 studs long, so as you climb, clip in again
-higher (F) like lead climbing. While you're clipped, wind gusts can't knock you
+higher (F) like lead climbing. Pressing F makes your character reach up, and
+your carabiner (orange D-ring with a silver gate on a blue quickdraw sling)
+flies up from your harness and clips round the beam; unclipping (X) drops it
+back to your harness. You always get a message saying you're clipped in, or
+exactly why not (too far, no beam there, and so on). While you're clipped, wind gusts can't knock you
 off, you can hang still on the rope to recover stamina (half the ground rate),
 and if you black out or let go the rope catches your fall. Telecom towers: clip
 a carabiner onto any horizontal beam. Skyscrapers: stick a suction cup onto the
@@ -154,10 +161,12 @@ tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 luau tests/run.lua                          # 30 unit tests for the game rules and balance
 python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock with
                                             # ray casting, then runs the game's own climbing code
-                                            # (WallClimb) up every face of every tower from three
-                                            # start heights: grab, chain moves, rest bars and rope
-                                            # clip beams in reach,
-                                            # traverse, dyno, climb down, climb over the summit
+                                            # (WallClimb) up every face of every tower: grab, chain
+                                            # moves, rest bars, rope clip beams in reach (and accepted
+                                            # by the server's check), traverse, dyno, climb down,
+                                            # climb over the summit. Telecom towers are climbed on the
+                                            # lattice only (hands checked to be on a real beam),
+                                            # including round corners and a full rappel down.
 ```
 
 Stamina runs on the client, because only the owning client knows its exact

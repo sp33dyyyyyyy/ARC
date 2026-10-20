@@ -284,6 +284,8 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 	elseif kind == "Announcement" then
 		overlay:announcement(tostring(payload.text), tostring(payload.from or "Admin"))
 		Effects.sound(Config.Sounds.Summit, 0.7, 0.8)
+	elseif kind == "RopeResult" then
+		ClimbController.onRopeResult(payload.ok == true, tostring(payload.text), payload.kind)
 	elseif kind == "Regrip" then
 		ClimbController.regrip()
 	elseif kind == "Hurt" then

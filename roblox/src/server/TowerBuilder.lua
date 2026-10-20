@@ -10,9 +10,8 @@
 -- client lets you hang still there to recover stamina.
 --
 -- Telecom towers follow real self-supporting lattice towers: four tapering
--- legs, X-bracing, dishes, panel antennas and aviation lights. Each face of
--- each section has an invisible climb panel lying in the lattice face, so you
--- climb the lattice. Skyscrapers are glass towers with a frame grid, rooftop AC
+-- legs, X-bracing, dishes, panel antennas and aviation lights. You climb the
+-- lattice itself: every leg, brace and girt is tagged "ClimbHold". Skyscrapers are glass towers with a frame grid, rooftop AC
 -- units, an optional helipad, and windows that light up at night.
 
 local Build = require(script.Parent.Build)
@@ -103,36 +102,29 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 		for f = 0, 3 do
 			local o = faceDir(f)
 			-- Leg on this face's left corner (four faces -> four legs).
+			-- Every lattice member is a climbing hold ("ClimbHold"): you climb the
+			-- actual legs, braces and girts, not an invisible wall.
 			local leg = Build.beam(model, corner(o, -1, bottom), corner(o, -1, top), 1.4, metal)
 			leg.CanCollide = true
+			leg.Name = "Leg"
+			leg:AddTag("ClimbHold")
 
 			-- X-bracing about every 10 studs, plus a horizontal girt.
 			local panels = math.max(1, math.floor(S / 10))
 			local panelH = S / panels
 			for j = 0, panels - 1 do
 				local y0, y1 = bottom + j * panelH, bottom + (j + 1) * panelH
-				Build.beam(model, corner(o, -1, y0), corner(o, 1, y1), 0.5, metal)
-				Build.beam(model, corner(o, 1, y0), corner(o, -1, y1), 0.5, metal)
-				-- Horizontal girt: a clip bar for the climbing rope.
+				local brace1 = Build.beam(model, corner(o, -1, y0), corner(o, 1, y1), 0.5, metal)
+				local brace2 = Build.beam(model, corner(o, 1, y0), corner(o, -1, y1), 0.5, metal)
+				brace1.Name, brace2.Name = "Brace", "Brace"
+				brace1:AddTag("ClimbHold")
+				brace2:AddTag("ClimbHold")
+				-- Horizontal girt: a hold, and a clip bar for the climbing rope.
 				local girt = Build.beam(model, corner(o, -1, y0), corner(o, 1, y0), 0.5, metal)
 				girt.Name = "ClipBar"
 				girt:AddTag("ClipBar")
+				girt:AddTag("ClimbHold")
 			end
-
-			-- Invisible climb panel lying in the (tapered) lattice face.
-			local along = o:Cross(Vector3.yAxis)
-			local b = o * hw(bottom) + Vector3.new(0, bottom, 0)
-			local t = o * hw(top) + Vector3.new(0, top, 0)
-			local slope = t - b
-			local normal = slope:Cross(along).Unit
-			local width = hw(bottom) + hw(top) -- average full width
-			Build.part(model, {
-				Name = "ClimbFace",
-				Size = Vector3.new(1, slope.Magnitude, width),
-				CFrame = towerCF * CFrame.fromMatrix((b + t) / 2 - normal * 0.5, normal, slope.Unit),
-				Transparency = 1,
-				Tags = { "Climbable" },
-			})
 		end
 
 		if k < n - 1 then
@@ -185,6 +177,7 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 		local girt = Build.beam(model, corner(o, -1, H), corner(o, 1, H), 0.5, { Color = WHITE, Material = Enum.Material.Metal })
 		girt.Name = "ClipBar"
 		girt:AddTag("ClipBar")
+		girt:AddTag("ClimbHold")
 	end
 
 	-- Panel antennas just under the summit.

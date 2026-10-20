@@ -84,6 +84,19 @@ CFrameMeta.__index = function(self, key)
 		return function(c, v)
 			return c.p + rot(c, v)
 		end
+	elseif key == "LookVector" then
+		return -self.b
+	elseif key == "Rotation" then
+		return cf(v3(), self.r, self.u, self.b)
+	elseif key == "VectorToWorldSpace" then
+		return function(c, v)
+			return rot(c, v)
+		end
+	elseif key == "PointToObjectSpace" then
+		return function(c, v)
+			local d = v - c.p
+			return v3(d:Dot(c.r), d:Dot(c.u), d:Dot(c.b))
+		end
 	elseif key == "Inverse" then
 		return function(c)
 			-- transpose of the rotation

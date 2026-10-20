@@ -636,6 +636,77 @@ return Config
       </Item>
       <Item class="ModuleScript" referent="11">
         <Properties>
+          <string name="Name">Lattice</string>
+          <string name="Source"><![CDATA[--!strict
+-- Beam maths shared by client and server, so they always agree on where a
+-- hand can grab and where a carabiner can clip.
+--
+-- Every telecom tower member (legs, diagonal braces, horizontal girts) is a
+-- thin box whose length runs along its local Z axis (see Build.beam). A beam is
+-- treated as the line segment through its middle.
+
+local Lattice = {}
+
+export type Segment = { a: Vector3, b: Vector3, part: any, minY: number, maxY: number }
+
+-- Segment through the middle of a beam part.
+function Lattice.segment(part: any): Segment
+	local cf = part.CFrame
+	local half = part.Size.Z / 2
+	local along = cf.LookVector
+	local a, b = cf.Position - along * half, cf.Position + along * half
+	return { a = a, b = b, part = part, minY = math.min(a.Y, b.Y), maxY = math.max(a.Y, b.Y) }
+end
+
+-- Closest point to `p` on segment a-b.
+function Lattice.closest(seg: Segment, p: Vector3): Vector3
+	local ab = seg.b - seg.a
+	local lengthSq = ab:Dot(ab)
+	if lengthSq < 1e-9 then
+		return seg.a
+	end
+	local t = math.clamp((p - seg.a):Dot(ab) / lengthSq, 0, 1)
+	return seg.a + ab * t
+end
+
+-- The closest point on any segment to `p` within `radius` that passes `accept`
+-- (if given). Returns point, segment.
+function Lattice.nearest(
+	segments: { Segment },
+	p: Vector3,
+	radius: number,
+	accept: ((point: Vector3) -> boolean)?
+): (Vector3?, Segment?)
+	local best, bestSeg, bestDist = nil, nil, radius
+	for _, seg in segments do
+		-- Cheap height filter before the exact check.
+		if p.Y >= seg.minY - radius and p.Y <= seg.maxY + radius then
+			local q = Lattice.closest(seg, p)
+			local d = (q - p).Magnitude
+			if d <= bestDist and (accept == nil or accept(q)) then
+				best, bestSeg, bestDist = q, seg, d
+			end
+		end
+	end
+	return best, bestSeg
+end
+
+-- Outward normal of the tower face a point is on: the tower-frame axis the
+-- point sticks out along most (corners pick either neighbouring face).
+function Lattice.faceNormal(pivot: CFrame, p: Vector3): Vector3
+	local rel = pivot:PointToObjectSpace(p)
+	local axis = if math.abs(rel.X) >= math.abs(rel.Z)
+		then Vector3.new(if rel.X >= 0 then 1 else -1, 0, 0)
+		else Vector3.new(0, 0, if rel.Z >= 0 then 1 else -1)
+	return pivot:VectorToWorldSpace(axis)
+end
+
+return Lattice
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="12">
+        <Properties>
           <string name="Name">Remotes</string>
           <string name="Source"><![CDATA[-- RemoteEvents shared by server and client. The server creates them; clients wait.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -679,7 +750,7 @@ return Remotes
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="12">
+      <Item class="ModuleScript" referent="13">
         <Properties>
           <string name="Name">Rules</string>
           <string name="Source"><![CDATA[--!strict
@@ -1070,15 +1141,15 @@ return Rules
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="13">
+  <Item class="ServerScriptService" referent="14">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="14">
+    <Item class="Folder" referent="15">
       <Properties>
         <string name="Name">Server</string>
       </Properties>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">AdminConfig</string>
           <string name="Source"><![CDATA[-- Server-only admin settings. This ModuleScript lives in ServerScriptService,
@@ -1095,7 +1166,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">AdminService</string>
           <string name="Source"><![CDATA[-- Admins and the admin panel's powers: ban / unban by username, give or take
@@ -1433,7 +1504,7 @@ return AdminService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">Build</string>
           <string name="Source"><![CDATA[-- Small helpers for creating anchored geometry from code.
@@ -1568,7 +1639,7 @@ return Build
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">ClimbService</string>
           <string name="Source"><![CDATA[-- Climb tracking: base/peak zones, payouts, checkpoints, trails.
@@ -1883,7 +1954,7 @@ return ClimbService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">DataService</string>
           <string name="Source"><![CDATA[-- Player save data.
@@ -2186,7 +2257,7 @@ return DataService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">EnvironmentService</string>
           <string name="Source"><![CDATA[-- Day/night cycle, blinking aviation lights, street lights and wind gusts.
@@ -2329,7 +2400,7 @@ return EnvironmentService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">LeaderboardService</string>
           <string name="Source"><![CDATA[-- Fills the plaza leaderboard with the all-time top climbers. Falls back to the
@@ -2461,7 +2532,7 @@ return LeaderboardService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="22">
+      <Item class="Script" referent="23">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -2536,7 +2607,7 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">RagdollService</string>
           <string name="Source"><![CDATA[-- Server half of the ragdoll: swaps Motor6Ds for BallSocketConstraints so every
@@ -2726,27 +2797,42 @@ return RagdollService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="24">
+      <Item class="ModuleScript" referent="25">
         <Properties>
           <string name="Name">RopeService</string>
           <string name="Source"><![CDATA[-- Climbing rope: clip a carabiner onto a telecom tower's horizontal beam, or
 -- stick a suction cup onto skyscraper glass, and a real RopeConstraint ties
 -- your harness to it. Created here so every player sees the rope; the climber's
 -- client simulates their own body, so the rope physically catches their falls.
--- The client asks for a clip point; it's validated here (on a clip bar / glass,
--- within reach) before anything is created.
+--
+-- The client asks for a clip point. It's checked here with the same Lattice
+-- maths the client used to pick it (so a point the client offers always
+-- passes), and the climber always hears back ("RopeResult": ok + why not).
+--
+-- The gear is a real model: a D-shaped carabiner (orange body, silver gate)
+-- with a quickdraw sling and a small rope-end clip, or a suction cup with a
+-- handle. It flies from your harness up onto the beam/glass when you clip in,
+-- and drops back to your harness when you unclip.
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Lattice = require(ReplicatedStorage.Shared.Lattice)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local RopeService = {}
 
-local anchors: { [Player]: BasePart } = {}
+-- How far (studs) a requested point may be from the beam/glass, and how much
+-- further than Config.Rope.Reach from the climber it may be (network lag).
+RopeService.CLIP_TOLERANCE = 1
+RopeService.LAG_ALLOWANCE = 3
+
+local gear: { [Player]: Model } = {}
 local lastRequest: { [Player]: number } = {}
+local notify = Remotes.get("Notify")
 
 local function ropesFolder(): Folder
 	local folder = Workspace:FindFirstChild("Ropes")
@@ -2763,46 +2849,207 @@ local function rootOf(player: Player): BasePart?
 	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
--- Closest point on a beam (its length runs along the part's Z axis).
-local function closestOnBar(bar: BasePart, point: Vector3): Vector3
-	local cf = bar.CFrame
-	local along = cf.LookVector
-	local half = bar.Size.Z / 2
-	local d = math.clamp((point - cf.Position):Dot(along), -half, half)
-	return cf.Position + along * d
-end
-
--- What the point is clipped to: "carabiner" (telecom beam), "suction" (glass), or nil.
-local function clipKind(point: Vector3): string?
-	for _, bar in CollectionService:GetTagged("ClipBar") do
-		if bar:IsA("BasePart") and (closestOnBar(bar, point) - point).Magnitude <= 1 then
-			return "carabiner"
-		end
+local function towerAt(point: Vector3): Model?
+	local towers = Workspace:FindFirstChild("Towers")
+	if not towers then
+		return nil
 	end
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Include
-	params.FilterDescendantsInstances = { Workspace:FindFirstChild("Towers") :: Instance }
-	for _, part in Workspace:GetPartBoundsInRadius(point, 1.5, params) do
-		local tower = part:FindFirstAncestorOfClass("Model")
-		if part:HasTag("Climbable") and tower and tower:GetAttribute("Kind") == "Skyscraper" then
-			local localPoint = part.CFrame:PointToObjectSpace(point)
-			local half = part.Size / 2 + Vector3.one
-			if math.abs(localPoint.X) <= half.X and math.abs(localPoint.Y) <= half.Y and math.abs(localPoint.Z) <= half.Z then
-				return "suction"
+	for _, tower in towers:GetChildren() do
+		local radius = tower:GetAttribute("Radius")
+		if radius and tower:IsA("Model") then
+			local p = tower.WorldPivot.Position
+			if math.abs(point.X - p.X) <= radius + 2 and math.abs(point.Z - p.Z) <= radius + 2 then
+				return tower
 			end
 		end
 	end
 	return nil
 end
 
-function RopeService.unclip(player: Player)
-	local anchor = anchors[player]
-	if anchor then
-		anchor:Destroy()
-		anchors[player] = nil
+-- Clip bars of each tower as segments (towers never change once built).
+local barCache: { [Model]: { Lattice.Segment } } = {}
+local function clipBars(tower: Model): { Lattice.Segment }
+	local cached = barCache[tower]
+	if cached then
+		return cached
 	end
+	local list = {}
+	for _, bar in CollectionService:GetTagged("ClipBar") do
+		if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
+			table.insert(list, Lattice.segment(bar))
+		end
+	end
+	barCache[tower] = list
+	return list
+end
+
+-- What can be clipped at `point`: ("carabiner", beam point, beam direction),
+-- ("suction", glass point, glass normal), or nil + the reason.
+function RopeService.validate(point: Vector3): (string?, Vector3 | string, Vector3?)
+	local tower = towerAt(point)
+	if not tower then
+		return nil, "You're not on a tower."
+	end
+	if tower:GetAttribute("Kind") == "Telecom" then
+		local q, seg = Lattice.nearest(clipBars(tower), point, RopeService.CLIP_TOLERANCE)
+		if not q or not seg then
+			return nil, "No beam there - get your hands near a horizontal beam."
+		end
+		local along = seg.b - seg.a
+		local dir = Vector3.new(along.X, 0, along.Z)
+		return "carabiner", q, if dir.Magnitude > 1e-3 then dir.Unit else Vector3.xAxis
+	end
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { tower }
+	for _, part in Workspace:GetPartBoundsInRadius(point, 1.5, params) do
+		if part:HasTag("Climbable") then
+			local localPoint = part.CFrame:PointToObjectSpace(point)
+			local half = part.Size / 2 + Vector3.one * RopeService.CLIP_TOLERANCE
+			if math.abs(localPoint.X) <= half.X and math.abs(localPoint.Y) <= half.Y and math.abs(localPoint.Z) <= half.Z then
+				return "suction", point, Lattice.faceNormal(tower.WorldPivot, point)
+			end
+		end
+	end
+	return nil, "No glass there to stick the suction cup on."
+end
+
+-- Gear models -----------------------------------------------------------------------
+
+local ORANGE = Color3.fromRGB(255, 120, 30)
+local SILVER = Color3.fromRGB(205, 210, 220)
+
+-- A small part welded to `root`, placed at `offset` in root space.
+local function piece(model: Model, root: BasePart, name: string, size: Vector3, offset: CFrame, props: { [string]: any }?): BasePart
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.CFrame = root.CFrame * offset
+	part.Anchored = false
+	part.Massless = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Material = Enum.Material.Metal
+	part.Color = ORANGE
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	if props then
+		for key, value in props do
+			(part :: any)[key] = value
+		end
+	end
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = root
+	weld.Part1 = part
+	weld.Parent = part
+	part.Parent = model
+	return part
+end
+
+local function newRoot(model: Model, cf: CFrame): BasePart
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.one * 0.2
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.CFrame = cf
+	root.Parent = model
+	model.PrimaryPart = root
+	return root
+end
+
+-- Carabiner hanging off a beam. Root space: X runs along the beam, Y up, the
+-- ring hangs below the root (the beam passes through the top of the ring).
+local function buildCarabiner(model: Model, cf: CFrame): (BasePart, Attachment)
+	local root = newRoot(model, cf)
+	local t = 0.14 -- wire thickness
+	-- D-shaped ring in the root's YZ plane: top bar over the beam, back spine,
+	-- narrower bottom, silver gate on the front, rounded corners.
+	piece(model, root, "Top", Vector3.new(t, t, 0.62), CFrame.new(0, 0.36, 0))
+	piece(model, root, "Spine", Vector3.new(t, 1.5, t), CFrame.new(0, -0.39, -0.31))
+	piece(model, root, "Bottom", Vector3.new(t, t, 0.44), CFrame.new(0, -1.14, -0.09))
+	piece(model, root, "Gate", Vector3.new(0.1, 1.28, 0.1), CFrame.new(0, -0.33, 0.24) * CFrame.Angles(math.rad(-9), 0, 0), {
+		Color = SILVER,
+	})
+	for _, c in { Vector3.new(0, 0.36, -0.31), Vector3.new(0, 0.36, 0.31), Vector3.new(0, -1.14, -0.31), Vector3.new(0, -1.08, 0.13) } do
+		piece(model, root, "Bend", Vector3.one * 0.2, CFrame.new(c), { Shape = Enum.PartType.Ball })
+	end
+	-- Quickdraw sling (flat webbing) and the rope-end clip.
+	piece(model, root, "Sling", Vector3.new(0.06, 1.3, 0.32), CFrame.new(0, -1.85, -0.09), {
+		Material = Enum.Material.Fabric,
+		Color = Color3.fromRGB(40, 150, 230),
+	})
+	piece(model, root, "RopeClip", Vector3.new(0.1, 0.55, 0.32), CFrame.new(0, -2.65, -0.09), { Color = SILVER })
+	local att = Instance.new("Attachment")
+	att.Name = "RopeEnd"
+	att.Position = Vector3.new(0, -2.9, -0.09)
+	att.Parent = root
+	return root, att
+end
+
+-- Suction cup on glass. Root space: X points out of the glass.
+local function buildSuction(model: Model, cf: CFrame): (BasePart, Attachment)
+	local root = newRoot(model, cf)
+	piece(model, root, "Cup", Vector3.new(0.25, 1.6, 1.6), CFrame.new(0.12, 0, 0), {
+		Shape = Enum.PartType.Cylinder,
+		Material = Enum.Material.Glass,
+		Transparency = 0.35,
+		Color = ORANGE,
+	})
+	piece(model, root, "Body", Vector3.new(0.35, 0.9, 0.9), CFrame.new(0.4, 0, 0), {
+		Shape = Enum.PartType.Cylinder,
+		Material = Enum.Material.SmoothPlastic,
+		Color = Color3.fromRGB(40, 40, 46),
+	})
+	piece(model, root, "Handle", Vector3.new(0.18, 0.18, 1.1), CFrame.new(0.8, 0, 0), { Color = SILVER })
+	local att = Instance.new("Attachment")
+	att.Name = "RopeEnd"
+	att.Position = Vector3.new(0.85, -0.2, 0)
+	att.Parent = root
+	return root, att
+end
+
+-- Gear flying between your harness and the clip point.
+local function fly(root: BasePart, from: CFrame, to: CFrame, time: number): Tween
+	root.CFrame = from
+	local tween = TweenService:Create(root, TweenInfo.new(time, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = to })
+	tween:Play()
+	return tween
+end
+
+-- Clip / unclip ---------------------------------------------------------------------
+
+local function result(player: Player, ok: boolean, text: string, kind: string?)
+	notify:FireClient(player, "RopeResult", { ok = ok, text = text, kind = kind })
+end
+
+function RopeService.unclip(player: Player, animate: boolean?)
+	local model = gear[player]
+	gear[player] = nil
 	player:SetAttribute("RopeAnchor", nil)
 	player:SetAttribute("RopeKind", nil)
+	if not model then
+		return
+	end
+	local rope = model:FindFirstChildWhichIsA("RopeConstraint", true)
+	if rope then
+		rope:Destroy()
+	end
+	local root = model.PrimaryPart
+	local harness = rootOf(player)
+	if animate and root and harness then
+		-- Drop the gear back down to the harness, then put it away.
+		fly(root, root.CFrame, harness.CFrame * CFrame.new(0.6, -0.8, 0), 0.3)
+		task.delay(0.35, function()
+			model:Destroy()
+		end)
+	else
+		model:Destroy()
+	end
 end
 
 local function clip(player: Player, point: Vector3)
@@ -2812,69 +3059,73 @@ local function clip(player: Player, point: Vector3)
 	if not root or not humanoid or humanoid.Health <= 0 then
 		return
 	end
-	if (point - root.Position).Magnitude > Config.Rope.Reach + 3 then
-		return -- too far from the climber (allowing a little for lag)
+	if (point - root.Position).Magnitude > Config.Rope.Reach + RopeService.LAG_ALLOWANCE + 2.5 then
+		result(player, false, "Too far away to clip there - climb closer.")
+		return
 	end
-	local kind = clipKind(point)
-	if not kind then
+	local kind, at, dir = RopeService.validate(point)
+	if not kind or typeof(at) ~= "Vector3" or not dir then
+		result(player, false, if typeof(at) == "string" then at else "Can't clip there.")
 		return
 	end
 	RopeService.unclip(player)
 
-	local anchor = Instance.new("Part")
-	anchor.Name = player.Name .. "_" .. kind
-	anchor.Anchored = true
-	anchor.CanCollide = false
-	anchor.CanQuery = false
-	anchor.CanTouch = false
+	local model = Instance.new("Model")
+	model.Name = player.Name .. "_" .. kind
+	local target, gearRoot, ropeEnd
 	if kind == "carabiner" then
-		anchor.Size = Vector3.new(0.35, 0.9, 0.35)
-		anchor.Color = Color3.fromRGB(255, 140, 30)
-		anchor.Material = Enum.Material.Metal
+		-- Ring hangs off the beam with the beam through its top.
+		target = CFrame.fromMatrix(at - Vector3.new(0, 0.36, 0), dir, Vector3.yAxis)
+		gearRoot, ropeEnd = buildCarabiner(model, target)
 	else
-		anchor.Shape = Enum.PartType.Ball
-		anchor.Size = Vector3.one * 1.3
-		anchor.Color = Color3.fromRGB(255, 120, 40)
-		anchor.Material = Enum.Material.Glass
-		anchor.Transparency = 0.3
+		target = CFrame.fromMatrix(at - dir * 0.3, dir, Vector3.yAxis)
+		gearRoot, ropeEnd = buildSuction(model, target)
 	end
-	anchor.CFrame = CFrame.new(point)
-	local att0 = Instance.new("Attachment")
-	att0.Parent = anchor
+
 	local harness = root:FindFirstChild("RopeAttachment") :: Attachment?
 	if not harness then
 		local att = Instance.new("Attachment")
 		att.Name = "RopeAttachment"
+		att.Position = Vector3.new(0, -0.6, 0) -- at the waist
 		att.Parent = root
 		harness = att
 	end
 	local rope = Instance.new("RopeConstraint")
-	rope.Attachment0 = att0
+	rope.Attachment0 = ropeEnd
 	rope.Attachment1 = harness
-	rope.Length = Config.Rope.Length
+	-- Config.Rope.Length is measured from the clip point to your body (that's
+	-- what the client limits); add the quickdraw and harness offsets so the
+	-- rope never pulls against your own climbing before that.
+	rope.Length = Config.Rope.Length + (at - target:PointToWorldSpace(ropeEnd.Position)).Magnitude + 1.2
 	rope.Visible = true
-	rope.Thickness = 0.12
+	rope.Thickness = 0.2
 	rope.Color = BrickColor.new("Deep orange")
 	rope.Restitution = 0.1
-	rope.Parent = anchor
-	anchor.Parent = ropesFolder()
+	rope.Parent = gearRoot
+	model.Parent = ropesFolder()
+	-- The clip animation: the gear flies up from the harness onto the beam.
+	fly(gearRoot, root.CFrame * CFrame.new(0.6, -0.8, 0) * target.Rotation, target, 0.35)
 
-	anchors[player] = anchor
+	gear[player] = model
 	player:SetAttribute("RopeKind", kind)
-	player:SetAttribute("RopeAnchor", point)
+	player:SetAttribute("RopeAnchor", at)
+	result(player, true, if kind == "carabiner" then "Clipped in! Carabiner's on the beam." else "Suction cup stuck on!", kind)
 end
 
 function RopeService.start()
 	Remotes.get("Rope").OnServerEvent:Connect(function(player, action, point)
-		local now = os.clock()
-		if now - (lastRequest[player] or 0) < 0.25 then
-			return
-		end
-		lastRequest[player] = now
 		if action == "clip" and typeof(point) == "Vector3" then
+			-- Rate limit clips only: an unclip (e.g. climbing onto the summit
+			-- right after clipping) must never be dropped.
+			local now = os.clock()
+			if now - (lastRequest[player] or 0) < 0.25 then
+				result(player, false, "Easy - one clip at a time.")
+				return
+			end
+			lastRequest[player] = now
 			clip(player, point)
 		elseif action == "unclip" then
-			RopeService.unclip(player)
+			RopeService.unclip(player, true)
 		end
 	end)
 
@@ -2901,7 +3152,7 @@ return RopeService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="25">
+      <Item class="ModuleScript" referent="26">
         <Properties>
           <string name="Name">ShopService</string>
           <string name="Source"><![CDATA[-- Server-authoritative purchases. Clients only ask; every check happens here.
@@ -3053,7 +3304,7 @@ return ShopService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="26">
+      <Item class="ModuleScript" referent="27">
         <Properties>
           <string name="Name">TowerBuilder</string>
           <string name="Source"><![CDATA[-- Procedural towers for Hand-over-Hand climbing.
@@ -3068,9 +3319,8 @@ return ShopService
 -- client lets you hang still there to recover stamina.
 --
 -- Telecom towers follow real self-supporting lattice towers: four tapering
--- legs, X-bracing, dishes, panel antennas and aviation lights. Each face of
--- each section has an invisible climb panel lying in the lattice face, so you
--- climb the lattice. Skyscrapers are glass towers with a frame grid, rooftop AC
+-- legs, X-bracing, dishes, panel antennas and aviation lights. You climb the
+-- lattice itself: every leg, brace and girt is tagged "ClimbHold". Skyscrapers are glass towers with a frame grid, rooftop AC
 -- units, an optional helipad, and windows that light up at night.
 
 local Build = require(script.Parent.Build)
@@ -3161,36 +3411,29 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 		for f = 0, 3 do
 			local o = faceDir(f)
 			-- Leg on this face's left corner (four faces -> four legs).
+			-- Every lattice member is a climbing hold ("ClimbHold"): you climb the
+			-- actual legs, braces and girts, not an invisible wall.
 			local leg = Build.beam(model, corner(o, -1, bottom), corner(o, -1, top), 1.4, metal)
 			leg.CanCollide = true
+			leg.Name = "Leg"
+			leg:AddTag("ClimbHold")
 
 			-- X-bracing about every 10 studs, plus a horizontal girt.
 			local panels = math.max(1, math.floor(S / 10))
 			local panelH = S / panels
 			for j = 0, panels - 1 do
 				local y0, y1 = bottom + j * panelH, bottom + (j + 1) * panelH
-				Build.beam(model, corner(o, -1, y0), corner(o, 1, y1), 0.5, metal)
-				Build.beam(model, corner(o, 1, y0), corner(o, -1, y1), 0.5, metal)
-				-- Horizontal girt: a clip bar for the climbing rope.
+				local brace1 = Build.beam(model, corner(o, -1, y0), corner(o, 1, y1), 0.5, metal)
+				local brace2 = Build.beam(model, corner(o, 1, y0), corner(o, -1, y1), 0.5, metal)
+				brace1.Name, brace2.Name = "Brace", "Brace"
+				brace1:AddTag("ClimbHold")
+				brace2:AddTag("ClimbHold")
+				-- Horizontal girt: a hold, and a clip bar for the climbing rope.
 				local girt = Build.beam(model, corner(o, -1, y0), corner(o, 1, y0), 0.5, metal)
 				girt.Name = "ClipBar"
 				girt:AddTag("ClipBar")
+				girt:AddTag("ClimbHold")
 			end
-
-			-- Invisible climb panel lying in the (tapered) lattice face.
-			local along = o:Cross(Vector3.yAxis)
-			local b = o * hw(bottom) + Vector3.new(0, bottom, 0)
-			local t = o * hw(top) + Vector3.new(0, top, 0)
-			local slope = t - b
-			local normal = slope:Cross(along).Unit
-			local width = hw(bottom) + hw(top) -- average full width
-			Build.part(model, {
-				Name = "ClimbFace",
-				Size = Vector3.new(1, slope.Magnitude, width),
-				CFrame = towerCF * CFrame.fromMatrix((b + t) / 2 - normal * 0.5, normal, slope.Unit),
-				Transparency = 1,
-				Tags = { "Climbable" },
-			})
 		end
 
 		if k < n - 1 then
@@ -3243,6 +3486,7 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 		local girt = Build.beam(model, corner(o, -1, H), corner(o, 1, H), 0.5, { Color = WHITE, Material = Enum.Material.Metal })
 		girt.Name = "ClipBar"
 		girt:AddTag("ClipBar")
+		girt:AddTag("ClimbHold")
 	end
 
 	-- Panel antennas just under the summit.
@@ -3502,7 +3746,7 @@ return TowerBuilder
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="27">
+      <Item class="ModuleScript" referent="28">
         <Properties>
           <string name="Name">WorldBuilder</string>
           <string name="Source"><![CDATA[-- Builds the island map from the top-down design (north = -Z):
@@ -4143,7 +4387,7 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="28">
+  <Item class="StarterPlayer" referent="29">
     <Properties>
       <string name="Name">StarterPlayer</string>
       <float name="CameraMaxZoomDistance">200</float>
@@ -4151,15 +4395,15 @@ return WorldBuilder
       <bool name="CharacterUseJumpPower">true</bool>
       <float name="CharacterWalkSpeed">16</float>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="29">
+    <Item class="StarterPlayerScripts" referent="30">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="30">
+      <Item class="Folder" referent="31">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="31">
+        <Item class="ModuleScript" referent="32">
           <Properties>
             <string name="Name">ClimbAnimator</string>
             <string name="Source"><![CDATA[-- Climbing animation: Roblox's standard climb animation, taken from the
@@ -4233,17 +4477,60 @@ function ClimbAnimator.set(mode: string, rate: number?)
 	end
 end
 
+-- One-off arm gesture on top of the climb pose, e.g. reaching up to clip a
+-- carabiner. Uses one of the avatar's built-in emote animations ("point" lifts
+-- one arm) at a higher priority, so only the gesture's limbs move.
+local gestures: { [string]: AnimationTrack } = {}
+local gestureCharacter: Model? = nil
+
+function ClimbAnimator.gesture(name: string, duration: number, speed: number?)
+	local character = player.Character
+	if not character then
+		return
+	end
+	if gestureCharacter ~= character then
+		gestures, gestureCharacter = {}, character
+	end
+	local t = gestures[name]
+	if not t then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+		local animate = character:FindFirstChild("Animate")
+		local folder = animate and animate:FindFirstChild(name)
+		local animation = folder and folder:FindFirstChildOfClass("Animation")
+		if not animator or not animation then
+			return
+		end
+		local ok, loaded = pcall(animator.LoadAnimation, animator, animation)
+		if not ok then
+			return
+		end
+		loaded.Priority = Enum.AnimationPriority.Action2
+		loaded.Looped = false
+		gestures[name] = loaded
+		t = loaded
+	end
+	t:Play(0.1, 1, speed or 1)
+	task.delay(duration, function()
+		if t.IsPlaying then
+			t:Stop(0.25)
+		end
+	end)
+end
+
 return ClimbAnimator
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="32">
+        <Item class="ModuleScript" referent="33">
           <Properties>
             <string name="Name">ClimbController</string>
             <string name="Source"><![CDATA[-- Client climbing: rock climbing, stamina, blackouts, ragdoll falls, chalk, wind.
 --
 -- Rock climbing:
---   * Walk or jump into a tower (anything tagged "Climbable") to grab on. SPACE
+--   * Walk or jump into a tower to grab on. Skyscraper glass ("Climbable") can
+--     be gripped anywhere; telecom towers only on their actual members (legs,
+--     braces and girts, tagged "ClimbHold" - see WallClimb's lattice mode). SPACE
 --     facing a tower grabs too, and SPACE while falling catches the wall (if
 --     you're not falling too fast).
 --   * You climb in discrete moves. Each move, one hand reaches for the next hold
@@ -4280,6 +4567,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Lattice = require(ReplicatedStorage.Shared.Lattice)
 local ClimbAnimator = require(script.Parent.ClimbAnimator)
 local Effects = require(script.Parent.Effects)
 local Weather = require(script.Parent.Weather)
@@ -4322,6 +4610,7 @@ local lungeReadyAt = 0
 local climbMoving = false
 local savedCollisions: { [BasePart]: boolean } = {}
 local ropeTaut = false -- last move was blocked by the rope's length
+local noHold = false -- nothing on the lattice within reach above
 local nextClipScan, clipInReach = 0, false
 local groundedSince = 0
 -- Rappel (Rappel Kit power-up)
@@ -4338,8 +4627,40 @@ local climbAttachment: Attachment? = nil
 
 local ui: any = nil
 
+-- Lattice climbing: the telecom tower you're on (or reaching for), and each
+-- tower's members as segments (built once per tower).
+local holdTower: Model? = nil
+local segmentCache: { [Model]: { Lattice.Segment } } = {}
+local clipBarCache: { [Model]: { Lattice.Segment } } = {}
+
+local function towerSegments(maybeTower: Model?): { Lattice.Segment }
+	if not maybeTower then
+		return {}
+	end
+	local tower = maybeTower :: Model
+	local cached = segmentCache[tower]
+	if cached then
+		return cached
+	end
+	local list = {}
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part:HasTag("ClimbHold") then
+			table.insert(list, Lattice.segment(part))
+		end
+	end
+	if #list > 0 then
+		segmentCache[tower] = list -- (empty means it hasn't replicated yet)
+	end
+	return list
+end
+
+local function isLattice(tower: Model?): boolean
+	return tower ~= nil and tower:GetAttribute("Kind") == "Telecom"
+end
+
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.RespectCanCollide = true -- decorations you can walk through aren't walls
 
 local world: WallClimb.World = {
 	cast = function(origin, direction)
@@ -4353,6 +4674,13 @@ local world: WallClimb.World = {
 	end,
 	noStand = function(instance)
 		return instance:HasTag("NoStand")
+	end,
+	holds = function()
+		return towerSegments(holdTower)
+	end,
+	faceNormal = function(point)
+		local tower = holdTower
+		return if tower then Lattice.faceNormal(tower.WorldPivot, point) else wallNormal
 	end,
 }
 
@@ -4435,6 +4763,7 @@ local function release(push: boolean)
 	end
 	climbing = false
 	climbMoving = false
+	noHold = false
 	resting = false
 	restLevel = nil
 	move = nil
@@ -4490,7 +4819,14 @@ local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
 		end
 		return false
 	end
-	local hold, normal = WallClimb.grab(world, CC, rootPart.Position, dir, range)
+	local tower = currentTower(rootPart.Position)
+	local hold, normal
+	holdTower = if isLattice(tower) then tower else nil
+	if holdTower then
+		hold, normal = WallClimb.latticeGrab(world, CC, rootPart.Position, dir, range)
+	else
+		hold, normal = WallClimb.grab(world, CC, rootPart.Position, dir, range)
+	end
 	if not hold or not normal then
 		return false
 	end
@@ -4636,21 +4972,22 @@ local function findClipPoint(): (Vector3?, string?)
 		return nil, nil
 	end
 	local hands = if climbing then anchor + Vector3.new(0, HAND_HEIGHT, 0) else rootPart.Position + Vector3.new(0, 1.5, 0)
-	if tower:GetAttribute("Kind") == "Telecom" then
-		-- Carabiner onto the nearest horizontal beam.
-		local best, bestDist = nil, Config.Rope.Reach
-		for _, bar in CollectionService:GetTagged("ClipBar") do
-			if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
-				local cf = bar.CFrame
-				local half = bar.Size.Z / 2
-				local d = math.clamp((hands - cf.Position):Dot(cf.LookVector), -half, half)
-				local point = cf.Position + cf.LookVector * d
-				local dist = (point - hands).Magnitude
-				if dist < bestDist then
-					best, bestDist = point, dist
+	if isLattice(tower) then
+		-- Carabiner onto the nearest horizontal beam (the server checks it with
+		-- the same Lattice maths, so they always agree).
+		local bars = clipBarCache[tower]
+		if not bars then
+			bars = {}
+			for _, bar in CollectionService:GetTagged("ClipBar") do
+				if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
+					table.insert(bars, Lattice.segment(bar))
 				end
 			end
+			if #bars > 0 then
+				clipBarCache[tower] = bars
+			end
 		end
+		local best = Lattice.nearest(bars, hands, Config.Rope.Reach)
 		return best, if best then "carabiner" else nil
 	end
 	-- Suction cup straight onto the glass in front of your hands.
@@ -4676,12 +5013,27 @@ function ClimbController.clip()
 	end
 	ropeRemote:FireServer("clip", point)
 	ropeTaut = false
-	Effects.sound(Config.Sounds.Grab, 0.6, if kind == "suction" then 0.7 else 1.6)
+	-- Reach up and clip it in (the server flies the gear onto the beam).
+	ClimbAnimator.gesture("point", 0.5, 1.6)
+	Effects.sound(Config.Sounds.Grab, 0.4, if kind == "suction" then 0.7 else 1.6)
+end
+
+-- The server's answer to a clip request (see RopeService).
+function ClimbController.onRopeResult(ok: boolean, text: string, kind: string?)
+	if ok then
+		Effects.sound(Config.Sounds.Click, 0.6, if kind == "suction" then 0.6 else 2.2)
+		ui.overlay:toast(text, "good")
+		nextClipScan = 0
+	else
+		ui.overlay:toast(text, "bad")
+	end
 end
 
 function ClimbController.unclip()
 	if player:GetAttribute("RopeAnchor") ~= nil then
 		ropeRemote:FireServer("unclip")
+		ClimbAnimator.gesture("point", 0.35, 2)
+		Effects.sound(Config.Sounds.Click, 0.4, 1.4)
 	end
 end
 
@@ -4720,7 +5072,21 @@ function ClimbController.rappel()
 		local out = pivot:VectorToWorldSpace(axis)
 		local radius = tower:GetAttribute("Radius") or 60
 		local origin = Vector3.new(pivot.X, height - 4, pivot.Z) + out * radius
-		local hold, normal = WallClimb.grab(world, CC, origin, -out, radius + 5)
+		local hold, normal
+		if isLattice(tower) then
+			-- The outermost member on that face, just below the top.
+			holdTower = tower
+			local q = Lattice.nearest(towerSegments(tower), Vector3.new(pivot.X, height - 4, pivot.Z) + out * 200, 260, function(p)
+				return p.Y < height - 2 and Lattice.faceNormal(pivot, p):Dot(out) > 0.9
+			end)
+			if q then
+				normal = out
+				hold = q + out * CC.WallOffset - Vector3.new(0, HAND_HEIGHT, 0)
+			end
+		else
+			holdTower = nil
+			hold, normal = WallClimb.grab(world, CC, origin, -out, radius + 5)
+		end
 		if not hold or not normal then
 			return
 		end
@@ -4793,7 +5159,9 @@ local function startLeap(now: number): boolean
 		ui.overlay:toast("Too tired to leap!", "bad")
 		return false
 	end
-	local leap = WallClimb.planLeap(world, CC, anchor, wallNormal)
+	local leap = if isLattice(holdTower)
+		then WallClimb.latticeLeap(world, CC, anchor, wallNormal)
+		else WallClimb.planLeap(world, CC, anchor, wallNormal)
 	if not leap then
 		return false
 	end
@@ -4900,15 +5268,25 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 			ui.overlay:toast("Touched down. Nice rappel!", "good")
 			return true
 		end
-		local probe = probeWall(anchor, wallNormal)
-		local n = if probe then probe.Normal else wallNormal
-		local target = anchor - WallClimb.wallUp(n) * (Config.Rope.RappelSpeed * dt)
-		local hit = probeWall(target, wallNormal)
-		if not hit then
-			release(true) -- ran out of wall: drop the last bit
-			return true
+		if isLattice(holdTower) then
+			-- Slide down following the lattice's taper.
+			local nextPos = WallClimb.latticeSlide(world, CC, anchor, wallNormal, Config.Rope.RappelSpeed * dt)
+			if not nextPos then
+				release(true)
+				return true
+			end
+			setHold(nextPos)
+		else
+			local probe = probeWall(anchor, wallNormal)
+			local n = if probe then probe.Normal else wallNormal
+			local target = anchor - WallClimb.wallUp(n) * (Config.Rope.RappelSpeed * dt)
+			local hit = probeWall(target, wallNormal)
+			if not hit then
+				release(true) -- ran out of wall: drop the last bit
+				return true
+			end
+			setHold(hit.Position + hit.Normal * CC.WallOffset)
 		end
-		setHold(hit.Position + hit.Normal * CC.WallOffset)
 		climbMoving = false
 		resting = false
 		ClimbAnimator.set("rappel")
@@ -4919,10 +5297,17 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 	local speed = Rules.climbSpeed(CC, Config.Boosts, b)
 
 	if not move and (vert ~= 0 or lat ~= 0) then
-		local planned, action = WallClimb.plan(world, CC, anchor, wallNormal, vert, lat, speed)
+		local planned, action
+		if isLattice(holdTower) then
+			planned, action = WallClimb.latticePlan(world, CC, anchor, wallNormal, vert, lat, speed)
+		else
+			planned, action = WallClimb.plan(world, CC, anchor, wallNormal, vert, lat, speed)
+		end
+		noHold = isLattice(holdTower) and planned == nil and vert > 0 and action ~= "stepoff"
 		if action == "mantle" then
 			local stand = findMantle()
 			if stand then
+				noHold = false
 				mantle(stand)
 				return true
 			end
@@ -4958,9 +5343,18 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 			local pull = math.clamp((f - CC.ReachFraction) / (1 - CC.ReachFraction), 0, 1)
 			setHold(current.from:Lerp(current.to, pull * pull * (3 - 2 * pull)))
 		end
-		local probe = probeWall(anchor, wallNormal)
-		if probe then
-			wallNormal = horizontal(probe.Normal)
+		if isLattice(holdTower) then
+			-- Turn to face whichever face of the tower you're on (corners).
+			local n = world.faceNormal(anchor)
+			if n:Dot(wallNormal) < 0.99 then
+				wallNormal = n
+				setHold(anchor)
+			end
+		else
+			local probe = probeWall(anchor, wallNormal)
+			if probe then
+				wallNormal = horizontal(probe.Normal)
+			end
 		end
 		if f >= 1 then
 			move = nil
@@ -5007,6 +5401,8 @@ local function statusFor(grounded: boolean, frac: number, nearWall: boolean): (s
 		return "Ragdolling (press R to get up)", Color3.fromRGB(255, 196, 46)
 	elseif rappelling then
 		return "Rappelling down...  (V: stop, Q: let go)", Color3.fromRGB(110, 200, 255)
+	elseif climbing and noHold and not climbMoving then
+		return "No beam within reach above - move sideways (A/D) or dyno", Color3.fromRGB(255, 200, 60)
 	elseif climbing and ropeTaut then
 		return "Rope's at full length - clip in higher (F)", Color3.fromRGB(255, 200, 60)
 	elseif climbing and resting then
@@ -5126,8 +5522,13 @@ local function step(dt: number)
 
 		if not climbing and tower then
 			local look = horizontal(rootPart.CFrame.LookVector)
-			local hit = Workspace:Raycast(pos, look * (CC.GripRange + 1), rayParams)
-			nearWall = hit ~= nil and hit.Instance:HasTag("Climbable")
+			if isLattice(tower) then
+				local reach = pos + Vector3.new(0, HAND_HEIGHT, 0) + look * 1.5
+				nearWall = Lattice.nearest(towerSegments(tower), reach, CC.GripRange) ~= nil
+			else
+				local hit = Workspace:Raycast(pos, look * (CC.GripRange + 1), rayParams)
+				nearWall = hit ~= nil and hit.Instance:HasTag("Climbable")
+			end
 		end
 	end
 
@@ -5202,7 +5603,7 @@ return ClimbController
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="33">
+        <Item class="ModuleScript" referent="34">
           <Properties>
             <string name="Name">Effects</string>
             <string name="Source"><![CDATA[-- Sounds, confetti, camera shake and the "out of breath" screen effect.
@@ -5314,7 +5715,7 @@ return Effects
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">Emotes</string>
             <string name="Source"><![CDATA[-- Plays emotes from the avatar's own Animate script (no uploaded animations),
@@ -5440,7 +5841,7 @@ return Emotes
 ]]></string>
           </Properties>
         </Item>
-        <Item class="LocalScript" referent="35">
+        <Item class="LocalScript" referent="36">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[-- Client entry point: builds the UI, wires input and server notifications.
@@ -5729,6 +6130,8 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 	elseif kind == "Announcement" then
 		overlay:announcement(tostring(payload.text), tostring(payload.from or "Admin"))
 		Effects.sound(Config.Sounds.Summit, 0.7, 0.8)
+	elseif kind == "RopeResult" then
+		ClimbController.onRopeResult(payload.ok == true, tostring(payload.text), payload.kind)
 	elseif kind == "Regrip" then
 		ClimbController.regrip()
 	elseif kind == "Hurt" then
@@ -5746,11 +6149,11 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="36">
+        <Item class="Folder" referent="37">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="37">
+          <Item class="ModuleScript" referent="38">
             <Properties>
               <string name="Name">AdminPanel</string>
               <string name="Source"><![CDATA[-- Admin panel: pick a player, then ban / unban / send to plaza / give or take
@@ -5989,7 +6392,7 @@ return AdminPanel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="38">
+          <Item class="ModuleScript" referent="39">
             <Properties>
               <string name="Name">Components</string>
               <string name="Source"><![CDATA[-- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
@@ -6317,7 +6720,7 @@ return C
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="39">
+          <Item class="ModuleScript" referent="40">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[-- Always-on HUD: climb counter, cash, stamina, height meter, action buttons,
@@ -6793,7 +7196,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="40">
+          <Item class="ModuleScript" referent="41">
             <Properties>
               <string name="Name">Overlay</string>
               <string name="Source"><![CDATA[-- Full-screen moments: blackout, summit celebration, hurt flash, toasts.
@@ -7062,7 +7465,7 @@ return Overlay
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="41">
+          <Item class="ModuleScript" referent="42">
             <Properties>
               <string name="Name">Settings</string>
               <string name="Source"><![CDATA[-- Settings window: name tags, camera shake, and the admin password box.
@@ -7239,7 +7642,7 @@ return Settings
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="42">
+          <Item class="ModuleScript" referent="43">
             <Properties>
               <string name="Name">Shop</string>
               <string name="Source"><![CDATA[-- Shop window: boost cards with level pips and a chalk card.
@@ -7554,7 +7957,7 @@ return Shop
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="43">
+          <Item class="ModuleScript" referent="44">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[-- One place for the HUD's look: dark glass panels, hazard-yellow accent.
@@ -7606,13 +8009,21 @@ return Theme
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="44">
+        <Item class="ModuleScript" referent="45">
           <Properties>
             <string name="Name">WallClimb</string>
             <string name="Source"><![CDATA[--!strict
 -- Wall logic for rock climbing: finding the wall, planning moves, leaps and
--- climbing over the top. It only uses Vector3 maths and a `World` (raycast +
--- tag checks), so tests run this exact code against real tower geometry.
+-- climbing over the top. It only uses Vector3 maths and a `World` (raycast,
+-- tag checks, lattice holds), so tests run this exact code against real tower
+-- geometry.
+--
+-- Two kinds of wall:
+--   surface  skyscraper glass: you can grip anywhere on it (raycasts).
+--   lattice  telecom towers: your hands must be on an actual member (a leg,
+--            brace or girt). Every move reaches for the nearest real beam.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lattice = require(ReplicatedStorage.Shared.Lattice)
 
 local WallClimb = {}
 
@@ -7622,6 +8033,8 @@ export type World = {
 	climbable: (instance: any) -> boolean,
 	solid: (instance: any) -> boolean,
 	noStand: (instance: any) -> boolean, -- thin trim (roof parapets) you climb over
+	holds: () -> { Lattice.Segment }, -- lattice members of the tower you're on
+	faceNormal: (point: Vector3) -> Vector3, -- outward normal of that tower's face
 }
 export type Move = {
 	kind: string, -- "up" | "down" | "side" | "leap"
@@ -7799,11 +8212,140 @@ function WallClimb.planLeap(world: World, cfg: any, anchor: Vector3, wallNormal:
 	}
 end
 
+-- Lattice climbing (telecom towers) -------------------------------------------
+
+-- Hands must be on a member within this distance of where they reach.
+WallClimb.HOLD_REACH = 2.6
+
+local function anchorFor(cfg: any, hold: Vector3, n: Vector3): Vector3
+	return hold + n * cfg.WallOffset - Vector3.new(0, WallClimb.HAND_HEIGHT, 0)
+end
+
+-- Where the hands are for a body held at `anchor` on a face with normal `n`.
+function WallClimb.handFor(cfg: any, anchor: Vector3, n: Vector3): Vector3
+	return anchor - n * cfg.WallOffset + Vector3.new(0, WallClimb.HAND_HEIGHT, 0)
+end
+
+-- Grab the nearest member in front of you. Returns hold point + normal.
+function WallClimb.latticeGrab(world: World, cfg: any, position: Vector3, dir: Vector3, range: number): (Vector3?, Vector3?)
+	local reach = position + Vector3.new(0, WallClimb.HAND_HEIGHT, 0) + dir * 1.5
+	local found = Lattice.nearest(world.holds(), reach, range)
+	if not found then
+		return nil, nil
+	end
+	local hold = found :: Vector3
+	local n = world.faceNormal(hold)
+	return anchorFor(cfg, hold, n), n
+end
+
+-- Plan the next move on a lattice. Same contract as WallClimb.plan.
+function WallClimb.latticePlan(
+	world: World,
+	cfg: any,
+	anchor: Vector3,
+	wallNormal: Vector3,
+	vert: number,
+	lat: number,
+	speed: number
+): (Move?, string?)
+	local hand = WallClimb.handFor(cfg, anchor, wallNormal)
+	local up = Vector3.new(0, 1, 0)
+	local segments = world.holds()
+	local kind, hold = nil, nil
+	if vert > 0 then
+		kind = "up"
+		hold = Lattice.nearest(segments, hand + up * cfg.ReachLength, WallClimb.HOLD_REACH, function(q)
+			return q.Y > hand.Y + 0.75
+		end)
+		if not hold then
+			return nil, "mantle" -- nothing above in reach: the top, or a gap
+		end
+	elseif vert < 0 then
+		local floor = world.cast(anchor, Vector3.new(0, -(WallClimb.ROOT_HEIGHT + cfg.ReachLength), 0))
+		if floor and floor.Normal.Y > 0.7 then
+			return nil, "stepoff"
+		end
+		kind = "down"
+		hold = Lattice.nearest(segments, hand - up * cfg.ReachLength, WallClimb.HOLD_REACH, function(q)
+			return q.Y < hand.Y - 0.75
+		end)
+	elseif lat ~= 0 then
+		kind = "side"
+		local side = (-wallNormal):Cross(up) * math.sign(lat)
+		hold = Lattice.nearest(segments, hand + side * cfg.SideStep, WallClimb.HOLD_REACH, function(q)
+			return (q - hand):Dot(side) > 0.75
+		end)
+		if not hold then
+			-- At a corner leg: swing round onto the next face (it runs back
+			-- into the tower, and faces out along `side`).
+			hold = Lattice.nearest(segments, hand - wallNormal * cfg.SideStep, WallClimb.HOLD_REACH, function(q)
+				return (hand - q):Dot(wallNormal) > 0.75 and world.faceNormal(q):Dot(side) > 0.9
+			end)
+		end
+	end
+	if not hold or not kind then
+		return nil, nil
+	end
+	local target = hold :: Vector3
+	local n = world.faceNormal(target) -- may be the next face round a corner
+	local to = anchorFor(cfg, target, n)
+	local distance = (to - anchor).Magnitude
+	return {
+		kind = kind,
+		t = 0,
+		duration = math.max(0.15, distance / (if kind == "side" then cfg.SideSpeed else speed)),
+		from = anchor,
+		to = to,
+		mantleAfter = false,
+	}, nil
+end
+
+-- A dyno on a lattice: the highest member you can catch.
+function WallClimb.latticeLeap(world: World, cfg: any, anchor: Vector3, wallNormal: Vector3): Move?
+	local hand = WallClimb.handFor(cfg, anchor, wallNormal)
+	local segments = world.holds()
+	for d = cfg.LungeDistance, cfg.ReachLength + 1, -1 do
+		local hold = Lattice.nearest(segments, hand + Vector3.new(0, d, 0), WallClimb.HOLD_REACH, function(q)
+			return q.Y > hand.Y + cfg.ReachLength
+		end)
+		if hold then
+			local n = world.faceNormal(hold)
+			local to = anchorFor(cfg, hold, n)
+			return {
+				kind = "leap",
+				t = 0,
+				duration = math.max(0.22, (to - anchor).Magnitude / cfg.LungeSpeed) + 0.15,
+				from = anchor,
+				to = to,
+				mantleAfter = false,
+			}
+		end
+	end
+	return nil
+end
+
+-- Where a rappel down a lattice face puts you after dropping `drop` studs
+-- (following the taper), or nil when there's no member to follow.
+function WallClimb.latticeSlide(world: World, cfg: any, anchor: Vector3, wallNormal: Vector3, drop: number): Vector3?
+	local hand = WallClimb.handFor(cfg, anchor, wallNormal) - Vector3.new(0, drop, 0)
+	local found = Lattice.nearest(world.holds(), hand, 6)
+	if not found then
+		return nil
+	end
+	local hold = found :: Vector3
+	local n = world.faceNormal(hold)
+	local outward = hold + n * cfg.WallOffset
+	-- Stay straight below (only correct the distance from the face).
+	local fromFace = (outward - hand):Dot(n)
+	local position = hand + n * fromFace - Vector3.new(0, WallClimb.HAND_HEIGHT, 0)
+	return position
+end
+
 return WallClimb
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="45">
+        <Item class="ModuleScript" referent="46">
           <Properties>
             <string name="Name">Weather</string>
             <string name="Source"><![CDATA[-- Client weather: rain that follows the camera, lightning flashes, and the
@@ -7899,7 +8441,7 @@ return Weather
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="46">
+  <Item class="Workspace" referent="47">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-400</float>
@@ -7907,7 +8449,7 @@ return Weather
       <bool name="NeedsPivotMigration">false</bool>
       <bool name="StreamingEnabled">false</bool>
     </Properties>
-    <Item class="SpawnLocation" referent="47">
+    <Item class="SpawnLocation" referent="48">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

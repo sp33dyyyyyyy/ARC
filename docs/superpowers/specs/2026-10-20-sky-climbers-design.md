@@ -197,3 +197,30 @@ Changes requested after the first playable build:
   studs/s to the ground, from a wall or from a summit edge.
 - The climb simulation now also checks a clip beam is within reach at every
   step up every telecom face.
+
+## 15. Revision: lattice-only climbing, real carabiner (2026-10-20)
+
+- **Telecom towers are climbed on their members only.** The invisible
+  "ClimbFace" panels (which let you climb anywhere on the tower's outline) are
+  gone. Every leg, brace and girt is tagged `ClimbHold`; the shared `Lattice`
+  module treats each as a line segment. `WallClimb`'s lattice mode reaches for
+  the nearest real member for every move (up, down, sideways, round a corner
+  leg onto the next face, dynos, rappelling down the taper). If nothing is in
+  reach, the HUD says so. Skyscrapers keep surface climbing on the glass.
+- **Carabiner, rebuilt.** The server checks a clip point with the same
+  `Lattice` maths the client used to choose it, and always answers with a
+  `RopeResult` notification (success, or the reason it failed). Previously a
+  rejected or rate-limited clip failed silently. The gear is a welded model
+  (D-ring, silver gate, quickdraw sling, rope clip; or a suction cup with a
+  handle) that tweens from the harness onto the beam. The climber's avatar
+  reaches up using its built-in "point" animation as the clip gesture. Unclip
+  requests are never rate limited, and the rope's physical length includes the
+  sling, so it never pulls against the climber before the client's limit.
+- Climbing raycasts respect `CanCollide`, so walk-through decorations are
+  never treated as walls.
+- The geometry test runs the lattice climb on every telecom face from three
+  spots (middle, halfway out, next to a leg). It checks that the hands are on
+  a real beam after every move, that you can traverse round a corner, and that
+  you can rappel the whole way down. It also checks that the server accepts
+  every clip point the client would pick.
+

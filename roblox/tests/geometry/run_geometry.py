@@ -13,6 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 HERE = pathlib.Path(__file__).resolve().parent
 MODULES = {
     "Config": ROOT / "src/shared/Config.lua",
+    "Lattice": ROOT / "src/shared/Lattice.lua",
     "Build": ROOT / "src/server/Build.lua",
     "TowerBuilder": ROOT / "src/server/TowerBuilder.lua",
     "WorldBuilder": ROOT / "src/server/WorldBuilder.lua",
