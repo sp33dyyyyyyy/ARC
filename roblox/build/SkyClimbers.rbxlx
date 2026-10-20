@@ -1,0 +1,4140 @@
+<roblox version="4">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <Color3 name="Ambient">
+        <R>0.27</R>
+        <G>0.27</G>
+        <B>0.3</B>
+      </Color3>
+      <float name="Brightness">2.6</float>
+      <float name="ClockTime">14</float>
+      <float name="EnvironmentDiffuseScale">1</float>
+      <float name="EnvironmentSpecularScale">1</float>
+      <bool name="GlobalShadows">true</bool>
+      <Color3 name="OutdoorAmbient">
+        <R>0.5</R>
+        <G>0.5</G>
+        <B>0.55</B>
+      </Color3>
+      <float name="ShadowSoftness">0.2</float>
+      <token name="Technology">4</token>
+    </Properties>
+    <Item class="Atmosphere" referent="1">
+      <Properties>
+        <string name="Name">Atmosphere</string>
+        <Color3 name="Color">
+          <R>0.78</R>
+          <G>0.83</G>
+          <B>0.9</B>
+        </Color3>
+        <Color3 name="Decay">
+          <R>0.42</R>
+          <G>0.5</G>
+          <B>0.62</B>
+        </Color3>
+        <float name="Density">0.3</float>
+        <float name="Glare">0.35</float>
+        <float name="Haze">1.6</float>
+        <float name="Offset">0.22</float>
+      </Properties>
+    </Item>
+    <Item class="BloomEffect" referent="2">
+      <Properties>
+        <string name="Name">Bloom</string>
+        <float name="Intensity">0.7</float>
+        <float name="Size">28</float>
+        <float name="Threshold">1.4</float>
+      </Properties>
+    </Item>
+    <Item class="ColorCorrectionEffect" referent="3">
+      <Properties>
+        <string name="Name">ColorGrade</string>
+        <float name="Contrast">0.08</float>
+        <float name="Saturation">0.12</float>
+        <Color3 name="TintColor">
+          <R>1</R>
+          <G>0.98</G>
+          <B>0.95</B>
+        </Color3>
+      </Properties>
+    </Item>
+    <Item class="Sky" referent="4">
+      <Properties>
+        <string name="Name">Sky</string>
+        <float name="MoonAngularSize">9</float>
+        <float name="SunAngularSize">14</float>
+      </Properties>
+    </Item>
+    <Item class="SunRaysEffect" referent="5">
+      <Properties>
+        <string name="Name">SunRays</string>
+        <float name="Intensity">0.06</float>
+        <float name="Spread">0.65</float>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ReplicatedStorage" referent="6">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="7">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="8">
+        <Properties>
+          <string name="Name">Config</string>
+          <string name="Source"><![CDATA[--!strict
+-- Every tunable number in the game lives here. Pure data: no Roblox APIs, so the
+-- unit tests can load it outside Studio.
+
+local Config = {}
+
+Config.Stamina = {
+	Base = 100,
+	DrainPerSecond = 8, -- while actively climbing, before the tower multiplier
+	HangDrainFraction = 0.25, -- hanging still on a ladder drains at 25% of climbing
+	RecoverPerSecond = 22, -- standing on solid ground
+	DangerFraction = 0.2, -- HUD pulses red below this
+	WakeFraction = 0.4, -- stamina you wake up with after a blackout
+}
+
+Config.Fall = {
+	SafeDrop = 40, -- studs you can fall without damage
+	DamagePerStud = 0.9,
+	AutoRagdollAfter = 0.6, -- seconds of freefall before you go limp
+	MinRagdollTime = 1.2,
+	MinBlackoutTime = 2.5,
+	MaxRagdollTime = 8,
+	SettleSpeed = 2.5, -- body counts as landed below this speed
+	SettleTime = 0.6,
+}
+
+Config.Climb = {
+	BaseWalkSpeed = 16,
+	-- Anti-cheat: nobody legitimately climbs faster than this (studs/second),
+	-- so a peak touched sooner than height / this after the base is rejected.
+	MaxPlausibleSpeed = 40,
+	CheckpointRespawnLift = 3,
+}
+
+Config.Chalk = {
+	Price = 75,
+	MaxHeld = 10,
+	Duration = 12,
+	DrainMultiplier = 0.5,
+}
+
+Config.Wind = {
+	MinInterval = 25,
+	MaxInterval = 45,
+	WarningTime = 3,
+	Duration = 4,
+	MinHeight = 60, -- gusts only matter above this height
+	DrainMultiplier = 1.6,
+	KnockOffFraction = 0.25, -- climbers below this stamina get blown off
+	AirPush = 45,
+}
+
+Config.DayLengthSeconds = 600
+
+Config.Daily = {
+	BaseReward = 100,
+	MaxStreakMultiplier = 7,
+}
+
+-- Boost definitions. Order here is the order shown in the shop.
+Config.Boosts = {
+	{
+		Id = "Endurance",
+		Name = "Endurance",
+		Description = "+25 max stamina per level.",
+		BaseCost = 100,
+		Growth = 1.6,
+		MaxLevel = 10,
+		PerLevel = 25,
+	},
+	{
+		Id = "Recovery",
+		Name = "Deep Breaths",
+		Description = "+25% stamina recovery per level.",
+		BaseCost = 150,
+		Growth = 1.7,
+		MaxLevel = 5,
+		PerLevel = 0.25,
+	},
+	{
+		Id = "ClimbSpeed",
+		Name = "Quick Hands",
+		Description = "+10% climbing speed per level.",
+		BaseCost = 250,
+		Growth = 1.8,
+		MaxLevel = 5,
+		PerLevel = 0.1,
+	},
+	{
+		Id = "Grip",
+		Name = "Sticky Gloves",
+		Description = "-8% drain on slippery glass per level.",
+		BaseCost = 400,
+		Growth = 1.8,
+		MaxLevel = 5,
+		PerLevel = 0.08,
+	},
+	{
+		Id = "SoftLanding",
+		Name = "Rubber Bones",
+		Description = "-15% fall damage per level.",
+		BaseCost = 200,
+		Growth = 1.7,
+		MaxLevel = 5,
+		PerLevel = 0.15,
+	},
+}
+
+-- Tower archetypes. Section heights must be even (TrussPart lengths snap to 2).
+Config.TowerTypes = {
+	Mast = {
+		Kind = "Telecom",
+		DisplayName = "Small Mast",
+		SectionHeight = 20,
+		Sections = 4,
+		BaseHalfWidth = 9,
+		TopHalfWidth = 2,
+		DrainMultiplier = 1,
+		Slippery = false,
+		Payout = 50,
+		Color = { 200, 60, 50 },
+	},
+	Lattice = {
+		Kind = "Telecom",
+		DisplayName = "Lattice Tower",
+		SectionHeight = 40,
+		Sections = 5,
+		BaseHalfWidth = 16,
+		TopHalfWidth = 4,
+		DrainMultiplier = 1.5,
+		Slippery = false,
+		Payout = 200,
+		Color = { 225, 225, 225 },
+	},
+	Skyscraper = {
+		Kind = "Skyscraper",
+		DisplayName = "Skyscraper",
+		SectionHeight = 100,
+		HalfWidths = { 40, 33, 26, 19 },
+		DrainMultiplier = 2.5,
+		Slippery = true,
+		Payout = 1000,
+		Color = { 90, 140, 170 },
+	},
+	Supertall = {
+		Kind = "Skyscraper",
+		DisplayName = "Supertall",
+		SectionHeight = 100,
+		HalfWidths = { 52, 46, 40, 34, 28, 22, 17, 12 },
+		DrainMultiplier = 4,
+		Slippery = true,
+		Payout = 5000,
+		Spire = 120,
+		Color = { 150, 175, 195 },
+	},
+}
+
+-- Where each tower stands: type, distance from the plaza, angle in degrees.
+Config.Layout = {
+	{ Type = "Mast", Name = "Old Relay", Radius = 150, Angle = 20 },
+	{ Type = "Mast", Name = "Hilltop Mast", Radius = 150, Angle = 200 },
+	{ Type = "Lattice", Name = "Signal Spire", Radius = 230, Angle = 95 },
+	{ Type = "Lattice", Name = "Radio Ridge", Radius = 230, Angle = 275 },
+	{ Type = "Skyscraper", Name = "Glasshouse", Radius = 330, Angle = 140 },
+	{ Type = "Skyscraper", Name = "Meridian Tower", Radius = 330, Angle = 320 },
+	{ Type = "Supertall", Name = "The Needle", Radius = 470, Angle = 230 },
+}
+
+-- Cosmetic trails, unlocked by total climbs. Highest unlocked one is worn.
+Config.Trails = {
+	{ Climbs = 5, Name = "Bronze", Color = { 205, 127, 50 } },
+	{ Climbs = 15, Name = "Silver", Color = { 200, 210, 225 } },
+	{ Climbs = 40, Name = "Gold", Color = { 255, 205, 60 } },
+	{ Climbs = 100, Name = "Neon", Color = { 80, 255, 220 } },
+}
+
+-- Built-in Roblox content sounds, so the place needs no uploaded assets.
+Config.Sounds = {
+	Summit = "rbxasset://sounds/electronicpingshort.wav",
+	Fall = "rbxasset://sounds/action_falling.mp3",
+	GetUp = "rbxasset://sounds/action_get_up.mp3",
+	Bonk = "rbxasset://sounds/uuhhh.mp3",
+	Click = "rbxasset://sounds/action_jump.mp3",
+}
+
+Config.DataStoreName = "SkyClimbers_v1"
+Config.LeaderboardStoreName = "SkyClimbers_Climbs_v1"
+Config.AutosaveInterval = 120
+Config.LeaderboardRefresh = 60
+
+return Config
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="9">
+        <Properties>
+          <string name="Name">Remotes</string>
+          <string name="Source"><![CDATA[-- RemoteEvents shared by server and client. The server creates them; clients wait.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Remotes = {}
+
+local NAMES = {
+	"BuyBoost", -- client -> server: boostId
+	"BuyChalk", -- client -> server
+	"UseChalk", -- client -> server
+	"Ragdoll", -- client -> server: isRagdolled, fallStartY?
+	"ResetToPlaza", -- client -> server
+	"Notify", -- server -> client: kind, payload
+	"Gust", -- server -> all clients: phase, direction, duration
+}
+
+function Remotes.create()
+	local folder = Instance.new("Folder")
+	folder.Name = "Remotes"
+	for _, name in NAMES do
+		local remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = folder
+	end
+	folder.Parent = ReplicatedStorage
+	return folder
+end
+
+function Remotes.get(name: string): RemoteEvent
+	return ReplicatedStorage:WaitForChild("Remotes"):WaitForChild(name) :: RemoteEvent
+end
+
+return Remotes
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="10">
+        <Properties>
+          <string name="Name">Rules</string>
+          <string name="Source"><![CDATA[--!strict
+-- Pure game rules shared by server and client. No Roblox APIs and no requires:
+-- every function takes the config tables it needs, so tests can run them in
+-- plain Luau.
+
+local Rules = {}
+
+export type Boosts = { [string]: number }
+
+local function boostDef(boostDefs: { any }, id: string): any?
+	for _, def in boostDefs do
+		if def.Id == id then
+			return def
+		end
+	end
+	return nil
+end
+Rules.boostDef = boostDef
+
+local function level(boosts: Boosts, id: string): number
+	return boosts[id] or 0
+end
+
+-- Stamina ---------------------------------------------------------------
+
+function Rules.maxStamina(staminaCfg: any, boostDefs: { any }, boosts: Boosts): number
+	local def = boostDef(boostDefs, "Endurance")
+	return staminaCfg.Base + (def and def.PerLevel or 0) * level(boosts, "Endurance")
+end
+
+export type DrainContext = {
+	climbing: boolean,
+	moving: boolean,
+	towerMultiplier: number,
+	slippery: boolean,
+	chalk: boolean,
+	gust: boolean,
+}
+
+-- Stamina change per second for the given situation. Negative = draining.
+function Rules.staminaRate(
+	staminaCfg: any,
+	chalkCfg: any,
+	windCfg: any,
+	boostDefs: { any },
+	boosts: Boosts,
+	ctx: DrainContext,
+	grounded: boolean
+): number
+	if ctx.climbing then
+		local rate = staminaCfg.DrainPerSecond * ctx.towerMultiplier
+		if not ctx.moving then
+			rate *= staminaCfg.HangDrainFraction
+		end
+		if ctx.slippery then
+			local grip = boostDef(boostDefs, "Grip")
+			rate *= math.max(0.2, 1 - (grip and grip.PerLevel or 0) * level(boosts, "Grip"))
+		end
+		if ctx.chalk then
+			rate *= chalkCfg.DrainMultiplier
+		end
+		if ctx.gust then
+			rate *= windCfg.DrainMultiplier
+		end
+		return -rate
+	elseif grounded then
+		local rec = boostDef(boostDefs, "Recovery")
+		return staminaCfg.RecoverPerSecond * (1 + (rec and rec.PerLevel or 0) * level(boosts, "Recovery"))
+	end
+	return 0
+end
+
+function Rules.stepStamina(current: number, rate: number, dt: number, max: number): number
+	return math.clamp(current + rate * dt, 0, max)
+end
+
+function Rules.climbWalkSpeed(climbCfg: any, boostDefs: { any }, boosts: Boosts): number
+	local def = boostDef(boostDefs, "ClimbSpeed")
+	return climbCfg.BaseWalkSpeed * (1 + (def and def.PerLevel or 0) * level(boosts, "ClimbSpeed"))
+end
+
+-- Shop ------------------------------------------------------------------
+
+-- Cost to buy the next level, or nil when already maxed / unknown.
+function Rules.boostCost(boostDefs: { any }, id: string, currentLevel: number): number?
+	local def = boostDef(boostDefs, id)
+	if not def or currentLevel >= def.MaxLevel or currentLevel < 0 then
+		return nil
+	end
+	return math.floor(def.BaseCost * def.Growth ^ currentLevel + 0.5)
+end
+
+export type PurchaseResult = { ok: boolean, reason: string?, cost: number? }
+
+function Rules.canBuyBoost(boostDefs: { any }, id: string, currentLevel: number, cash: number): PurchaseResult
+	local maybeCost = Rules.boostCost(boostDefs, id, currentLevel)
+	if not maybeCost then
+		if boostDef(boostDefs, id) == nil then
+			return { ok = false, reason = "Unknown boost" }
+		end
+		return { ok = false, reason = "Already maxed" }
+	end
+	local cost = maybeCost :: number
+	if cash < cost then
+		return { ok = false, reason = "Not enough cash", cost = cost }
+	end
+	return { ok = true, cost = cost }
+end
+
+function Rules.canBuyChalk(chalkCfg: any, held: number, cash: number): PurchaseResult
+	if held >= chalkCfg.MaxHeld then
+		return { ok = false, reason = "Chalk bag is full" }
+	end
+	if cash < chalkCfg.Price then
+		return { ok = false, reason = "Not enough cash", cost = chalkCfg.Price }
+	end
+	return { ok = true, cost = chalkCfg.Price }
+end
+
+-- Falls -----------------------------------------------------------------
+
+function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number): number
+	if drop ~= drop or drop <= fallCfg.SafeDrop then -- drop ~= drop catches NaN
+		return 0
+	end
+	local def = boostDef(boostDefs, "SoftLanding")
+	local reduction = math.min(0.75, (def and def.PerLevel or 0) * level(boosts, "SoftLanding"))
+	return (drop - fallCfg.SafeDrop) * fallCfg.DamagePerStud * (1 - reduction)
+end
+
+-- Climb validation --------------------------------------------------------
+
+export type ActiveClimb = { tower: string, startTime: number, paid: boolean }
+
+-- Whether reaching the peak of `tower` at `now` earns a payout.
+function Rules.validatePeak(climbCfg: any, active: ActiveClimb?, tower: string, height: number, now: number): (boolean, string?)
+	if not active then
+		return false, "Start the climb from the bottom of the tower"
+	end
+	local climb = active :: ActiveClimb
+	if climb.tower ~= tower then
+		return false, "Start the climb from the bottom of this tower"
+	end
+	if climb.paid then
+		return false, "Already paid - head back down to climb again"
+	end
+	if now - climb.startTime < height / climbCfg.MaxPlausibleSpeed then
+		return false, "Too fast to be real"
+	end
+	return true, nil
+end
+
+-- Daily reward ------------------------------------------------------------
+
+-- Returns newStreak, reward, alreadyClaimed.
+function Rules.dailyReward(dailyCfg: any, lastDay: number, streak: number, today: number): (number, number, boolean)
+	if lastDay == today then
+		return streak, 0, true
+	end
+	local newStreak = if lastDay == today - 1 then streak + 1 else 1
+	local reward = dailyCfg.BaseReward * math.min(newStreak, dailyCfg.MaxStreakMultiplier)
+	return newStreak, reward, false
+end
+
+-- Trails ------------------------------------------------------------------
+
+function Rules.bestTrail(trails: { any }, climbs: number): any?
+	local best = nil
+	for _, t in trails do
+		if climbs >= t.Climbs then
+			best = t
+		end
+	end
+	return best
+end
+
+-- Profiles ----------------------------------------------------------------
+
+function Rules.defaultProfile(boostDefs: { any }): any
+	local boosts = {}
+	for _, def in boostDefs do
+		boosts[def.Id] = 0
+	end
+	return {
+		Version = 1,
+		Cash = 0,
+		Climbs = 0,
+		Chalk = 0,
+		Boosts = boosts,
+		LastDaily = 0,
+		Streak = 0,
+		BestHeight = 0,
+	}
+end
+
+-- Fill in anything missing from saved data (new fields added in updates) and
+-- clamp values back into range so corrupt saves can't break the game.
+function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any): any
+	local profile = Rules.defaultProfile(boostDefs)
+	if type(saved) ~= "table" then
+		return profile
+	end
+	for key, value in profile do
+		if key ~= "Boosts" and type(saved[key]) == type(value) then
+			profile[key] = saved[key]
+		end
+	end
+	if type(saved.Boosts) == "table" then
+		for _, def in boostDefs do
+			local v = saved.Boosts[def.Id]
+			if type(v) == "number" then
+				profile.Boosts[def.Id] = math.clamp(math.floor(v), 0, def.MaxLevel)
+			end
+		end
+	end
+	profile.Cash = math.max(0, math.floor(profile.Cash))
+	profile.Climbs = math.max(0, math.floor(profile.Climbs))
+	profile.Chalk = math.clamp(math.floor(profile.Chalk), 0, chalkCfg.MaxHeld)
+	return profile
+end
+
+return Rules
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="11">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Folder" referent="12">
+      <Properties>
+        <string name="Name">Server</string>
+      </Properties>
+      <Item class="ModuleScript" referent="13">
+        <Properties>
+          <string name="Name">Build</string>
+          <string name="Source"><![CDATA[-- Small helpers for creating anchored geometry from code.
+local Build = {}
+
+-- Create an instance, apply properties, then parent it last (cheaper replication).
+function Build.part(parent: Instance, props: { [string]: any }): BasePart
+	local part = Instance.new(props.ClassName or "Part") :: BasePart
+	part.Anchored = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	if props.Shape then
+		-- Shape first: changing it afterwards can resize the part.
+		(part :: Part).Shape = props.Shape
+	end
+	for key, value in props do
+		if key ~= "ClassName" and key ~= "Attributes" and key ~= "Tags" and key ~= "Shape" then
+			(part :: any)[key] = value
+		end
+	end
+	if props.Attributes then
+		for key, value in props.Attributes do
+			part:SetAttribute(key, value)
+		end
+	end
+	if props.Tags then
+		for _, tag in props.Tags do
+			part:AddTag(tag)
+		end
+	end
+	part.Parent = parent
+	return part
+end
+
+-- Decorative strut between two world points. Non-colliding so it never snags climbers.
+function Build.beam(parent: Instance, a: Vector3, b: Vector3, thickness: number, props: { [string]: any }): BasePart
+	local dir = b - a
+	local length = dir.Magnitude
+	local up = if math.abs(dir.Unit.Y) > 0.99 then Vector3.xAxis else Vector3.yAxis
+	local merged = {
+		Size = Vector3.new(thickness, thickness, length),
+		CFrame = CFrame.lookAt((a + b) / 2, b, up),
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+	}
+	for key, value in props do
+		merged[key] = value
+	end
+	return Build.part(parent, merged)
+end
+
+-- Vertical cylinder centred at `center`.
+function Build.cylinder(parent: Instance, center: Vector3, height: number, diameter: number, props: { [string]: any }): BasePart
+	local merged = {
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(height, diameter, diameter),
+		CFrame = CFrame.new(center) * CFrame.Angles(0, 0, math.rad(90)),
+	}
+	for key, value in props do
+		merged[key] = value
+	end
+	return Build.part(parent, merged)
+end
+
+-- Red blinking aviation light (blinking is driven by EnvironmentService).
+function Build.aviationLight(parent: Instance, position: Vector3, size: number?): BasePart
+	local bulb = Build.part(parent, {
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.one * (size or 1.6),
+		Position = position,
+		Material = Enum.Material.Neon,
+		Color = Color3.fromRGB(255, 40, 40),
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		Tags = { "AviationLight" },
+	})
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 60, 60)
+	light.Range = 24
+	light.Brightness = 3
+	light.Parent = bulb
+	return bulb
+end
+
+-- Billboard-style sign text on the front face of a part.
+function Build.surfaceText(part: BasePart, lines: { { text: string, size: number, color: Color3, font: Enum.Font? } })
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.LightInfluence = 0
+	local layout = Instance.new("UIListLayout")
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = gui
+	for i, line in lines do
+		local label = Instance.new("TextLabel")
+		label.LayoutOrder = i
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.new(1, -20, 0, line.size)
+		label.Font = line.font or Enum.Font.GothamBlack
+		label.Text = line.text
+		label.TextColor3 = line.color
+		label.TextScaled = true
+		label.Parent = gui
+	end
+	gui.Parent = part
+	return gui
+end
+
+return Build
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="14">
+        <Properties>
+          <string name="Name">ClimbService</string>
+          <string name="Source"><![CDATA[-- Climb tracking: base/peak zones, payouts, checkpoints, lifts, trails.
+--
+-- A climb starts when you touch a tower's BaseZone and pays out once when you
+-- reach its PeakZone. The peak only pays if the climb started on the same
+-- tower and took a physically plausible amount of time.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local DataService = require(script.Parent.DataService)
+
+local ClimbService = {}
+
+type Checkpoint = { tower: string, position: Vector3 }
+
+local active: { [Player]: Rules.ActiveClimb } = {}
+local checkpoints: { [Player]: Checkpoint } = {}
+local lastRejectNotice: { [Player]: number } = {}
+local plazaSpawn: CFrame = CFrame.new(0, 4, 24)
+
+local notify: RemoteEvent
+
+local function playerFromHit(hit: BasePart): (Player?, Humanoid?)
+	local character = hit:FindFirstAncestorOfClass("Model")
+	if not character then
+		return nil, nil
+	end
+	local player = Players:GetPlayerFromCharacter(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not player or not humanoid or humanoid.Health <= 0 then
+		return nil, nil
+	end
+	return player, humanoid
+end
+
+local function rootOf(player: Player): BasePart?
+	local character = player.Character
+	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+function ClimbService.toast(player: Player, text: string, style: string?)
+	notify:FireClient(player, "Toast", { text = text, style = style or "info" })
+end
+
+function ClimbService.sendToPlaza(player: Player)
+	checkpoints[player] = nil
+	local character = player.Character
+	if character then
+		local offset = Vector3.new(math.random(-6, 6), 0, math.random(-4, 4))
+		character:PivotTo(plazaSpawn + offset)
+	end
+end
+
+function ClimbService.equipTrail(player: Player)
+	local character = player.Character
+	local root = rootOf(player)
+	local data = DataService.get(player)
+	if not character or not root or not data then
+		return
+	end
+	local best = Rules.bestTrail(Config.Trails, data.Climbs)
+	local existing = root:FindFirstChild("ClimbTrail") :: Trail?
+	if existing and best and existing:GetAttribute("TrailName") == best.Name then
+		return
+	end
+	if existing then
+		existing:Destroy()
+	end
+	for _, name in { "TrailTop", "TrailBottom" } do
+		local old = root:FindFirstChild(name)
+		if old then
+			old:Destroy()
+		end
+	end
+	if not best then
+		return
+	end
+	local a0 = Instance.new("Attachment")
+	a0.Name = "TrailTop"
+	a0.Position = Vector3.new(0, 0.8, 0)
+	a0.Parent = root
+	local a1 = Instance.new("Attachment")
+	a1.Name = "TrailBottom"
+	a1.Position = Vector3.new(0, -0.8, 0)
+	a1.Parent = root
+	local trail = Instance.new("Trail")
+	trail.Name = "ClimbTrail"
+	trail:SetAttribute("TrailName", best.Name)
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = 0.6
+	trail.LightEmission = 0.6
+	trail.FaceCamera = true
+	local c = Color3.fromRGB(best.Color[1], best.Color[2], best.Color[3])
+	trail.Color = ColorSequence.new(c)
+	trail.Transparency = NumberSequence.new(0.2, 1)
+	trail.Parent = root
+end
+
+local function onPeak(tower: Model, player: Player)
+	local id = tower:GetAttribute("TowerId") :: string
+	local height = tower:GetAttribute("Height") :: number
+	local ok, reason = Rules.validatePeak(Config.Climb, active[player], id, height, os.clock())
+	if not ok then
+		local now = os.clock()
+		if now - (lastRejectNotice[player] or 0) > 6 then
+			lastRejectNotice[player] = now
+			ClimbService.toast(player, reason :: string, "bad")
+		end
+		return
+	end
+	local climb = active[player] :: Rules.ActiveClimb
+	climb.paid = true
+	checkpoints[player] = nil
+
+	local payout = tower:GetAttribute("Payout") :: number
+	local before = (DataService.get(player) or {}).Climbs or 0
+	DataService.update(player, function(data)
+		data.Cash += payout
+		data.Climbs += 1
+	end)
+	local data = DataService.get(player)
+	if not data then
+		return
+	end
+	notify:FireClient(player, "Summit", { tower = id, payout = payout, climbs = data.Climbs })
+
+	local oldTrail = Rules.bestTrail(Config.Trails, before)
+	local newTrail = Rules.bestTrail(Config.Trails, data.Climbs)
+	if newTrail and newTrail ~= oldTrail then
+		notify:FireClient(player, "Unlock", { text = newTrail.Name .. " trail unlocked!" })
+		ClimbService.equipTrail(player)
+	end
+end
+
+local function hookTower(tower: Model)
+	local id = tower:GetAttribute("TowerId") :: string
+	local base = tower:FindFirstChild("BaseZone") :: BasePart
+	local peak = tower:FindFirstChild("PeakZone") :: BasePart
+
+	base.Touched:Connect(function(hit)
+		local player = playerFromHit(hit)
+		if not player then
+			return
+		end
+		local climb = active[player]
+		-- Re-arm when starting fresh, switching tower, or after being paid.
+		-- Still at the bottom of the current climb: the timer runs from the last
+		-- base touch, which keeps the "too fast" check strict.
+		if climb and climb.tower == id and not climb.paid then
+			climb.startTime = os.clock()
+			return
+		end
+		active[player] = { tower = id, startTime = os.clock(), paid = false }
+		local cp = checkpoints[player]
+		if cp and cp.tower ~= id then
+			checkpoints[player] = nil
+		end
+	end)
+
+	peak.Touched:Connect(function(hit)
+		local player = playerFromHit(hit)
+		if player then
+			onPeak(tower, player)
+		end
+	end)
+
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part:GetAttribute("Checkpoint") then
+			part.Touched:Connect(function(hit)
+				local player = playerFromHit(hit)
+				local root = player and rootOf(player)
+				if not player or not root then
+					return
+				end
+				local climb = active[player]
+				if not climb or climb.tower ~= id or climb.paid then
+					return
+				end
+				-- Only count it when standing on top, not brushing the underside.
+				local topY = part.Position.Y + part.Size.Y / 2
+				if root.Position.Y < topY then
+					return
+				end
+				local cp = checkpoints[player]
+				if not cp or cp.tower ~= id or root.Position.Y > cp.position.Y + 4 then
+					checkpoints[player] = { tower = id, position = root.Position + Vector3.new(0, Config.Climb.CheckpointRespawnLift, 0) }
+					if cp and cp.tower == id then
+						ClimbService.toast(player, "Checkpoint saved", "good")
+					end
+				end
+			end)
+		end
+	end
+
+	local lift = tower:FindFirstChild("Lift")
+	local prompt = lift and lift:FindFirstChild("LiftPrompt") :: ProximityPrompt?
+	if prompt then
+		prompt.Triggered:Connect(function(player)
+			ClimbService.sendToPlaza(player)
+			ClimbService.toast(player, "Back at the plaza. Pick your next tower!", "info")
+		end)
+	end
+end
+
+local function onCharacter(player: Player, character: Model)
+	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	humanoid.BreakJointsOnDeath = false -- we ragdoll on death instead
+	humanoid.RequiresNeck = false
+	local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
+	if not root then
+		return
+	end
+	task.defer(ClimbService.equipTrail, player)
+
+	local cp = checkpoints[player]
+	if cp then
+		task.wait(0.1)
+		if character.Parent then
+			character:PivotTo(CFrame.new(cp.position))
+			ClimbService.toast(player, "Respawned at your last checkpoint", "info")
+		end
+	end
+end
+
+function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
+	plazaSpawn = spawnCFrame
+	notify = Remotes.get("Notify")
+	for _, tower in towers:GetChildren() do
+		if tower:IsA("Model") and tower:GetAttribute("TowerId") then
+			hookTower(tower)
+		end
+	end
+
+	local function onPlayer(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			onCharacter(player, character)
+		end)
+		if player.Character then
+			task.spawn(onCharacter, player, player.Character)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, player in Players:GetPlayers() do
+		onPlayer(player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		active[player] = nil
+		checkpoints[player] = nil
+		lastRejectNotice[player] = nil
+	end)
+
+	Remotes.get("ResetToPlaza").OnServerEvent:Connect(function(player)
+		active[player] = nil
+		ClimbService.sendToPlaza(player)
+	end)
+
+	-- Track best height reached (shown on the HUD).
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in Players:GetPlayers() do
+				local root = rootOf(player)
+				local data = DataService.get(player)
+				if root and data and root.Position.Y > data.BestHeight + 1 and root.Position.Y < 2000 then
+					DataService.update(player, function(d)
+						d.BestHeight = math.floor(root.Position.Y)
+					end)
+				end
+			end
+		end
+	end)
+end
+
+return ClimbService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="15">
+        <Properties>
+          <string name="Name">DataService</string>
+          <string name="Source"><![CDATA[-- Player save data.
+--
+-- Safety rules:
+--   * Never save a profile that failed to load. Saving defaults over real data
+--     would wipe the player.
+--   * Session lock: a profile records which server owns it, so two servers can't
+--     overwrite each other when a player hops quickly. A stale lock (server
+--     crashed) is taken over after LOCK_TIMEOUT.
+--   * Retries with backoff, autosave, and a final save on leave / shutdown.
+--
+-- In an unpublished place, or with Studio API access off, DataStores fail; the
+-- game still runs but progress is not saved and the player is told so.
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+
+local DataService = {}
+
+local LOCK_TIMEOUT = 180
+local RETRIES = 3
+
+type Profile = { data: any, persistent: boolean, dirty: boolean }
+
+local profiles: { [Player]: Profile } = {}
+local changedCallbacks: { (Player, any) -> () } = {}
+
+local store: DataStore? = nil
+local orderedStore: OrderedDataStore? = nil
+do
+	local ok, err = pcall(function()
+		store = DataStoreService:GetDataStore(Config.DataStoreName)
+		orderedStore = DataStoreService:GetOrderedDataStore(Config.LeaderboardStoreName)
+	end)
+	if not ok then
+		warn("[DataService] DataStores unavailable, progress will not save:", err)
+	end
+end
+
+local function keyFor(player: Player): string
+	return "u_" .. player.UserId
+end
+
+local function withRetries<T>(label: string, fn: () -> T): (boolean, T | string)
+	local lastErr
+	for attempt = 1, RETRIES do
+		local ok, result = pcall(fn)
+		if ok then
+			return true, result
+		end
+		lastErr = result
+		warn(string.format("[DataService] %s failed (attempt %d): %s", label, attempt, tostring(result)))
+		if attempt < RETRIES then
+			task.wait(2 ^ attempt)
+		end
+	end
+	return false, lastErr
+end
+
+-- Copies the profile onto the player so the client UI can read it.
+local function sync(player: Player, data: any)
+	local stats = player:FindFirstChild("leaderstats")
+	if stats then
+		(stats:FindFirstChild("Cash") :: IntValue).Value = data.Cash;
+		(stats:FindFirstChild("Climbs") :: IntValue).Value = data.Climbs
+	end
+	for id, lvl in data.Boosts do
+		player:SetAttribute("Boost_" .. id, lvl)
+	end
+	player:SetAttribute("Chalk", data.Chalk)
+	player:SetAttribute("Streak", data.Streak)
+	player:SetAttribute("BestHeight", math.floor(data.BestHeight))
+	for _, cb in changedCallbacks do
+		task.spawn(cb, player, data)
+	end
+end
+
+local function makeLeaderstats(player: Player)
+	local stats = Instance.new("Folder")
+	stats.Name = "leaderstats"
+	local climbs = Instance.new("IntValue")
+	climbs.Name = "Climbs"
+	climbs.Parent = stats
+	local cash = Instance.new("IntValue")
+	cash.Name = "Cash"
+	cash.Parent = stats
+	stats.Parent = player
+end
+
+function DataService.load(player: Player): any
+	makeLeaderstats(player)
+	local persistent = false
+	local saved = nil
+
+	if store then
+		local key = keyFor(player)
+		for attempt = 1, RETRIES do
+			local lockedElsewhere = false
+			local ok, err = withRetries("load " .. key, function()
+				return (store :: DataStore):UpdateAsync(key, function(old)
+					old = old or {}
+					local lock = old._lock
+					lockedElsewhere = lock ~= nil
+						and lock.job ~= game.JobId
+						and os.time() - (lock.time or 0) < LOCK_TIMEOUT
+						and attempt < RETRIES -- last attempt takes over the lock
+					if lockedElsewhere then
+						return nil -- cancel the write; try again shortly
+					end
+					saved = old
+					old._lock = { job = game.JobId, time = os.time() }
+					return old
+				end)
+			end)
+			if not ok then
+				warn("[DataService] could not load", player.Name, err)
+				break
+			end
+			if not lockedElsewhere then
+				persistent = true
+				break
+			end
+			task.wait(5)
+		end
+	end
+
+	if not player.Parent then
+		-- Left while loading: hand the lock back so their next server isn't kept waiting.
+		if persistent and store then
+			pcall(function()
+				(store :: DataStore):UpdateAsync(keyFor(player), function(old)
+					if old and old._lock and old._lock.job == game.JobId then
+						old._lock = nil
+						return old
+					end
+					return nil
+				end)
+			end)
+		end
+		return nil
+	end
+
+	local data = Rules.reconcileProfile(Config.Boosts, Config.Chalk, saved)
+	profiles[player] = { data = data, persistent = persistent, dirty = false }
+	sync(player, data)
+	player:SetAttribute("DataLoaded", true)
+	player:SetAttribute("DataPersistent", persistent)
+	return data
+end
+
+function DataService.get(player: Player): any?
+	local profile = profiles[player]
+	return profile and profile.data
+end
+
+function DataService.isLoaded(player: Player): boolean
+	return profiles[player] ~= nil
+end
+
+-- Mutate a player's data through `fn`; changes are mirrored to the client.
+function DataService.update(player: Player, fn: (any) -> ())
+	local profile = profiles[player]
+	if not profile then
+		return false
+	end
+	fn(profile.data)
+	profile.dirty = true
+	sync(player, profile.data)
+	return true
+end
+
+function DataService.onChanged(cb: (Player, any) -> ())
+	table.insert(changedCallbacks, cb)
+end
+
+function DataService.save(player: Player, release: boolean)
+	local profile = profiles[player]
+	if not profile or not profile.persistent or not store then
+		return
+	end
+	if not profile.dirty and not release then
+		return
+	end
+	local key = keyFor(player)
+	local snapshot = table.clone(profile.data)
+	snapshot.Boosts = table.clone(profile.data.Boosts)
+	local ok = withRetries("save " .. key, function()
+		return (store :: DataStore):UpdateAsync(key, function(old)
+			old = old or {}
+			local lock = old._lock
+			if lock and lock.job ~= game.JobId and os.time() - (lock.time or 0) < LOCK_TIMEOUT then
+				-- Another server took this profile over; don't clobber its data.
+				return nil
+			end
+			snapshot._lock = if release then nil else { job = game.JobId, time = os.time() }
+			return snapshot
+		end)
+	end)
+	if ok then
+		profile.dirty = false
+	end
+	if orderedStore then
+		pcall(function()
+			(orderedStore :: OrderedDataStore):SetAsync(tostring(player.UserId), profile.data.Climbs)
+		end)
+	end
+end
+
+function DataService.release(player: Player)
+	DataService.save(player, true)
+	profiles[player] = nil
+end
+
+function DataService.start()
+	Players.PlayerRemoving:Connect(function(player)
+		DataService.release(player)
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(Config.AutosaveInterval)
+			for player in profiles do
+				task.spawn(DataService.save, player, false)
+			end
+		end
+	end)
+
+	game:BindToClose(function()
+		local pending = 0
+		for player in profiles do
+			pending += 1
+			task.spawn(function()
+				DataService.save(player, true)
+				pending -= 1
+			end)
+		end
+		local deadline = os.clock() + 25
+		while pending > 0 and os.clock() < deadline do
+			task.wait(0.2)
+		end
+	end)
+end
+
+DataService.orderedStore = function()
+	return orderedStore
+end
+
+return DataService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="16">
+        <Properties>
+          <string name="Name">EnvironmentService</string>
+          <string name="Source"><![CDATA[-- Day/night cycle, blinking aviation lights, street lights and wind gusts.
+local CollectionService = game:GetService("CollectionService")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+local EnvironmentService = {}
+
+local function isNight(clock: number): boolean
+	return clock < 6.3 or clock > 17.7
+end
+
+local function setStreetLights(on: boolean)
+	for _, head in CollectionService:GetTagged("StreetLight") do
+		local light = head:FindFirstChildOfClass("SpotLight")
+		if light then
+			light.Enabled = on
+		end
+		(head :: BasePart).Material = if on then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	end
+end
+
+function EnvironmentService.start()
+	-- Advance the clock a few times a second rather than every frame: ClockTime
+	-- replicates to every client, so per-frame writes are needless traffic.
+	local hoursPerSecond = 24 / Config.DayLengthSeconds
+	local wasNight: boolean? = nil
+	task.spawn(function()
+		local last = os.clock()
+		while true do
+			task.wait(0.25)
+			local now = os.clock()
+			Lighting.ClockTime = (Lighting.ClockTime + (now - last) * hoursPerSecond) % 24
+			last = now
+			local night = isNight(Lighting.ClockTime)
+			if night ~= wasNight then
+				wasNight = night
+				setStreetLights(night)
+			end
+		end
+	end)
+
+	-- Aviation lights: slow red blink, like the real thing.
+	task.spawn(function()
+		local on = true
+		while true do
+			task.wait(if on then 1.2 else 0.8)
+			on = not on
+			for _, bulb in CollectionService:GetTagged("AviationLight") do
+				local light = bulb:FindFirstChildOfClass("PointLight")
+				if light then
+					light.Enabled = on
+				end
+				(bulb :: BasePart).Transparency = if on then 0 else 0.6
+			end
+		end
+	end)
+
+	-- Wind gusts: warn everyone, then blow. Clients apply the effect to themselves.
+	local gust = Remotes.get("Gust")
+	local rng = Random.new()
+	task.spawn(function()
+		while true do
+			task.wait(rng:NextNumber(Config.Wind.MinInterval, Config.Wind.MaxInterval))
+			local angle = rng:NextNumber(0, math.pi * 2)
+			local dir = Vector3.new(math.cos(angle), 0, math.sin(angle))
+			gust:FireAllClients("warn", dir, Config.Wind.WarningTime)
+			task.wait(Config.Wind.WarningTime)
+			gust:FireAllClients("start", dir, Config.Wind.Duration)
+		end
+	end)
+end
+
+return EnvironmentService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="17">
+        <Properties>
+          <string name="Name">LeaderboardService</string>
+          <string name="Source"><![CDATA[-- Fills the plaza leaderboard with the all-time top climbers. Falls back to the
+-- players in this server when the OrderedDataStore isn't available (Studio).
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local DataService = require(script.Parent.DataService)
+
+local LeaderboardService = {}
+
+local ROWS = 10
+local nameCache: { [number]: string } = {}
+
+local function nameFor(userId: number): string
+	if nameCache[userId] then
+		return nameCache[userId]
+	end
+	local ok, name = pcall(Players.GetNameFromUserIdAsync, Players, userId)
+	local result = if ok then name else "Player " .. userId
+	nameCache[userId] = result
+	return result
+end
+
+local function buildBoard(part: BasePart): ({ TextLabel }, TextLabel)
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.LightInfluence = 0
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, 0, 0, 80)
+	title.Font = Enum.Font.GothamBlack
+	title.Text = "TOP CLIMBERS"
+	title.TextColor3 = Color3.fromRGB(255, 210, 60)
+	title.TextScaled = true
+	title.Parent = gui
+	local subtitle = Instance.new("TextLabel")
+	subtitle.BackgroundTransparency = 1
+	subtitle.Position = UDim2.fromOffset(0, 80)
+	subtitle.Size = UDim2.new(1, 0, 0, 30)
+	subtitle.Font = Enum.Font.GothamMedium
+	subtitle.Text = ""
+	subtitle.TextColor3 = Color3.fromRGB(160, 170, 190)
+	subtitle.TextScaled = true
+	subtitle.Parent = gui
+	local rows = {}
+	for i = 1, ROWS do
+		local row = Instance.new("TextLabel")
+		row.BackgroundTransparency = if i % 2 == 0 then 1 else 0.85
+		row.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		row.BorderSizePixel = 0
+		row.Position = UDim2.new(0, 20, 0, 120 + (i - 1) * 42)
+		row.Size = UDim2.new(1, -40, 0, 40)
+		row.Font = Enum.Font.GothamBold
+		row.TextColor3 = if i == 1 then Color3.fromRGB(255, 215, 80) else Color3.new(1, 1, 1)
+		row.TextScaled = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.Text = ""
+		row.Parent = gui
+		rows[i] = row
+	end
+	gui.Parent = part
+	return rows, subtitle
+end
+
+local function render(rows: { TextLabel }, entries: { { name: string, climbs: number } })
+	for i, row in rows do
+		local entry = entries[i]
+		row.Text = if entry then string.format("  #%d  %s  -  %d climbs", i, entry.name, entry.climbs) else ""
+	end
+end
+
+local function localEntries(): { { name: string, climbs: number } }
+	local entries = {}
+	for _, player in Players:GetPlayers() do
+		local data = DataService.get(player)
+		if data then
+			table.insert(entries, { name = player.DisplayName, climbs = data.Climbs })
+		end
+	end
+	table.sort(entries, function(a, b)
+		return a.climbs > b.climbs
+	end)
+	return entries
+end
+
+function LeaderboardService.start(board: BasePart)
+	local rows, subtitle = buildBoard(board)
+	task.spawn(function()
+		while true do
+			local store = DataService.orderedStore()
+			local entries = nil
+			if store then
+				local ok, pages = pcall(function()
+					return store:GetSortedAsync(false, ROWS)
+				end)
+				if ok then
+					entries = {}
+					for _, item in pages:GetCurrentPage() do
+						local userId = tonumber(item.key)
+						if userId then
+							table.insert(entries, { name = nameFor(userId), climbs = item.value })
+						end
+					end
+				end
+			end
+			if entries and #entries > 0 then
+				subtitle.Text = "All-time tower climbs"
+				render(rows, entries)
+			else
+				subtitle.Text = "Climbs in this server"
+				render(rows, localEntries())
+			end
+			task.wait(Config.LeaderboardRefresh)
+		end
+	end)
+	-- Keep the local fallback lively between store refreshes.
+	DataService.onChanged(function()
+		if subtitle.Text == "Climbs in this server" then
+			render(rows, localEntries())
+		end
+	end)
+end
+
+return LeaderboardService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="Script" referent="18">
+        <Properties>
+          <string name="Name">Main</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[-- Server entry point: builds the world and starts every service.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Rules = require(Shared.Rules)
+local Remotes = require(Shared.Remotes)
+
+Remotes.create()
+
+local WorldBuilder = require(script.Parent.WorldBuilder)
+local DataService = require(script.Parent.DataService)
+local ClimbService = require(script.Parent.ClimbService)
+local RagdollService = require(script.Parent.RagdollService)
+local ShopService = require(script.Parent.ShopService)
+local EnvironmentService = require(script.Parent.EnvironmentService)
+local LeaderboardService = require(script.Parent.LeaderboardService)
+
+local world, towers = WorldBuilder.build()
+
+-- Keep the spawn pad on the plaza even if someone moved it in Studio.
+local spawn = Workspace:FindFirstChildOfClass("SpawnLocation")
+local spawnCFrame = if spawn then spawn.CFrame + Vector3.new(0, 4, 0) else WorldBuilder.PlazaSpawn
+
+DataService.start()
+ClimbService.start(towers, spawnCFrame)
+RagdollService.start()
+ShopService.start()
+EnvironmentService.start()
+LeaderboardService.start(world:FindFirstChild("Leaderboard") :: BasePart)
+
+local notify = Remotes.get("Notify")
+
+local function onPlayer(player: Player)
+	local data = DataService.load(player)
+	if not data then
+		return
+	end
+	ClimbService.equipTrail(player)
+	if not player:GetAttribute("DataPersistent") then
+		notify:FireClient(player, "Toast", {
+			text = "Saving is off here (publish the place and enable API access to keep progress).",
+			style = "bad",
+		})
+	end
+
+	local today = math.floor(os.time() / 86400)
+	local streak, reward, claimed = Rules.dailyReward(Config.Daily, data.LastDaily, data.Streak, today)
+	if not claimed then
+		DataService.update(player, function(d)
+			d.LastDaily = today
+			d.Streak = streak
+			d.Cash += reward
+		end)
+		notify:FireClient(player, "Daily", { streak = streak, reward = reward })
+	end
+end
+
+Players.PlayerAdded:Connect(onPlayer)
+for _, player in Players:GetPlayers() do
+	task.spawn(onPlayer, player)
+end
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="19">
+        <Properties>
+          <string name="Name">RagdollService</string>
+          <string name="Source"><![CDATA[-- Server half of the ragdoll: swaps Motor6Ds for BallSocketConstraints so every
+-- client sees the floppy body, and applies fall damage when the player gets up.
+-- The owning client puts its Humanoid into the Physics state (it owns the
+-- character's physics).
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local DataService = require(script.Parent.DataService)
+
+local RagdollService = {}
+
+type RagdollState = {
+	character: Model,
+	startY: number,
+	startedAt: number,
+	motors: { Motor6D },
+	created: { Instance },
+	collisions: { [BasePart]: boolean },
+}
+
+local states: { [Player]: RagdollState } = {}
+local ROOT_JOINTS = { Root = true, RootJoint = true }
+
+local function enableRagdoll(character: Model): ({ Motor6D }, { Instance }, { [BasePart]: boolean })
+	local motors, created, collisions = {}, {}, {}
+	for _, motor in character:GetDescendants() do
+		if motor:IsA("Motor6D") and not ROOT_JOINTS[motor.Name] and motor.Part0 and motor.Part1 then
+			local a0 = Instance.new("Attachment")
+			a0.Name = "RagdollA0"
+			a0.CFrame = motor.C0
+			a0.Parent = motor.Part0
+			local a1 = Instance.new("Attachment")
+			a1.Name = "RagdollA1"
+			a1.CFrame = motor.C1
+			a1.Parent = motor.Part1
+			local socket = Instance.new("BallSocketConstraint")
+			socket.Name = "RagdollSocket"
+			socket.Attachment0 = a0
+			socket.Attachment1 = a1
+			socket.LimitsEnabled = true
+			socket.UpperAngle = 70
+			socket.TwistLimitsEnabled = true
+			socket.TwistLowerAngle = -50
+			socket.TwistUpperAngle = 50
+			socket.Parent = motor.Part0
+			motor.Enabled = false
+			table.insert(motors, motor)
+			table.insert(created, a0)
+			table.insert(created, a1)
+			table.insert(created, socket)
+		end
+	end
+	for _, part in character:GetChildren() do
+		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+			collisions[part] = part.CanCollide
+			part.CanCollide = true
+		end
+	end
+	return motors, created, collisions
+end
+
+local function disableRagdoll(state: RagdollState)
+	for _, motor in state.motors do
+		if motor.Parent then
+			motor.Enabled = true
+		end
+	end
+	for _, inst in state.created do
+		inst:Destroy()
+	end
+	for part, canCollide in state.collisions do
+		if part.Parent then
+			part.CanCollide = canCollide
+		end
+	end
+end
+
+local function rootOf(character: Model): BasePart?
+	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+function RagdollService.set(player: Player, ragdolled: boolean, claimedStartY: number?)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and rootOf(character)
+	if not character or not humanoid or not root then
+		return
+	end
+	local state = states[player]
+
+	if ragdolled and not state then
+		if humanoid.Health <= 0 then
+			return
+		end
+		-- Trust the client's fall start only within sane bounds (it can only lie
+		-- in its own disfavour by more than this).
+		local y = root.Position.Y
+		local startY = if typeof(claimedStartY) == "number" and claimedStartY == claimedStartY
+			then math.clamp(claimedStartY, y, y + 1500)
+			else y
+		local motors, created, collisions = enableRagdoll(character)
+		states[player] = {
+			character = character,
+			startY = startY,
+			startedAt = os.clock(),
+			motors = motors,
+			created = created,
+			collisions = collisions,
+		}
+	elseif not ragdolled and state then
+		states[player] = nil
+		if state.character ~= character then
+			return
+		end
+		disableRagdoll(state)
+		local data = DataService.get(player)
+		local damage = Rules.fallDamage(Config.Fall, Config.Boosts, data and data.Boosts or {}, state.startY - root.Position.Y)
+		if damage > 0 and humanoid.Health > 0 then
+			humanoid:TakeDamage(damage)
+			Remotes.get("Notify"):FireClient(player, "Hurt", { damage = math.floor(damage) })
+		end
+	end
+end
+
+function RagdollService.start()
+	local lastCall: { [Player]: number } = {}
+	Remotes.get("Ragdoll").OnServerEvent:Connect(function(player, ragdolled, startY)
+		if typeof(ragdolled) ~= "boolean" then
+			return
+		end
+		local now = os.clock()
+		if ragdolled and now - (lastCall[player] or 0) < 0.25 then
+			return
+		end
+		lastCall[player] = now
+		RagdollService.set(player, ragdolled, if typeof(startY) == "number" then startY else nil)
+	end)
+
+	local function onCharacter(player: Player, character: Model)
+		states[player] = nil -- old body is gone; nothing to restore
+		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+		humanoid.Died:Connect(function()
+			-- Ragdoll Engine-style limp death instead of falling apart.
+			if not states[player] and character.Parent then
+				enableRagdoll(character)
+			end
+		end)
+	end
+	local function onPlayer(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			onCharacter(player, character)
+		end)
+		if player.Character then
+			task.spawn(onCharacter, player, player.Character)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, player in Players:GetPlayers() do
+		onPlayer(player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		states[player] = nil
+		lastCall[player] = nil
+	end)
+
+	-- Failsafe: a client that never sends "get up" still gets its joints back.
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for player, state in states do
+				if os.clock() - state.startedAt > Config.Fall.MaxRagdollTime + 5 then
+					RagdollService.set(player, false)
+				end
+			end
+		end
+	end)
+end
+
+return RagdollService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="20">
+        <Properties>
+          <string name="Name">ShopService</string>
+          <string name="Source"><![CDATA[-- Server-authoritative purchases. Clients only ask; every check happens here.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local DataService = require(script.Parent.DataService)
+
+local ShopService = {}
+
+local RATE_LIMIT = 0.2
+local lastCall: { [Player]: number } = {}
+
+local function allowed(player: Player): boolean
+	local now = os.clock()
+	if now - (lastCall[player] or 0) < RATE_LIMIT then
+		return false
+	end
+	lastCall[player] = now
+	return DataService.isLoaded(player)
+end
+
+local function toast(player: Player, text: string, style: string)
+	Remotes.get("Notify"):FireClient(player, "Toast", { text = text, style = style })
+end
+
+function ShopService.start()
+	Remotes.get("BuyBoost").OnServerEvent:Connect(function(player, boostId)
+		if typeof(boostId) ~= "string" or #boostId > 32 or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		local def = Rules.boostDef(Config.Boosts, boostId)
+		if not data or not def then
+			return
+		end
+		local result = Rules.canBuyBoost(Config.Boosts, boostId, data.Boosts[boostId] or 0, data.Cash)
+		if not result.ok then
+			toast(player, result.reason :: string, "bad")
+			return
+		end
+		DataService.update(player, function(d)
+			d.Cash -= result.cost :: number
+			d.Boosts[boostId] = (d.Boosts[boostId] or 0) + 1
+		end)
+		toast(player, string.format("%s upgraded to level %d!", def.Name, data.Boosts[boostId]), "good")
+	end)
+
+	Remotes.get("BuyChalk").OnServerEvent:Connect(function(player)
+		if not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data then
+			return
+		end
+		local result = Rules.canBuyChalk(Config.Chalk, data.Chalk, data.Cash)
+		if not result.ok then
+			toast(player, result.reason :: string, "bad")
+			return
+		end
+		DataService.update(player, function(d)
+			d.Cash -= result.cost :: number
+			d.Chalk += 1
+		end)
+		toast(player, "Bought chalk (" .. data.Chalk .. " in bag)", "good")
+	end)
+
+	Remotes.get("UseChalk").OnServerEvent:Connect(function(player)
+		if not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data then
+			return
+		end
+		local now = Workspace:GetServerTimeNow()
+		if (player:GetAttribute("ChalkUntil") or 0) > now then
+			return -- already chalked up; don't waste one
+		end
+		if data.Chalk <= 0 then
+			toast(player, "No chalk left - buy some at the shop", "bad")
+			return
+		end
+		DataService.update(player, function(d)
+			d.Chalk -= 1
+		end)
+		player:SetAttribute("ChalkUntil", now + Config.Chalk.Duration)
+	end)
+
+	game:GetService("Players").PlayerRemoving:Connect(function(player)
+		lastCall[player] = nil
+	end)
+end
+
+return ShopService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="21">
+        <Properties>
+          <string name="Name">TowerBuilder</string>
+          <string name="Source"><![CDATA[-- Procedural towers.
+--
+-- Telecom towers follow real self-supporting lattice towers: four tapering legs,
+-- X-braced faces, stacked sections with a rest platform on top of each, and an
+-- antenna with an aviation light. Skyscrapers follow stepped-setback supertalls:
+-- a glass core per section that steps inward, with the setback roofs as ledges.
+--
+-- Climbing uses Roblox's native TrussPart climbing. Each section has one ladder,
+-- and successive ladders rotate around the tower so climbers must step onto
+-- every platform or ledge between them.
+--
+-- Geometry rules (checked by tests/run.lua against Config):
+--   * Ladder k stands outside section k's structure, from the floor below to
+--     the platform/roof on top of section k.
+--   * Telecom platforms overhang the lattice and have a notch where the ladder
+--     passes through. A backing plate stops people climbing the inner face of
+--     the ladder (which would bonk them on the platform above).
+--   * Skyscraper setbacks are >= 5 studs so you can stand outside the next ladder.
+
+local Build = require(script.Parent.Build)
+
+local TowerBuilder = {}
+
+local LADDER_COLOR = Color3.fromRGB(255, 190, 40)
+local WHITE = Color3.fromRGB(235, 235, 235)
+local STEEL = Color3.fromRGB(95, 100, 110)
+local CONCRETE = Color3.fromRGB(170, 168, 160)
+
+local FACES = {
+	Vector3.new(0, 0, -1), -- face 0 points at the plaza
+	Vector3.new(1, 0, 0),
+	Vector3.new(0, 0, 1),
+	Vector3.new(-1, 0, 0),
+}
+
+local function faceDir(f: number): Vector3
+	return FACES[f % 4 + 1]
+end
+
+-- CFrame in tower space where local X points out of face `o`, Y is up and Z runs
+-- along the face. (u, v, y) = (outward, along-face, height).
+local function faceCF(towerCF: CFrame, o: Vector3, u: number, v: number, y: number): CFrame
+	local along = o:Cross(Vector3.yAxis)
+	return towerCF * CFrame.fromMatrix(o * u + along * v + Vector3.new(0, y, 0), o, Vector3.yAxis)
+end
+
+local function ladder(model: Model, towerCF: CFrame, o: Vector3, u: number, bottom: number, height: number)
+	return Build.part(model, {
+		ClassName = "TrussPart",
+		Name = "Ladder",
+		Size = Vector3.new(2, height, 2),
+		CFrame = faceCF(towerCF, o, u, 0, bottom + height / 2),
+		Color = LADDER_COLOR,
+		Material = Enum.Material.Metal,
+	})
+end
+
+local function liftKiosk(model: Model, cf: CFrame)
+	local kiosk = Build.part(model, {
+		Name = "Lift",
+		Size = Vector3.new(3, 7, 3),
+		CFrame = cf,
+		Color = Color3.fromRGB(40, 45, 55),
+		Material = Enum.Material.DiamondPlate,
+	})
+	Build.part(model, {
+		Name = "LiftLamp",
+		Size = Vector3.new(3.2, 0.4, 3.2),
+		CFrame = cf * CFrame.new(0, 3.6, 0),
+		Color = Color3.fromRGB(80, 255, 140),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+	})
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "LiftPrompt"
+	prompt.ActionText = "Ride down"
+	prompt.ObjectText = "Service lift"
+	prompt.HoldDuration = 0.5
+	prompt.MaxActivationDistance = 10
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = kiosk
+	return kiosk
+end
+
+local function zones(model: Model, towerCF: CFrame, baseHalf: number, peakY: number, peakHalf: number)
+	Build.part(model, {
+		Name = "BaseZone",
+		Size = Vector3.new(baseHalf * 2, 12, baseHalf * 2),
+		CFrame = towerCF * CFrame.new(0, 6, 0),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+	})
+	Build.part(model, {
+		Name = "PeakZone",
+		Size = Vector3.new(peakHalf * 2, 10, peakHalf * 2),
+		CFrame = towerCF * CFrame.new(0, peakY + 5, 0),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+	})
+end
+
+local function baseAndSign(model: Model, towerCF: CFrame, def: any, entry: any, baseHalf: number)
+	Build.part(model, {
+		Name = "Pad",
+		Size = Vector3.new(baseHalf * 2, 1, baseHalf * 2),
+		CFrame = towerCF * CFrame.new(0, -0.5, 0),
+		Color = CONCRETE,
+		Material = Enum.Material.Concrete,
+	})
+	local signCF = towerCF * CFrame.new(-baseHalf * 0.55, 0, -(baseHalf - 1))
+	Build.part(model, {
+		Name = "SignPost",
+		Size = Vector3.new(0.6, 6, 0.6),
+		CFrame = signCF * CFrame.new(0, 3, 0),
+		Color = STEEL,
+		Material = Enum.Material.Metal,
+	})
+	local board = Build.part(model, {
+		Name = "Sign",
+		Size = Vector3.new(14, 6, 0.5),
+		CFrame = signCF * CFrame.new(0, 8, 0),
+		Color = Color3.fromRGB(25, 28, 36),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	local stars = math.clamp(math.round(def.DrainMultiplier), 1, 4)
+	Build.surfaceText(board, {
+		{ text = string.upper(entry.Name), size = 70, color = Color3.fromRGB(255, 255, 255) },
+		{ text = def.DisplayName .. "  ·  $" .. def.Payout, size = 50, color = Color3.fromRGB(110, 230, 140), font = Enum.Font.GothamBold },
+		{ text = string.rep("★", stars) .. string.rep("☆", 4 - stars) .. "  drain x" .. def.DrainMultiplier, size = 46, color = Color3.fromRGB(255, 200, 70), font = Enum.Font.GothamBold },
+	})
+end
+
+-- Telecom lattice tower --------------------------------------------------------
+
+local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, number, number)
+	local S, n = def.SectionHeight, def.Sections
+	local H = S * n
+	local paint = Color3.fromRGB(def.Color[1], def.Color[2], def.Color[3])
+	local overhang = 5
+	local notchHalf = 2.5
+
+	local function hw(y: number): number
+		return def.BaseHalfWidth + (def.TopHalfWidth - def.BaseHalfWidth) * (y / H)
+	end
+	local function corner(o: Vector3, side: number, y: number): Vector3
+		local along = o:Cross(Vector3.yAxis)
+		local h = hw(y)
+		return towerCF:PointToWorldSpace(o * h + along * (side * h) + Vector3.new(0, y, 0))
+	end
+
+	for k = 0, n - 1 do
+		local bottom, top = k * S, (k + 1) * S
+		local band = if k % 2 == 0 then paint else WHITE
+		local metal = { Color = band, Material = Enum.Material.Metal }
+
+		-- Legs (solid) at the four corners.
+		for f = 0, 3 do
+			local o = faceDir(f)
+			local leg = Build.beam(model, corner(o, -1, bottom), corner(o, -1, top), 1.2, metal)
+			leg.CanCollide = true
+		end
+
+		-- X-bracing every 10 studs on every face, plus a horizontal girt.
+		local panels = math.max(1, math.floor(S / 10))
+		local panelH = S / panels
+		for f = 0, 3 do
+			local o = faceDir(f)
+			for j = 0, panels - 1 do
+				local y0, y1 = bottom + j * panelH, bottom + (j + 1) * panelH
+				Build.beam(model, corner(o, -1, y0), corner(o, 1, y1), 0.45, metal)
+				Build.beam(model, corner(o, 1, y0), corner(o, -1, y1), 0.45, metal)
+				Build.beam(model, corner(o, -1, y0), corner(o, 1, y0), 0.45, metal)
+			end
+		end
+
+		-- Ladder for this section, on a rotating face, hugging the lattice.
+		local o = faceDir(k)
+		local a = hw(bottom) -- ladder inner edge
+		ladder(model, towerCF, o, a + 1, bottom, S)
+		Build.part(model, {
+			Name = "LadderBacking",
+			Size = Vector3.new(0.3, S, 2.4),
+			CFrame = faceCF(towerCF, o, a - 0.15, 0, bottom + S / 2),
+			Color = STEEL,
+			Material = Enum.Material.DiamondPlate,
+		})
+
+		-- Rest platform on top of the section, notched where the ladder comes up.
+		local p = hw(top) + overhang
+		local u0 = a - 0.3
+		local pieces = {
+			{ -p, u0, -p, p },
+			{ u0, p, -p, -notchHalf },
+			{ u0, p, notchHalf, p },
+		}
+		for _, r in pieces do
+			Build.part(model, {
+				Name = "Platform",
+				Size = Vector3.new(r[2] - r[1], 1, r[4] - r[3]),
+				CFrame = faceCF(towerCF, o, (r[1] + r[2]) / 2, (r[3] + r[4]) / 2, top - 0.5),
+				Color = Color3.fromRGB(120, 124, 130),
+				Material = Enum.Material.DiamondPlate,
+				Attributes = { Checkpoint = true },
+			})
+		end
+
+		-- Guard rails around the platform edge, open where the ladder arrives.
+		for f = 0, 3 do
+			local ro = faceDir(f)
+			local spans = if f % 4 == k % 4 then { { -p, -notchHalf }, { notchHalf, p } } else { { -p, p } }
+			for _, span in spans do
+				local len = span[2] - span[1]
+				local mid = (span[1] + span[2]) / 2
+				Build.part(model, {
+					Name = "Rail",
+					Size = Vector3.new(0.3, 0.3, len),
+					CFrame = faceCF(towerCF, ro, p - 0.15, mid, top + 3),
+					Color = Color3.fromRGB(255, 220, 60),
+					Material = Enum.Material.Metal,
+				})
+				for v = span[1], span[2], 5 do
+					Build.part(model, {
+						Name = "RailPost",
+						Size = Vector3.new(0.3, 3, 0.3),
+						CFrame = faceCF(towerCF, ro, p - 0.15, v, top + 1.5),
+						Color = Color3.fromRGB(255, 220, 60),
+						Material = Enum.Material.Metal,
+						CanCollide = false,
+					})
+				end
+			end
+		end
+
+		-- Microwave dish on the face opposite this section's ladder.
+		if k > 0 and k < n - 1 then
+			local dishO = faceDir(k + 2)
+			local y = bottom + S * 0.5
+			Build.part(model, {
+				Name = "Dish",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(0.8, 5, 5),
+				CFrame = faceCF(towerCF, dishO, hw(y) + 0.8, 0, y),
+				Color = WHITE,
+				Material = Enum.Material.SmoothPlastic,
+				CanCollide = false,
+				CanQuery = false,
+			})
+		end
+	end
+
+	-- Panel antennas near the corners of the top section.
+	for f = 0, 3 do
+		local o = faceDir(f)
+		local y = H - 6
+		for _, side in { -1, 1 } do
+			Build.part(model, {
+				Name = "PanelAntenna",
+				Size = Vector3.new(0.5, 5, 1.4),
+				CFrame = faceCF(towerCF, o, hw(y) + 0.5, side * (hw(y) - 0.8), y),
+				Color = WHITE,
+				Material = Enum.Material.SmoothPlastic,
+				CanCollide = false,
+				CanQuery = false,
+			})
+		end
+	end
+
+	-- Antenna mast with an aviation light on top.
+	local mastHeight = if H >= 150 then 30 else 16
+	Build.cylinder(model, towerCF:PointToWorldSpace(Vector3.new(0, H + mastHeight / 2, 0)), mastHeight, 0.9, {
+		Name = "Antenna",
+		Color = paint,
+		Material = Enum.Material.Metal,
+	})
+	Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(0, H + mastHeight + 0.6, 0)))
+	Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(0, H * 0.5, 0)), 1.2)
+
+	local summitHalf = hw(H) + overhang
+	liftKiosk(model, faceCF(towerCF, faceDir(n - 1 + 2), summitHalf - 2.5, 0, H + 3.5))
+	return H, summitHalf, def.BaseHalfWidth + 12
+end
+
+-- Stepped-setback skyscraper -----------------------------------------------------
+
+local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number, number, number)
+	local S = def.SectionHeight
+	local widths = def.HalfWidths
+	local n = #widths
+	local H = S * n
+	local glass = Color3.fromRGB(def.Color[1], def.Color[2], def.Color[3])
+
+	for k = 0, n - 1 do
+		local h = widths[k + 1]
+		local bottom, top = k * S, (k + 1) * S
+
+		Build.part(model, {
+			Name = "Facade",
+			Size = Vector3.new(h * 2, S, h * 2),
+			CFrame = towerCF * CFrame.new(0, bottom + S / 2, 0),
+			Color = glass,
+			Material = Enum.Material.Glass,
+			Reflectance = 0.25,
+		})
+
+		-- Floor bands every 10 studs give the facade scale and texture.
+		for y = bottom + 10, top - 10, 10 do
+			Build.part(model, {
+				Name = "FloorBand",
+				Size = Vector3.new(h * 2 + 0.6, 0.8, h * 2 + 0.6),
+				CFrame = towerCF * CFrame.new(0, y, 0),
+				Color = Color3.fromRGB(205, 205, 200),
+				Material = Enum.Material.Concrete,
+				CanQuery = false,
+			})
+		end
+
+		-- Vertical mullions.
+		local count = math.max(2, math.floor(h * 2 / 8))
+		local spacing = h * 2 / count
+		for f = 0, 3 do
+			local o = faceDir(f)
+			for i = 0, count - 1 do
+				Build.part(model, {
+					Name = "Mullion",
+					Size = Vector3.new(0.4, S, 0.5),
+					CFrame = faceCF(towerCF, o, h + 0.2, -h + (i + 0.5) * spacing, bottom + S / 2),
+					Color = Color3.fromRGB(55, 60, 70),
+					Material = Enum.Material.Metal,
+					CanCollide = false,
+					CanQuery = false,
+					CanTouch = false,
+				})
+			end
+		end
+
+		-- Setback roof: the ledge you rest on before the next ladder.
+		Build.part(model, {
+			Name = "Ledge",
+			Size = Vector3.new(h * 2 + 1, 1, h * 2 + 1),
+			CFrame = towerCF * CFrame.new(0, top - 0.5, 0),
+			Color = CONCRETE,
+			Material = Enum.Material.Concrete,
+			Attributes = { Checkpoint = true },
+		})
+
+		-- Window-washer rail (the climbable ladder) on a rotating face.
+		ladder(model, towerCF, faceDir(k), h + 1, bottom, S)
+
+		-- Corner lights on each setback.
+		if k < n - 1 then
+			Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(h, top + 0.8, h)), 1.2)
+			Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(-h, top + 0.8, -h)), 1.2)
+		end
+	end
+
+	-- Lobby canopy and doors, offset from the first ladder.
+	local h0 = widths[1]
+	local front = faceDir(0)
+	Build.part(model, {
+		Name = "Canopy",
+		Size = Vector3.new(6, 0.6, 16),
+		CFrame = faceCF(towerCF, front, h0 + 3, -h0 * 0.5, 12),
+		Color = Color3.fromRGB(40, 40, 46),
+		Material = Enum.Material.Metal,
+	})
+	Build.part(model, {
+		Name = "Doors",
+		Size = Vector3.new(0.4, 10, 12),
+		CFrame = faceCF(towerCF, front, h0 + 0.2, -h0 * 0.5, 5),
+		Color = Color3.fromRGB(20, 25, 30),
+		Material = Enum.Material.Glass,
+		Reflectance = 0.4,
+	})
+
+	-- Summit: helipad or spire, plus lights and the lift.
+	local hTop = widths[n]
+	if def.Spire then
+		local stages = { { 6, 0.35 }, { 4, 0.3 }, { 2.4, 0.2 }, { 1.2, 0.15 } }
+		local y = H
+		for _, stage in stages do
+			local len = def.Spire * stage[2]
+			Build.cylinder(model, towerCF:PointToWorldSpace(Vector3.new(0, y + len / 2, 0)), len, stage[1], {
+				Name = "Spire",
+				Color = Color3.fromRGB(200, 205, 215),
+				Material = Enum.Material.Metal,
+				Reflectance = 0.2,
+			})
+			y += len
+		end
+		Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(0, y + 1, 0)), 2)
+	else
+		local d = math.min(hTop * 2 - 6, 22)
+		Build.cylinder(model, towerCF:PointToWorldSpace(Vector3.new(0, H + 0.1, 0)), 0.2, d, {
+			Name = "Helipad",
+			Color = Color3.fromRGB(40, 42, 48),
+			Material = Enum.Material.Asphalt,
+			CanCollide = false,
+		})
+		local hColor = { Color = Color3.fromRGB(255, 210, 50), Material = Enum.Material.SmoothPlastic, CanCollide = false }
+		for _, spec in { { -2, 0, 1, 8 }, { 2, 0, 1, 8 }, { 0, 0, 3, 1 } } do
+			Build.part(model, {
+				Name = "HelipadH",
+				Size = Vector3.new(spec[3], 0.1, spec[4]),
+				CFrame = towerCF * CFrame.new(spec[1], H + 0.25, spec[2]),
+				Color = hColor.Color,
+				Material = hColor.Material,
+				CanCollide = false,
+			})
+		end
+	end
+	for _, c in { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } } do
+		Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(c[1] * (hTop - 0.5), H + 0.8, c[2] * (hTop - 0.5))), 1.2)
+	end
+	liftKiosk(model, faceCF(towerCF, faceDir(n - 1 + 2), hTop - 3, 0, H + 3.5))
+	return H, hTop + 0.5, h0 + 14
+end
+
+-- Public -------------------------------------------------------------------------
+
+function TowerBuilder.build(parent: Instance, entry: any, def: any, towerCF: CFrame): Model
+	local model = Instance.new("Model")
+	model.Name = entry.Name
+
+	local height, peakHalf, baseHalf
+	if def.Kind == "Telecom" then
+		height, peakHalf, baseHalf = buildTelecom(model, towerCF, def)
+	else
+		height, peakHalf, baseHalf = buildSkyscraper(model, towerCF, def)
+	end
+	baseAndSign(model, towerCF, def, entry, baseHalf)
+	zones(model, towerCF, baseHalf, height, peakHalf)
+
+	model:SetAttribute("TowerId", entry.Name)
+	model:SetAttribute("DisplayName", entry.Name)
+	model:SetAttribute("Kind", def.Kind)
+	model:SetAttribute("Height", height)
+	model:SetAttribute("Payout", def.Payout)
+	model:SetAttribute("DrainMultiplier", def.DrainMultiplier)
+	model:SetAttribute("Slippery", def.Slippery)
+	model:SetAttribute("Radius", baseHalf)
+	model.WorldPivot = towerCF
+	model.Parent = parent
+	return model
+end
+
+return TowerBuilder
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="22">
+        <Properties>
+          <string name="Name">WorldBuilder</string>
+          <string name="Source"><![CDATA[-- Builds the plaza, roads, street lamps, shop stall, boards and every tower.
+--
+-- Idempotent: if Workspace already has the folders (because someone baked the
+-- world into the place by running WorldBuilder.build() from the Studio command
+-- bar), they are reused instead of rebuilt.
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Build = require(script.Parent.Build)
+local TowerBuilder = require(script.Parent.TowerBuilder)
+
+local WorldBuilder = {}
+
+local PLAZA_RADIUS = 70
+local PLAZA_CENTER = Vector3.new(0, 0, 0)
+
+local function towerCFrame(entry: any): CFrame
+	local angle = math.rad(entry.Angle)
+	local pos = PLAZA_CENTER + Vector3.new(math.cos(angle), 0, math.sin(angle)) * entry.Radius
+	-- Face 0 (local -Z) looks back at the plaza.
+	return CFrame.lookAt(pos, Vector3.new(PLAZA_CENTER.X, pos.Y, PLAZA_CENTER.Z))
+end
+
+local function streetLamp(parent: Instance, position: Vector3)
+	Build.part(parent, {
+		Name = "LampPost",
+		Size = Vector3.new(0.6, 14, 0.6),
+		Position = position + Vector3.new(0, 7, 0),
+		Color = Color3.fromRGB(45, 48, 55),
+		Material = Enum.Material.Metal,
+	})
+	local head = Build.part(parent, {
+		Name = "LampHead",
+		Size = Vector3.new(2, 0.6, 2),
+		Position = position + Vector3.new(0, 14.2, 0),
+		Color = Color3.fromRGB(255, 230, 180),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Tags = { "StreetLight" },
+	})
+	local light = Instance.new("SpotLight")
+	light.Face = Enum.NormalId.Bottom
+	light.Angle = 110
+	light.Range = 32
+	light.Brightness = 2
+	light.Color = Color3.fromRGB(255, 220, 170)
+	light.Enabled = false
+	light.Parent = head
+end
+
+local function buildRoads(world: Instance)
+	for _, entry in Config.Layout do
+		local def = Config.TowerTypes[entry.Type]
+		local cf = towerCFrame(entry)
+		local baseHalf = if def.Kind == "Telecom" then def.BaseHalfWidth + 12 else def.HalfWidths[1] + 14
+		local dir = (cf.Position - PLAZA_CENTER).Unit
+		local from = PLAZA_CENTER + dir * (PLAZA_RADIUS - 4)
+		local to = cf.Position - dir * (baseHalf - 2)
+		local length = (to - from).Magnitude
+		local mid = (from + to) / 2
+		Build.part(world, {
+			Name = "Road",
+			Size = Vector3.new(14, 0.4, length),
+			CFrame = CFrame.lookAt(mid, to) * CFrame.new(0, -0.3, 0),
+			Color = Color3.fromRGB(52, 54, 58),
+			Material = Enum.Material.Asphalt,
+		})
+		Build.part(world, {
+			Name = "RoadLine",
+			Size = Vector3.new(0.5, 0.05, length - 4),
+			CFrame = CFrame.lookAt(mid, to) * CFrame.new(0, -0.08, 0),
+			Color = Color3.fromRGB(240, 210, 90),
+			Material = Enum.Material.SmoothPlastic,
+			CanCollide = false,
+			CanQuery = false,
+		})
+		local side = dir:Cross(Vector3.yAxis)
+		for d = 20, length - 10, 45 do
+			streetLamp(world, from + dir * d + side * 9)
+		end
+	end
+end
+
+local function buildPlaza(world: Instance)
+	Build.cylinder(world, PLAZA_CENTER + Vector3.new(0, -0.5, 0), 1, PLAZA_RADIUS * 2, {
+		Name = "Plaza",
+		Color = Color3.fromRGB(190, 186, 176),
+		Material = Enum.Material.Pavement,
+	})
+	Build.cylinder(world, PLAZA_CENTER + Vector3.new(0, 0.6, 0), 1.2, 22, {
+		Name = "FountainRim",
+		Color = Color3.fromRGB(150, 146, 140),
+		Material = Enum.Material.Marble,
+	})
+	Build.cylinder(world, PLAZA_CENTER + Vector3.new(0, 0.9, 0), 0.4, 19, {
+		Name = "FountainWater",
+		Color = Color3.fromRGB(70, 150, 200),
+		Material = Enum.Material.Glass,
+		Transparency = 0.3,
+		Reflectance = 0.3,
+		CanCollide = false,
+	})
+
+	-- Shop stall: opening the shop is handled on the client via the prompt.
+	local stallCF = CFrame.lookAt(Vector3.new(-30, 0, 30), PLAZA_CENTER)
+	local counter = Build.part(world, {
+		Name = "ShopStall",
+		Size = Vector3.new(14, 4, 4),
+		CFrame = stallCF * CFrame.new(0, 2, 0),
+		Color = Color3.fromRGB(120, 80, 50),
+		Material = Enum.Material.WoodPlanks,
+	})
+	Build.part(world, {
+		Name = "ShopAwning",
+		Size = Vector3.new(16, 0.6, 7),
+		CFrame = stallCF * CFrame.new(0, 9, -1) * CFrame.Angles(math.rad(-12), 0, 0),
+		Color = Color3.fromRGB(230, 70, 70),
+		Material = Enum.Material.Fabric,
+	})
+	for _, x in { -7.5, 7.5 } do
+		Build.part(world, {
+			Name = "ShopPole",
+			Size = Vector3.new(0.6, 9, 0.6),
+			CFrame = stallCF * CFrame.new(x, 4.5, 1.5),
+			Color = Color3.fromRGB(80, 55, 35),
+			Material = Enum.Material.Wood,
+		})
+	end
+	local shopSign = Build.part(world, {
+		Name = "ShopSign",
+		Size = Vector3.new(12, 2.5, 0.4),
+		CFrame = stallCF * CFrame.new(0, 6.5, -2.4),
+		Color = Color3.fromRGB(30, 30, 36),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	Build.surfaceText(shopSign, {
+		{ text = "GEAR & BOOSTS", size = 70, color = Color3.fromRGB(255, 210, 60) },
+	})
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "ShopPrompt"
+	prompt.ActionText = "Open shop"
+	prompt.ObjectText = "Gear & Boosts"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = counter
+
+	-- How-to-play board.
+	local helpCF = CFrame.lookAt(Vector3.new(30, 0, 30), PLAZA_CENTER)
+	local help = Build.part(world, {
+		Name = "HowToPlay",
+		Size = Vector3.new(16, 10, 0.5),
+		CFrame = helpCF * CFrame.new(0, 6, 0),
+		Color = Color3.fromRGB(25, 28, 36),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	Build.surfaceText(help, {
+		{ text = "HOW TO CLIMB", size = 64, color = Color3.fromRGB(255, 210, 60) },
+		{ text = "Walk into a yellow ladder to climb.", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
+		{ text = "Climbing burns stamina. Stand on a platform to breathe.", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
+		{ text = "Run out and you BLACK OUT and fall.", size = 34, color = Color3.fromRGB(255, 120, 120), font = Enum.Font.GothamMedium },
+		{ text = "Skyscrapers are harder but pay way more.", size = 34, color = Color3.fromRGB(110, 230, 140), font = Enum.Font.GothamMedium },
+		{ text = "C chalk · R ragdoll · B shop", size = 34, color = Color3.fromRGB(160, 200, 255), font = Enum.Font.GothamBold },
+	})
+	for _, x in { -7, 7 } do
+		Build.part(world, {
+			Name = "BoardLeg",
+			Size = Vector3.new(0.6, 6, 0.6),
+			CFrame = helpCF * CFrame.new(x, 0.5, 0.3),
+			Color = Color3.fromRGB(45, 48, 55),
+			Material = Enum.Material.Metal,
+		})
+	end
+
+	-- Leaderboard board (filled in by LeaderboardService).
+	local lbCF = CFrame.lookAt(Vector3.new(0, 0, 55), PLAZA_CENTER)
+	Build.part(world, {
+		Name = "Leaderboard",
+		Size = Vector3.new(16, 14, 0.5),
+		CFrame = lbCF * CFrame.new(0, 8, 0),
+		Color = Color3.fromRGB(20, 22, 30),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	for _, x in { -7, 7 } do
+		Build.part(world, {
+			Name = "BoardLeg",
+			Size = Vector3.new(0.6, 2, 0.6),
+			CFrame = lbCF * CFrame.new(x, 0.5, 0.3),
+			Color = Color3.fromRGB(45, 48, 55),
+			Material = Enum.Material.Metal,
+		})
+	end
+
+	for i = 0, 15 do
+		local deg = i * 22.5
+		local clearOfRoads = true
+		for _, entry in Config.Layout do
+			local diff = math.abs((deg - entry.Angle + 180) % 360 - 180)
+			if diff < 14 then
+				clearOfRoads = false
+			end
+		end
+		if clearOfRoads then
+			local a = math.rad(deg)
+			streetLamp(world, PLAZA_CENTER + Vector3.new(math.cos(a), 0, math.sin(a)) * (PLAZA_RADIUS - 6))
+		end
+	end
+end
+
+function WorldBuilder.build()
+	local world = Workspace:FindFirstChild("World")
+	if not world then
+		world = Instance.new("Folder")
+		world.Name = "World"
+		buildPlaza(world)
+		buildRoads(world)
+		world.Parent = Workspace
+	end
+
+	local towers = Workspace:FindFirstChild("Towers")
+	if not towers then
+		towers = Instance.new("Folder")
+		towers.Name = "Towers"
+		for _, entry in Config.Layout do
+			TowerBuilder.build(towers, entry, Config.TowerTypes[entry.Type], towerCFrame(entry))
+		end
+		towers.Parent = Workspace
+	end
+	return world, towers
+end
+
+WorldBuilder.PlazaSpawn = CFrame.new(0, 4, 24)
+
+return WorldBuilder
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="23">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+      <float name="CameraMaxZoomDistance">160</float>
+      <float name="CharacterJumpPower">50</float>
+      <bool name="CharacterUseJumpPower">true</bool>
+      <float name="CharacterWalkSpeed">16</float>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="24">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="Folder" referent="25">
+        <Properties>
+          <string name="Name">Client</string>
+        </Properties>
+        <Item class="ModuleScript" referent="26">
+          <Properties>
+            <string name="Name">ClimbController</string>
+            <string name="Source"><![CDATA[-- Client half of climbing: stamina, blackouts, ragdoll falls, chalk, wind.
+--
+-- Stamina runs on the client because only the owning client knows its exact
+-- Humanoid state (climbing / hanging / grounded) every frame. That is safe:
+-- stamina only limits the player themselves. Everything that has value (cash,
+-- climbs, purchases, fall damage) is decided on the server.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Effects = require(script.Parent.Effects)
+
+local ClimbController = {}
+
+type Mode = "normal" | "fall" | "blackout" | "ragdoll"
+
+local player = Players.LocalPlayer
+local ragdollRemote = Remotes.get("Ragdoll")
+local rng = Random.new()
+
+local humanoid: Humanoid? = nil
+local root: BasePart? = nil
+local stamina = Config.Stamina.Base
+local mode: Mode = "normal"
+local ragdollTime, settleTime = 0, 0
+local airPeakY: number? = nil
+local freefallTime = 0
+local cooldownUntil = 0
+local gustUntil = 0
+local gustDir = Vector3.zero
+local lastGrounded = true
+
+local ui: any = nil
+
+local function boosts(): Rules.Boosts
+	local b = {}
+	for _, def in Config.Boosts do
+		b[def.Id] = player:GetAttribute("Boost_" .. def.Id) or 0
+	end
+	return b
+end
+
+local function currentTower(pos: Vector3): Model?
+	local towers = Workspace:FindFirstChild("Towers")
+	if not towers then
+		return nil
+	end
+	for _, tower in towers:GetChildren() do
+		local radius = tower:GetAttribute("Radius")
+		if radius and tower:IsA("Model") then
+			local p = tower.WorldPivot.Position
+			if Vector3.new(pos.X - p.X, 0, pos.Z - p.Z).Magnitude <= radius then
+				return tower
+			end
+		end
+	end
+	return nil
+end
+
+local function chalkRemaining(): number
+	return math.max(0, (player:GetAttribute("ChalkUntil") or 0) - Workspace:GetServerTimeNow())
+end
+
+local function enterRagdoll(kind: Mode, startY: number?)
+	local hum, rootPart = humanoid, root
+	if mode ~= "normal" or not hum or not rootPart or hum.Health <= 0 then
+		return
+	end
+	mode = kind
+	ragdollTime, settleTime = 0, 0
+	hum:ChangeState(Enum.HumanoidStateType.Physics)
+	ragdollRemote:FireServer(true, startY or rootPart.Position.Y)
+	-- A little tumble so it reads as a limp body, not a statue.
+	rootPart:ApplyAngularImpulse(
+		Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-0.3, 0.3), rng:NextNumber(-1, 1)) * rootPart.AssemblyMass * 6
+	)
+	if kind == "blackout" then
+		ui.overlay:blackout(true)
+		Effects.sound(Config.Sounds.Bonk, 0.8)
+	elseif kind == "fall" then
+		Effects.sound(Config.Sounds.Fall, 0.7)
+	end
+end
+
+local function exitRagdoll()
+	if mode == "normal" then
+		return
+	end
+	local wasBlackout = mode == "blackout"
+	mode = "normal"
+	cooldownUntil = os.clock() + 0.8
+	airPeakY, freefallTime = nil, 0
+	ragdollRemote:FireServer(false)
+	if humanoid and humanoid.Health > 0 then
+		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		Effects.sound(Config.Sounds.GetUp, 0.6)
+	end
+	if wasBlackout then
+		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+		stamina = math.max(stamina, max * Config.Stamina.WakeFraction)
+		ui.overlay:blackout(false)
+	end
+end
+
+function ClimbController.toggleRagdoll()
+	if mode == "ragdoll" and ragdollTime > 0.4 then
+		exitRagdoll()
+	elseif mode == "normal" and root then
+		enterRagdoll("ragdoll", root.Position.Y)
+	end
+end
+
+function ClimbController.isClimbing(): boolean
+	return humanoid ~= nil and humanoid:GetState() == Enum.HumanoidStateType.Climbing
+end
+
+local function onGust(phase: string, dir: Vector3, duration: number)
+	if typeof(dir) ~= "Vector3" or typeof(duration) ~= "number" then
+		return
+	end
+	if phase == "warn" then
+		ui.hud:setWind("WIND GUST INCOMING - HOLD ON!")
+		task.delay(duration, function()
+			if os.clock() >= gustUntil then
+				ui.hud:setWind(nil)
+			end
+		end)
+	elseif phase == "start" then
+		gustUntil = os.clock() + duration
+		gustDir = dir
+		ui.hud:setWind("GUST! Stamina drains faster")
+		task.delay(duration, function()
+			if os.clock() >= gustUntil then
+				ui.hud:setWind(nil)
+			end
+		end)
+		local hum, rootPart = humanoid, root
+		if not rootPart or not hum or mode ~= "normal" or rootPart.Position.Y < Config.Wind.MinHeight then
+			return
+		end
+		Effects.shake(duration * 0.5, 0.25)
+		local climbing = hum:GetState() == Enum.HumanoidStateType.Climbing
+		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+		if climbing and stamina < max * Config.Wind.KnockOffFraction then
+			-- Too tired to hold on: the wind rips you off the ladder.
+			enterRagdoll("fall", rootPart.Position.Y)
+			rootPart:ApplyImpulse((gustDir + Vector3.new(0, 0.3, 0)) * rootPart.AssemblyMass * Config.Wind.AirPush)
+			ui.overlay:toast("The wind blew you off!", "bad")
+		elseif not climbing and hum.FloorMaterial == Enum.Material.Air then
+			rootPart:ApplyImpulse(gustDir * rootPart.AssemblyMass * Config.Wind.AirPush)
+		end
+	end
+end
+
+local function statusFor(climbing: boolean, moving: boolean, grounded: boolean, frac: number): (string, Color3?)
+	if mode == "blackout" then
+		return "Blacked out...", Color3.fromRGB(255, 86, 86)
+	elseif mode == "fall" then
+		return "Falling!", Color3.fromRGB(255, 86, 86)
+	elseif mode == "ragdoll" then
+		return "Ragdolling (press R to get up)", Color3.fromRGB(255, 196, 46)
+	elseif climbing and frac < Config.Stamina.DangerFraction then
+		return "Out of breath! Get to a platform!", Color3.fromRGB(255, 86, 86)
+	elseif climbing and moving then
+		return "Climbing...", nil
+	elseif climbing then
+		return "Hanging on (still draining)", Color3.fromRGB(255, 200, 60)
+	elseif grounded and frac < 0.999 then
+		return "Catching your breath...", Color3.fromRGB(88, 224, 132)
+	end
+	return "Ready to climb", nil
+end
+
+local function step(dt: number)
+	local hum, rootPart = humanoid, root
+	if not hum or not rootPart or not hum.Parent then
+		return
+	end
+	local b = boosts()
+	local max = Rules.maxStamina(Config.Stamina, Config.Boosts, b)
+	stamina = math.min(stamina, max)
+	local now = os.clock()
+	local pos = rootPart.Position
+
+	if hum.Health <= 0 then
+		if mode ~= "normal" then
+			mode = "normal"
+			ui.overlay:blackout(false)
+		end
+		return
+	end
+
+	local climbing, moving, grounded = false, false, false
+	if mode ~= "normal" then
+		ragdollTime += dt
+		-- The Humanoid will try to stand up on its own; keep it limp.
+		if hum:GetState() ~= Enum.HumanoidStateType.Physics then
+			hum:ChangeState(Enum.HumanoidStateType.Physics)
+		end
+		local speed = rootPart.AssemblyLinearVelocity.Magnitude
+		settleTime = if speed < Config.Fall.SettleSpeed then settleTime + dt else 0
+		local minTime = if mode == "blackout" then Config.Fall.MinBlackoutTime else Config.Fall.MinRagdollTime
+		local settled = settleTime >= Config.Fall.SettleTime
+		if ragdollTime >= Config.Fall.MaxRagdollTime or (mode ~= "ragdoll" and ragdollTime >= minTime and settled) then
+			exitRagdoll()
+		end
+	else
+		local state = hum:GetState()
+		climbing = state == Enum.HumanoidStateType.Climbing
+		grounded = not climbing and hum.FloorMaterial ~= Enum.Material.Air
+		moving = climbing and math.abs(rootPart.AssemblyLinearVelocity.Y) > 1
+
+		-- Track how far we've fallen so a big drop turns into a ragdoll.
+		if climbing or grounded then
+			airPeakY, freefallTime = nil, 0
+		else
+			airPeakY = math.max(airPeakY or pos.Y, pos.Y)
+			if state == Enum.HumanoidStateType.Freefall then
+				freefallTime += dt
+			end
+		end
+		if
+			freefallTime >= Config.Fall.AutoRagdollAfter
+			and rootPart.AssemblyLinearVelocity.Y < -25
+			and now > cooldownUntil
+		then
+			enterRagdoll("fall", airPeakY)
+		end
+
+		local tower = currentTower(pos)
+		local ctx: Rules.DrainContext = {
+			climbing = climbing,
+			moving = moving,
+			towerMultiplier = if tower then tower:GetAttribute("DrainMultiplier") or 1 else 1,
+			slippery = if tower then tower:GetAttribute("Slippery") == true else false,
+			chalk = chalkRemaining() > 0,
+			gust = now < gustUntil and pos.Y > Config.Wind.MinHeight,
+		}
+		local rate = Rules.staminaRate(Config.Stamina, Config.Chalk, Config.Wind, Config.Boosts, b, ctx, grounded)
+		stamina = Rules.stepStamina(stamina, rate, dt, max)
+
+		local walk = if climbing then Rules.climbWalkSpeed(Config.Climb, Config.Boosts, b) else Config.Climb.BaseWalkSpeed
+		if hum.WalkSpeed ~= walk then
+			hum.WalkSpeed = walk
+		end
+
+		if climbing and stamina <= 0 then
+			enterRagdoll("blackout", pos.Y)
+		end
+		if grounded and not lastGrounded and stamina < max then
+			Effects.sound(Config.Sounds.Click, 0.25, 0.8)
+		end
+		lastGrounded = grounded
+	end
+
+	-- HUD -----------------------------------------------------------------------
+	local frac = stamina / max
+	ui.hud:setStamina(stamina, max, Config.Stamina.DangerFraction, now)
+	local text, color = statusFor(climbing, moving, grounded, frac)
+	ui.hud:setStatus(text, color)
+	ui.hud:setChalk(player:GetAttribute("Chalk") or 0, math.clamp(chalkRemaining() / Config.Chalk.Duration, 0, 1))
+
+	local tower = currentTower(pos)
+	if tower then
+		local height = tower:GetAttribute("Height") or 1
+		ui.hud:setAltitude(
+			pos.Y,
+			tower:GetAttribute("DisplayName"),
+			string.format("$%s payout · drain x%s", tostring(tower:GetAttribute("Payout")), tostring(tower:GetAttribute("DrainMultiplier"))),
+			pos.Y / height
+		)
+	else
+		ui.hud:setAltitude(pos.Y, nil, nil, nil)
+	end
+
+	local breathless = if mode == "blackout" then 1 else math.clamp(1 - frac / 0.35, 0, 1)
+	Effects.setBreathless(if climbing or mode == "blackout" then breathless else breathless * 0.4)
+end
+
+local function onCharacter(character: Model)
+	humanoid, root = nil, nil -- stop stepping the old body while the new one loads
+	humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	root = character:WaitForChild("HumanoidRootPart") :: BasePart
+	mode = "normal"
+	ragdollTime, settleTime, freefallTime = 0, 0, 0
+	airPeakY = nil
+	cooldownUntil = os.clock() + 1.5 -- respawning at a checkpoint can start mid-air
+	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts())
+	ui.overlay:blackout(false)
+	Effects.setBreathless(0)
+	local hum = humanoid :: Humanoid
+	hum.Died:Connect(function()
+		if humanoid == hum then
+			mode = "normal"
+			ui.overlay:blackout(false)
+			ui.overlay:toast("You died. Respawning...", "bad")
+		end
+	end)
+end
+
+function ClimbController.start(uiRefs: any)
+	ui = uiRefs
+	Remotes.get("Gust").OnClientEvent:Connect(onGust)
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		task.spawn(onCharacter, player.Character)
+	end
+	RunService.Heartbeat:Connect(step)
+end
+
+return ClimbController
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="27">
+          <Properties>
+            <string name="Name">Effects</string>
+            <string name="Source"><![CDATA[-- Sounds, confetti, camera shake and the "out of breath" screen effect.
+local Debris = game:GetService("Debris")
+local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
+local Workspace = game:GetService("Workspace")
+
+local Effects = {}
+
+function Effects.sound(id: string, volume: number?, pitch: number?)
+	local sound = Instance.new("Sound")
+	sound.SoundId = id
+	sound.Volume = volume or 0.6
+	sound.PlaybackSpeed = pitch or 1
+	sound.Parent = SoundService
+	sound:Play()
+	Debris:AddItem(sound, 6)
+end
+
+function Effects.confetti(position: Vector3)
+	local anchor = Instance.new("Part")
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.one
+	anchor.Position = position
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 80, 80)),
+		ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 210, 60)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(90, 230, 130)),
+		ColorSequenceKeypoint.new(0.75, Color3.fromRGB(90, 160, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 110, 255)),
+	})
+	emitter.Size = NumberSequence.new(0.5)
+	emitter.Lifetime = NumberRange.new(2, 3)
+	emitter.Speed = NumberRange.new(25, 45)
+	emitter.SpreadAngle = Vector2.new(70, 70)
+	emitter.Acceleration = Vector3.new(0, -35, 0)
+	emitter.Drag = 1.5
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-300, 300)
+	emitter.LightEmission = 0.4
+	emitter.Enabled = false
+	emitter.Parent = anchor
+	anchor.Parent = Workspace
+	emitter:Emit(120)
+	Debris:AddItem(anchor, 5)
+end
+
+-- Shakes the camera through Humanoid.CameraOffset (no camera scripting needed).
+local shakeUntil, shakeMagnitude = 0, 0
+function Effects.shake(duration: number, magnitude: number)
+	shakeUntil = math.max(shakeUntil, os.clock() + duration)
+	shakeMagnitude = math.max(if os.clock() < shakeUntil then shakeMagnitude else 0, magnitude)
+end
+
+-- Low stamina drains the colour from the world and blurs the edges a bit.
+local breath = Instance.new("ColorCorrectionEffect")
+breath.Name = "OutOfBreath"
+local blur = Instance.new("BlurEffect")
+blur.Name = "OutOfBreathBlur"
+blur.Size = 0
+
+function Effects.setBreathless(amount: number)
+	-- amount: 0 = fine, 1 = about to black out
+	breath.Saturation = -0.7 * amount
+	breath.Contrast = 0.15 * amount
+	breath.TintColor = Color3.new(1, 1 - 0.15 * amount, 1 - 0.15 * amount)
+	blur.Size = 10 * amount * amount
+end
+
+function Effects.start()
+	breath.Parent = Lighting
+	blur.Parent = Lighting
+	local rng = Random.new()
+	RunService.RenderStepped:Connect(function()
+		local character = Players.LocalPlayer.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then
+			return
+		end
+		local now = os.clock()
+		if now < shakeUntil then
+			local m = shakeMagnitude * math.clamp((shakeUntil - now) * 2, 0, 1)
+			humanoid.CameraOffset = Vector3.new(rng:NextNumber(-m, m), rng:NextNumber(-m, m), rng:NextNumber(-m, m))
+		elseif humanoid.CameraOffset ~= Vector3.zero then
+			humanoid.CameraOffset = Vector3.zero
+			shakeMagnitude = 0
+		end
+	end)
+end
+
+return Effects
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="LocalScript" referent="28">
+          <Properties>
+            <string name="Name">Main</string>
+            <string name="Source"><![CDATA[-- Client entry point: builds the UI, wires input and server notifications.
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Remotes = require(Shared.Remotes)
+
+local Effects = require(script.Parent.Effects)
+local ClimbController = require(script.Parent.ClimbController)
+local Hud = require(script.Parent.UI.Hud)
+local Overlay = require(script.Parent.UI.Overlay)
+local Shop = require(script.Parent.UI.Shop)
+
+local player = Players.LocalPlayer
+
+local function useChalk()
+	Remotes.get("UseChalk"):FireServer()
+end
+
+local shop
+local hud = Hud.new({
+	shop = function()
+		shop:toggle()
+	end,
+	chalk = useChalk,
+	ragdoll = ClimbController.toggleRagdoll,
+	plaza = function()
+		Remotes.get("ResetToPlaza"):FireServer()
+	end,
+})
+shop = Shop.new({
+	buyBoost = function(id)
+		Remotes.get("BuyBoost"):FireServer(id)
+	end,
+	buyChalk = function()
+		Remotes.get("BuyChalk"):FireServer()
+	end,
+})
+local overlay = Overlay.new()
+
+Effects.start()
+ClimbController.start({ hud = hud, overlay = overlay })
+
+-- Profile values ----------------------------------------------------------------
+
+local stats = player:WaitForChild("leaderstats")
+local cashValue = stats:WaitForChild("Cash") :: IntValue
+local climbsValue = stats:WaitForChild("Climbs") :: IntValue
+
+local function boostLevels(): { [string]: number }
+	local levels = {}
+	for _, def in Config.Boosts do
+		levels[def.Id] = player:GetAttribute("Boost_" .. def.Id) or 0
+	end
+	return levels
+end
+
+local function refresh()
+	hud:setCash(cashValue.Value)
+	hud:setSubline(player:GetAttribute("BestHeight") or 0, player:GetAttribute("Streak") or 0)
+	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0)
+end
+
+hud:setClimbs(climbsValue.Value)
+climbsValue.Changed:Connect(function(value)
+	hud:setClimbs(value, true)
+end)
+cashValue.Changed:Connect(refresh)
+player.AttributeChanged:Connect(function(name)
+	if name ~= "ChalkUntil" then
+		refresh()
+	end
+end)
+refresh()
+
+-- Input -----------------------------------------------------------------------------
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.B then
+		shop:toggle()
+	elseif input.KeyCode == Enum.KeyCode.C then
+		useChalk()
+	elseif input.KeyCode == Enum.KeyCode.R then
+		ClimbController.toggleRagdoll()
+	elseif input.KeyCode == Enum.KeyCode.P then
+		Remotes.get("ResetToPlaza"):FireServer()
+	elseif input.KeyCode == Enum.KeyCode.Escape and shop:isOpen() then
+		shop:close()
+	end
+end)
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt)
+	if prompt.Name == "ShopPrompt" then
+		shop:open()
+	end
+end)
+
+-- Server notifications ----------------------------------------------------------------
+
+Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
+	if typeof(payload) ~= "table" then
+		return
+	end
+	if kind == "Toast" then
+		overlay:toast(tostring(payload.text), payload.style)
+	elseif kind == "Summit" then
+		overlay:showSummit(tostring(payload.tower), payload.payout or 0, payload.climbs or 0)
+		Effects.sound(Config.Sounds.Summit, 0.9)
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if root then
+			Effects.confetti((root :: BasePart).Position + Vector3.new(0, 4, 0))
+		end
+	elseif kind == "Daily" then
+		overlay:toast(string.format("Daily reward: +$%d  (streak %d)", payload.reward or 0, payload.streak or 0), "gold")
+	elseif kind == "Unlock" then
+		overlay:toast(tostring(payload.text), "gold")
+	elseif kind == "Hurt" then
+		overlay:hurtFlash(payload.damage or 0)
+		Effects.shake(0.4, math.clamp((payload.damage or 0) / 60, 0.1, 0.6))
+	end
+end)
+
+-- First-time hint.
+task.delay(2, function()
+	if climbsValue.Value == 0 then
+		overlay:toast("Walk to a tower and climb the yellow ladders. Rest on platforms!", "info")
+	end
+end)
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="Folder" referent="29">
+          <Properties>
+            <string name="Name">UI</string>
+          </Properties>
+          <Item class="ModuleScript" referent="30">
+            <Properties>
+              <string name="Name">Components</string>
+              <string name="Source"><![CDATA[-- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
+local TweenService = game:GetService("TweenService")
+
+local Theme = require(script.Parent.Theme)
+
+local C = {}
+
+-- C.new("Frame", { Size = ... }, { child1, child2 })
+function C.new(className: string, props: { [string]: any }?, children: { Instance }?): any
+	local inst = Instance.new(className)
+	if inst:IsA("GuiObject") then
+		(inst :: GuiObject).BorderSizePixel = 0
+	end
+	if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+		(inst :: any).Font = Theme.Body;
+		(inst :: any).TextColor3 = Theme.Text;
+		(inst :: any).BackgroundTransparency = 1
+	end
+	local parent = nil
+	for key, value in (props or {}) :: { [string]: any } do
+		if key == "Parent" then
+			parent = value
+		else
+			(inst :: any)[key] = value
+		end
+	end
+	for _, child in (children or {}) :: { Instance } do
+		child.Parent = inst
+	end
+	inst.Parent = parent
+	return inst
+end
+
+function C.corner(radius: number?): UICorner
+	return C.new("UICorner", { CornerRadius = UDim.new(0, radius or Theme.Radius) })
+end
+
+function C.round(): UICorner
+	return C.new("UICorner", { CornerRadius = UDim.new(1, 0) })
+end
+
+function C.stroke(color: Color3?, thickness: number?, transparency: number?): UIStroke
+	return C.new("UIStroke", {
+		Color = color or Theme.Stroke,
+		Thickness = thickness or 1,
+		Transparency = transparency or 0.85,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	})
+end
+
+function C.padding(x: number, y: number?): UIPadding
+	return C.new("UIPadding", {
+		PaddingLeft = UDim.new(0, x),
+		PaddingRight = UDim.new(0, x),
+		PaddingTop = UDim.new(0, y or x),
+		PaddingBottom = UDim.new(0, y or x),
+	})
+end
+
+function C.gradient(top: Color3, bottom: Color3, rotation: number?): UIGradient
+	return C.new("UIGradient", {
+		Color = ColorSequence.new(top, bottom),
+		Rotation = rotation or 90,
+	})
+end
+
+-- Dark glass panel used for every HUD element.
+function C.panel(props: { [string]: any }, children: { Instance }?): Frame
+	local merged = {
+		BackgroundColor3 = Theme.Panel,
+		BackgroundTransparency = Theme.PanelTransparency,
+	}
+	for k, v in props do
+		merged[k] = v
+	end
+	local kids = { C.corner(), C.gradient(Color3.new(1, 1, 1), Color3.fromRGB(200, 205, 220)) }
+	local hasStroke = false
+	for _, child in (children or {}) :: { Instance } do
+		hasStroke = hasStroke or child:IsA("UIStroke")
+		table.insert(kids, child)
+	end
+	if not hasStroke then
+		-- Only one UIStroke per object renders, so a custom one replaces the default.
+		table.insert(kids, C.stroke())
+	end
+	return C.new("Frame", merged, kids)
+end
+
+function C.tween(inst: Instance, time: number, goals: { [string]: any }, style: Enum.EasingStyle?, dir: Enum.EasingDirection?): Tween
+	local tween = TweenService:Create(inst, TweenInfo.new(time, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), goals)
+	tween:Play()
+	return tween
+end
+
+-- Button with hover lift and press squash. `onClick` fires on activation.
+function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
+	local base = props.BackgroundColor3 or Theme.Card
+	local merged = {
+		BackgroundColor3 = base,
+		BackgroundTransparency = 0,
+		AutoButtonColor = false,
+		Font = Theme.Bold,
+		TextSize = 16,
+	}
+	for k, v in props do
+		merged[k] = v
+	end
+	local scale = C.new("UIScale")
+	local button = C.new("TextButton", merged, { C.corner(10), C.stroke(nil, 1, 0.8), scale })
+	button.BackgroundTransparency = merged.BackgroundTransparency
+	-- Hover only scales: callers recolour buttons (affordable / maxed) and a
+	-- colour tween back to the creation colour would undo that.
+	button.MouseEnter:Connect(function()
+		C.tween(scale, 0.15, { Scale = 1.05 })
+	end)
+	button.MouseLeave:Connect(function()
+		C.tween(scale, 0.15, { Scale = 1 })
+	end)
+	button.MouseButton1Down:Connect(function()
+		C.tween(scale, 0.08, { Scale = 0.94 })
+	end)
+	button.MouseButton1Up:Connect(function()
+		C.tween(scale, 0.15, { Scale = 1 }, Enum.EasingStyle.Back)
+	end)
+	button.Activated:Connect(onClick)
+	return button
+end
+
+-- Returns a full-screen root frame whose contents scale with screen height, so
+-- phones and 4K screens get the same layout. The frame is sized 1/scale and
+-- then scaled by `scale`, so it always covers exactly the screen and children
+-- anchored to its edges stay on the edges. Parent all UI to the returned frame.
+function C.autoScale(gui: ScreenGui): Frame
+	local root = C.new("Frame", {
+		Name = "Root",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Parent = gui,
+	})
+	local scale = C.new("UIScale", { Parent = root })
+	local camera = workspace.CurrentCamera
+	local function update()
+		local s = math.clamp(camera.ViewportSize.Y / 900, 0.6, 1.25)
+		scale.Scale = s
+		root.Size = UDim2.fromScale(1 / s, 1 / s)
+	end
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(update)
+	update()
+	return root
+end
+
+return C
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="31">
+            <Properties>
+              <string name="Name">Hud</string>
+              <string name="Source"><![CDATA[-- Always-on HUD: climb counter, cash, stamina, height meter, action buttons,
+-- wind warning. Setters only touch the UI when a value actually changes.
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+local Theme = require(script.Parent.Theme)
+local C = require(script.Parent.Components)
+
+local Hud = {}
+Hud.__index = Hud
+
+export type Actions = {
+	shop: () -> (),
+	chalk: () -> (),
+	ragdoll: () -> (),
+	plaza: () -> (),
+}
+
+local function label(props: { [string]: any }): TextLabel
+	return C.new("TextLabel", props)
+end
+
+function Hud.new(actions: Actions)
+	local self = setmetatable({}, Hud)
+	self._cache = {}
+
+	local gui = C.new("ScreenGui", {
+		Name = "HUD",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
+	})
+	local root = C.autoScale(gui)
+	self.gui = gui
+
+	-- Top centre: the climb counter ---------------------------------------------
+	local climbsPanel = C.panel({
+		Name = "Climbs",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 12),
+		Size = UDim2.fromOffset(320, 64),
+		Parent = root,
+	}, { C.stroke(Theme.Accent, 2, 0.35) })
+	self._climbScale = C.new("UIScale", { Parent = climbsPanel })
+	self.climbs = label({
+		Size = UDim2.new(1, 0, 0, 38),
+		Position = UDim2.fromOffset(0, 6),
+		Font = Theme.Title,
+		Text = "Tower climbs: 0",
+		TextSize = 28,
+		Parent = climbsPanel,
+	})
+	self.subline = label({
+		Size = UDim2.new(1, 0, 0, 16),
+		Position = UDim2.fromOffset(0, 42),
+		Font = Theme.Body,
+		Text = "Best height 0  ·  Streak 0",
+		TextSize = 14,
+		TextColor3 = Theme.Muted,
+		Parent = climbsPanel,
+	})
+
+	-- Wind warning banner, under the counter.
+	self.wind = C.panel({
+		Name = "Wind",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 84),
+		Size = UDim2.fromOffset(300, 36),
+		BackgroundColor3 = Color3.fromRGB(40, 70, 120),
+		Visible = false,
+		Parent = root,
+	})
+	self.windText = label({
+		Size = UDim2.fromScale(1, 1),
+		Font = Theme.Bold,
+		TextSize = 17,
+		Text = "",
+		Parent = self.wind,
+	})
+
+	-- Top left: cash -------------------------------------------------------------
+	local cashPanel = C.panel({
+		Name = "Cash",
+		Position = UDim2.fromOffset(16, 70),
+		Size = UDim2.fromOffset(190, 48),
+		Parent = root,
+	})
+	label({
+		Size = UDim2.fromOffset(40, 48),
+		Position = UDim2.fromOffset(6, 0),
+		Font = Theme.Title,
+		Text = "$",
+		TextSize = 30,
+		TextColor3 = Theme.Good,
+		Parent = cashPanel,
+	})
+	self.cash = label({
+		Size = UDim2.new(1, -50, 1, 0),
+		Position = UDim2.fromOffset(40, 0),
+		Font = Theme.Title,
+		Text = "0",
+		TextSize = 26,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = cashPanel,
+	})
+	self._cashScale = C.new("UIScale", { Parent = cashPanel })
+
+	-- Left: altitude meter ---------------------------------------------------------
+	local meter = C.panel({
+		Name = "Altitude",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 16, 0.5, 0),
+		Size = UDim2.fromOffset(150, 250),
+		Parent = root,
+	}, { C.padding(12) })
+	label({
+		Size = UDim2.new(1, 0, 0, 14),
+		Font = Theme.Bold,
+		Text = "ALTITUDE",
+		TextSize = 12,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = meter,
+	})
+	self.height = label({
+		Size = UDim2.new(1, 0, 0, 34),
+		Position = UDim2.fromOffset(0, 16),
+		Font = Theme.Title,
+		Text = "0",
+		TextSize = 30,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = meter,
+	})
+	self.towerName = label({
+		Size = UDim2.new(1, -24, 0, 34),
+		Position = UDim2.fromOffset(0, 54),
+		Font = Theme.Bold,
+		Text = "Plaza",
+		TextSize = 14,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Parent = meter,
+	})
+	self.towerInfo = label({
+		Size = UDim2.new(1, -24, 0, 30),
+		Position = UDim2.fromOffset(0, 90),
+		Font = Theme.Body,
+		Text = "",
+		TextSize = 12,
+		TextColor3 = Theme.Muted,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Parent = meter,
+	})
+	local track = C.new("Frame", {
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.fromScale(1, 1),
+		Size = UDim2.new(0, 10, 1, -20),
+		BackgroundColor3 = Theme.PanelLight,
+		Parent = meter,
+	}, { C.round() })
+	self.progress = C.new("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.fromScale(1, 0),
+		BackgroundColor3 = Theme.Accent,
+		Parent = track,
+	}, { C.round(), C.gradient(Theme.Gold, Theme.AccentDark) })
+	self.progressText = label({
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -16, 1, 0),
+		Size = UDim2.fromOffset(80, 16),
+		Font = Theme.Bold,
+		Text = "",
+		TextSize = 13,
+		TextColor3 = Theme.Accent,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = meter,
+	})
+
+	-- Bottom centre: stamina --------------------------------------------------------
+	local staminaPanel = C.panel({
+		Name = "Stamina",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		Size = UDim2.fromOffset(480, 78),
+		Parent = root,
+	}, { C.padding(14, 10) })
+	self.status = label({
+		Size = UDim2.new(1, -110, 0, 20),
+		Font = Theme.Bold,
+		Text = "Ready to climb",
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = staminaPanel,
+	})
+	self.staminaText = label({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(110, 20),
+		Font = Theme.Bold,
+		Text = "100 / 100",
+		TextSize = 15,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = staminaPanel,
+	})
+	local bar = C.new("Frame", {
+		Position = UDim2.fromOffset(0, 28),
+		Size = UDim2.new(1, 0, 0, 22),
+		BackgroundColor3 = Theme.PanelLight,
+		ClipsDescendants = true,
+		Parent = staminaPanel,
+	}, { C.round() })
+	self.staminaFill = C.new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Theme.StaminaHigh,
+		Parent = bar,
+	}, { C.round(), C.gradient(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 190)) })
+	self.chalkGlow = C.new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Theme.Chalk,
+		BackgroundTransparency = 1,
+		Parent = bar,
+	}, { C.round() })
+	self._barStroke = C.stroke(Theme.Bad, 2, 1)
+	self._barStroke.Parent = bar
+
+	-- Right: action buttons -------------------------------------------------------
+	local column = C.new("Frame", {
+		Name = "Actions",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -16, 0.5, 0),
+		Size = UDim2.fromOffset(150, 260),
+		BackgroundTransparency = 1,
+		Parent = root,
+	}, {
+		C.new("UIListLayout", {
+			Padding = UDim.new(0, 10),
+			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	local keyHints = not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled
+	local function action(order: number, text: string, key: string, color: Color3, fn: () -> ())
+		return C.button({
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(150, 52),
+			BackgroundColor3 = color,
+			Text = if keyHints then string.format("%s  [%s]", text, key) else text,
+			TextSize = 17,
+			Parent = column,
+		}, fn)
+	end
+	action(1, "SHOP", "B", Color3.fromRGB(200, 140, 20), actions.shop)
+	self.chalkButton = action(2, "CHALK x0", "C", Color3.fromRGB(70, 80, 110), actions.chalk)
+	action(3, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
+	action(4, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
+
+	return self
+end
+
+function Hud:_set(key: string, inst: Instance, prop: string, value: any)
+	if self._cache[key] ~= value then
+		self._cache[key] = value;
+		(inst :: any)[prop] = value
+	end
+end
+
+local function pop(scale: UIScale, amount: number)
+	scale.Scale = amount
+	C.tween(scale, 0.5, { Scale = 1 }, Enum.EasingStyle.Elastic)
+end
+
+function Hud:setClimbs(n: number, animate: boolean?)
+	self:_set("climbs", self.climbs, "Text", "Tower climbs: " .. Theme.formatNumber(n))
+	if animate then
+		pop(self._climbScale, 1.3)
+	end
+end
+
+function Hud:setSubline(best: number, streak: number)
+	self:_set("sub", self.subline, "Text", string.format("Best height %s  ·  Daily streak %d", Theme.formatNumber(best), streak))
+end
+
+function Hud:setCash(n: number)
+	local text = Theme.formatNumber(n)
+	if self._cache.cash ~= text then
+		local up = (self._cache.cashValue or n) < n
+		self._cache.cashValue = n
+		self:_set("cash", self.cash, "Text", text)
+		if up then
+			pop(self._cashScale, 1.2)
+		end
+	end
+end
+
+function Hud:setChalk(count: number, activeFraction: number)
+	self:_set("chalkCount", self.chalkButton, "Text", (self.chalkButton.Text:gsub("x%d+", "x" .. count)))
+	self:_set("chalkGlow", self.chalkGlow, "BackgroundTransparency", 1 - activeFraction * 0.45)
+end
+
+-- mode: "normal" | "fall" | "blackout" | "ragdoll"
+function Hud:setStamina(current: number, max: number, dangerFraction: number, time: number)
+	local frac = if max > 0 then current / max else 0
+	self:_set("fill", self.staminaFill, "Size", UDim2.fromScale(math.clamp(frac, 0, 1), 1))
+	local color = if frac < dangerFraction
+		then Theme.StaminaLow
+		elseif frac < 0.5 then Theme.StaminaMid:Lerp(Theme.StaminaLow, 1 - (frac - dangerFraction) / (0.5 - dangerFraction))
+		else Theme.StaminaHigh:Lerp(Theme.StaminaMid, 1 - (frac - 0.5) / 0.5)
+	self.staminaFill.BackgroundColor3 = color
+	self:_set("stext", self.staminaText, "Text", string.format("%d / %d", math.floor(current + 0.5), max))
+	-- Pulse the outline red when you're about to black out.
+	local pulse = if frac < dangerFraction then 0.5 + 0.5 * math.sin(time * 10) else 1
+	self._barStroke.Transparency = pulse
+end
+
+function Hud:setStatus(text: string, color: Color3?)
+	self:_set("status", self.status, "Text", text)
+	self:_set("statusColor", self.status, "TextColor3", color or Theme.Text)
+end
+
+function Hud:setAltitude(y: number, towerName: string?, towerInfo: string?, progress: number?)
+	self:_set("height", self.height, "Text", Theme.formatNumber(math.max(0, y)) .. " studs")
+	self:_set("tower", self.towerName, "Text", towerName or "Plaza")
+	self:_set("towerInfo", self.towerInfo, "Text", towerInfo or "Walk to a tower to start a climb.")
+	local p = math.clamp(progress or 0, 0, 1)
+	self:_set("progress", self.progress, "Size", UDim2.fromScale(1, p))
+	self:_set("progressText", self.progressText, "Text", if progress then string.format("%d%%", p * 100) else "")
+end
+
+function Hud:setWind(text: string?)
+	self.wind.Visible = text ~= nil
+	if text then
+		self.windText.Text = text
+	end
+end
+
+return Hud
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="32">
+            <Properties>
+              <string name="Name">Overlay</string>
+              <string name="Source"><![CDATA[-- Full-screen moments: blackout, summit celebration, hurt flash, toasts.
+local Players = game:GetService("Players")
+
+local Theme = require(script.Parent.Theme)
+local C = require(script.Parent.Components)
+
+local Overlay = {}
+Overlay.__index = Overlay
+
+local BLACKOUT_TIPS = {
+	"Tip: stand on a platform to get your breath back.",
+	"Tip: Endurance boosts let you climb further without resting.",
+	"Tip: chalk halves stamina drain for a while. Press C.",
+	"Tip: skyscraper glass is slippery. Sticky Gloves help.",
+	"Tip: hanging still on a ladder still costs stamina.",
+	"Tip: wind gusts can blow tired climbers clean off.",
+}
+
+function Overlay.new()
+	local self = setmetatable({}, Overlay)
+	local gui = C.new("ScreenGui", {
+		Name = "Overlay",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = 10,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
+	})
+	local root = C.autoScale(gui)
+	self.gui = gui
+
+	-- Red edge flash when hurt.
+	self.hurtFrame = C.new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Theme.Bad,
+		BackgroundTransparency = 1,
+		Parent = root,
+	})
+
+	-- Blackout.
+	self.black = C.new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 1,
+		ZIndex = 5,
+		Parent = root,
+	})
+	self.blackTitle = C.new("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromOffset(700, 70),
+		Font = Theme.Title,
+		Text = "YOU BLACKED OUT",
+		TextSize = 54,
+		TextTransparency = 1,
+		ZIndex = 6,
+		Parent = root,
+	})
+	self.blackTip = C.new("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.53),
+		Size = UDim2.fromOffset(700, 30),
+		Font = Theme.Body,
+		Text = "",
+		TextSize = 20,
+		TextColor3 = Theme.Muted,
+		TextTransparency = 1,
+		ZIndex = 6,
+		Parent = root,
+	})
+
+	-- Summit banner.
+	self.summit = C.panel({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.32),
+		Size = UDim2.fromOffset(520, 150),
+		Visible = false,
+		ZIndex = 3,
+		Parent = root,
+	}, { C.stroke(Theme.Gold, 3, 0) })
+	self.summitScale = C.new("UIScale", { Parent = self.summit })
+	self.summitTitle = C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 70),
+		Position = UDim2.fromOffset(0, 10),
+		Font = Theme.Title,
+		Text = "SUMMIT!",
+		TextSize = 60,
+		TextColor3 = Theme.Gold,
+		ZIndex = 4,
+		Parent = self.summit,
+	})
+	self.summitSub = C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.fromOffset(0, 80),
+		Font = Theme.Bold,
+		Text = "",
+		TextSize = 24,
+		TextColor3 = Theme.Good,
+		ZIndex = 4,
+		Parent = self.summit,
+	})
+	self.summitSub2 = C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 24),
+		Position = UDim2.fromOffset(0, 112),
+		Font = Theme.Body,
+		Text = "",
+		TextSize = 18,
+		TextColor3 = Theme.Text,
+		ZIndex = 4,
+		Parent = self.summit,
+	})
+
+	-- Toast stack, top right under the Roblox menu.
+	self.toasts = C.new("Frame", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -16, 0, 70),
+		Size = UDim2.fromOffset(340, 400),
+		BackgroundTransparency = 1,
+		Parent = root,
+	}, {
+		C.new("UIListLayout", {
+			Padding = UDim.new(0, 8),
+			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	self._toastOrder = 0
+	self._summitToken = 0
+	return self
+end
+
+function Overlay:blackout(on: boolean)
+	local t = if on then 0.35 else 0.8
+	C.tween(self.black, t, { BackgroundTransparency = if on then 0.05 else 1 }, Enum.EasingStyle.Sine)
+	C.tween(self.blackTitle, t, { TextTransparency = if on then 0 else 1 })
+	C.tween(self.blackTip, t, { TextTransparency = if on then 0 else 1 })
+	if on then
+		self.blackTip.Text = BLACKOUT_TIPS[math.random(1, #BLACKOUT_TIPS)]
+	end
+end
+
+function Overlay:hurtFlash(damage: number)
+	self.hurtFrame.BackgroundTransparency = math.clamp(0.9 - damage / 150, 0.45, 0.9)
+	C.tween(self.hurtFrame, 0.8, { BackgroundTransparency = 1 }, Enum.EasingStyle.Sine)
+end
+
+function Overlay:showSummit(tower: string, payout: number, climbs: number)
+	self._summitToken += 1
+	local token = self._summitToken
+	self.summitSub.Text = string.format("%s conquered  ·  +$%s", tower, Theme.formatNumber(payout))
+	self.summitSub2.Text = "Tower climbs: " .. Theme.formatNumber(climbs)
+	self.summit.Visible = true
+	self.summitScale.Scale = 0.3
+	C.tween(self.summitScale, 0.6, { Scale = 1 }, Enum.EasingStyle.Back)
+	task.delay(3.5, function()
+		if self._summitToken == token then
+			C.tween(self.summitScale, 0.25, { Scale = 0 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In).Completed:Wait()
+			if self._summitToken == token then
+				self.summit.Visible = false
+			end
+		end
+	end)
+end
+
+function Overlay:toast(text: string, style: string?)
+	self._toastOrder += 1
+	local color = Theme.styleColor(style)
+	local card = C.panel({
+		LayoutOrder = self._toastOrder,
+		Size = UDim2.fromOffset(340, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Parent = self.toasts,
+	}, { C.padding(14, 10), C.stroke(color, 1.5, 0.3) })
+	C.new("Frame", {
+		Size = UDim2.new(0, 4, 1, 0),
+		Position = UDim2.fromOffset(-8, 0),
+		BackgroundColor3 = color,
+		Parent = card,
+	}, { C.round() })
+	local textLabel = C.new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Font = Theme.Bold,
+		Text = text,
+		TextSize = 16,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = card,
+	})
+	local scale = C.new("UIScale", { Scale = 0.6, Parent = card })
+	C.tween(scale, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+	-- Keep at most five on screen.
+	local cards = {}
+	for _, child in self.toasts:GetChildren() do
+		if child:IsA("Frame") then
+			table.insert(cards, child)
+		end
+	end
+	table.sort(cards, function(a, b)
+		return a.LayoutOrder < b.LayoutOrder
+	end)
+	for i = 1, #cards - 5 do
+		cards[i]:Destroy()
+	end
+	task.delay(4, function()
+		if card.Parent then
+			C.tween(card, 0.4, { BackgroundTransparency = 1 })
+			C.tween(textLabel, 0.4, { TextTransparency = 1 }).Completed:Wait()
+			card:Destroy()
+		end
+	end)
+end
+
+return Overlay
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="33">
+            <Properties>
+              <string name="Name">Shop</string>
+              <string name="Source"><![CDATA[-- Shop window: boost cards with level pips and a chalk card.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Theme = require(script.Parent.Theme)
+local C = require(script.Parent.Components)
+
+local Shop = {}
+Shop.__index = Shop
+
+export type Handlers = {
+	buyBoost: (id: string) -> (),
+	buyChalk: () -> (),
+}
+
+local CARD_HEIGHT = 92
+
+function Shop.new(handlers: Handlers)
+	local self = setmetatable({}, Shop)
+	self.cards = {}
+	local player = Players.LocalPlayer
+
+	local gui = C.new("ScreenGui", {
+		Name = "Shop",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = 5,
+		Enabled = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = player:WaitForChild("PlayerGui"),
+	})
+	local root = C.autoScale(gui)
+	self.gui = gui
+
+	-- Dim the world behind the window; clicking it closes the shop.
+	local dim = C.new("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.45,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = root,
+	})
+	dim.Activated:Connect(function()
+		self:close()
+	end)
+
+	local window = C.panel({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(560, 600),
+		BackgroundTransparency = 0.04,
+		Parent = root,
+	}, { C.stroke(Theme.Accent, 2, 0.4) })
+	self.windowScale = C.new("UIScale", { Parent = window })
+
+	C.new("TextLabel", {
+		Position = UDim2.fromOffset(24, 18),
+		Size = UDim2.new(1, -100, 0, 36),
+		Font = Theme.Title,
+		Text = "GEAR & BOOSTS",
+		TextSize = 30,
+		TextColor3 = Theme.Accent,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = window,
+	})
+	self.balance = C.new("TextLabel", {
+		Position = UDim2.fromOffset(24, 54),
+		Size = UDim2.new(1, -100, 0, 22),
+		Font = Theme.Bold,
+		Text = "",
+		TextSize = 17,
+		TextColor3 = Theme.Good,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = window,
+	})
+	C.button({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -18, 0, 18),
+		Size = UDim2.fromOffset(44, 44),
+		BackgroundColor3 = Color3.fromRGB(70, 40, 46),
+		Text = "X",
+		TextSize = 20,
+		Parent = window,
+	}, function()
+		self:close()
+	end)
+
+	local list = C.new("ScrollingFrame", {
+		Position = UDim2.fromOffset(16, 90),
+		Size = UDim2.new(1, -32, 1, -106),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 6,
+		ScrollBarImageColor3 = Theme.Accent,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		Parent = window,
+	}, {
+		C.new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
+		C.new("UIPadding", { PaddingRight = UDim.new(0, 10) }),
+	})
+
+	local function card(order: number, title: string, desc: string, maxLevel: number?, onBuy: () -> ())
+		local frame = C.new("Frame", {
+			LayoutOrder = order,
+			Size = UDim2.new(1, 0, 0, CARD_HEIGHT),
+			BackgroundColor3 = Theme.Card,
+			Parent = list,
+		}, { C.corner(), C.stroke(nil, 1, 0.9), C.padding(14, 12) })
+		C.new("TextLabel", {
+			Size = UDim2.new(1, -150, 0, 24),
+			Font = Theme.Title,
+			Text = title,
+			TextSize = 20,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = frame,
+		})
+		C.new("TextLabel", {
+			Position = UDim2.fromOffset(0, 26),
+			Size = UDim2.new(1, -150, 0, 20),
+			Font = Theme.Body,
+			Text = desc,
+			TextSize = 14,
+			TextColor3 = Theme.Muted,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextWrapped = true,
+			Parent = frame,
+		})
+		local pips = {}
+		local levelLabel
+		if maxLevel then
+			local row = C.new("Frame", {
+				Position = UDim2.fromOffset(0, 52),
+				Size = UDim2.new(1, -150, 0, 14),
+				BackgroundTransparency = 1,
+				Parent = frame,
+			}, { C.new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4) }) })
+			for i = 1, maxLevel do
+				pips[i] = C.new("Frame", {
+					Size = UDim2.fromOffset(math.floor(220 / maxLevel) - 4, 10),
+					BackgroundColor3 = Theme.PanelLight,
+					Parent = row,
+				}, { C.round() })
+			end
+		else
+			levelLabel = C.new("TextLabel", {
+				Position = UDim2.fromOffset(0, 50),
+				Size = UDim2.new(1, -150, 0, 18),
+				Font = Theme.Bold,
+				Text = "",
+				TextSize = 14,
+				TextColor3 = Theme.Chalk,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = frame,
+			})
+		end
+		local buy = C.button({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.fromScale(1, 0.5),
+			Size = UDim2.fromOffset(130, 48),
+			BackgroundColor3 = Theme.Good,
+			TextColor3 = Color3.fromRGB(15, 30, 20),
+			Text = "",
+			TextSize = 18,
+			Parent = frame,
+		}, onBuy)
+		return { frame = frame, pips = pips, buy = buy, levelLabel = levelLabel }
+	end
+
+	for i, def in Config.Boosts do
+		self.cards[def.Id] = card(i, def.Name, def.Description, def.MaxLevel, function()
+			handlers.buyBoost(def.Id)
+		end)
+	end
+	self.chalkCard = card(#Config.Boosts + 1, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
+	return self
+end
+
+function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number)
+	self.balance.Text = "Balance: $" .. Theme.formatNumber(cash)
+	for _, def in Config.Boosts do
+		local cardRef = self.cards[def.Id]
+		local level = boosts[def.Id] or 0
+		for i, pip in cardRef.pips do
+			pip.BackgroundColor3 = if i <= level then Theme.Accent else Theme.PanelLight
+		end
+		local cost = Rules.boostCost(Config.Boosts, def.Id, level)
+		if cost == nil then
+			cardRef.buy.Text = "MAXED"
+			cardRef.buy.BackgroundColor3 = Theme.PanelLight
+			cardRef.buy.TextColor3 = Theme.Muted
+		else
+			cardRef.buy.Text = "$" .. Theme.formatNumber(cost)
+			local affordable = cash >= cost
+			cardRef.buy.BackgroundColor3 = if affordable then Theme.Good else Theme.PanelLight
+			cardRef.buy.TextColor3 = if affordable then Color3.fromRGB(15, 30, 20) else Theme.Muted
+		end
+	end
+	local full = chalk >= Config.Chalk.MaxHeld
+	self.chalkCard.levelLabel.Text = string.format("In bag: %d / %d", chalk, Config.Chalk.MaxHeld)
+	self.chalkCard.buy.Text = if full then "BAG FULL" else "$" .. Config.Chalk.Price
+	local ok = not full and cash >= Config.Chalk.Price
+	self.chalkCard.buy.BackgroundColor3 = if ok then Theme.Good else Theme.PanelLight
+	self.chalkCard.buy.TextColor3 = if ok then Color3.fromRGB(15, 30, 20) else Theme.Muted
+end
+
+function Shop:isOpen(): boolean
+	return self.gui.Enabled
+end
+
+function Shop:open()
+	self.gui.Enabled = true
+	self.windowScale.Scale = 0.85
+	C.tween(self.windowScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+end
+
+function Shop:close()
+	self.gui.Enabled = false
+end
+
+function Shop:toggle()
+	if self:isOpen() then
+		self:close()
+	else
+		self:open()
+	end
+end
+
+return Shop
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="34">
+            <Properties>
+              <string name="Name">Theme</string>
+              <string name="Source"><![CDATA[-- One place for the HUD's look: dark glass panels, hazard-yellow accent.
+local Theme = {
+	Panel = Color3.fromRGB(18, 20, 28),
+	PanelLight = Color3.fromRGB(30, 34, 46),
+	Card = Color3.fromRGB(38, 42, 56),
+	Stroke = Color3.fromRGB(255, 255, 255),
+	Text = Color3.fromRGB(244, 245, 250),
+	Muted = Color3.fromRGB(150, 158, 180),
+	Accent = Color3.fromRGB(255, 196, 46),
+	AccentDark = Color3.fromRGB(200, 140, 20),
+	Good = Color3.fromRGB(88, 224, 132),
+	Bad = Color3.fromRGB(255, 86, 86),
+	Info = Color3.fromRGB(100, 172, 255),
+	Gold = Color3.fromRGB(255, 214, 90),
+	StaminaHigh = Color3.fromRGB(88, 224, 132),
+	StaminaMid = Color3.fromRGB(255, 200, 60),
+	StaminaLow = Color3.fromRGB(255, 80, 80),
+	Chalk = Color3.fromRGB(235, 240, 255),
+
+	PanelTransparency = 0.18,
+	Radius = 12,
+
+	Title = Enum.Font.GothamBlack,
+	Bold = Enum.Font.GothamBold,
+	Body = Enum.Font.GothamMedium,
+}
+
+function Theme.styleColor(style: string?): Color3
+	if style == "good" then
+		return Theme.Good
+	elseif style == "bad" then
+		return Theme.Bad
+	elseif style == "gold" then
+		return Theme.Gold
+	end
+	return Theme.Info
+end
+
+function Theme.formatNumber(n: number): string
+	local s = tostring(math.floor(n))
+	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (formatted:gsub("^,", ""):gsub("^%-,", "-"))
+end
+
+return Theme
+]]></string>
+            </Properties>
+          </Item>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="35">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <float name="Gravity">196.2</float>
+      <bool name="NeedsPivotMigration">false</bool>
+    </Properties>
+    <Item class="Part" referent="36">
+      <Properties>
+        <string name="Name">Baseplate</string>
+        <bool name="Anchored">true</bool>
+        <token name="BottomSurface">0</token>
+        <Color3uint8 name="Color3uint8">5735749</Color3uint8>
+        <bool name="Locked">true</bool>
+        <token name="Material">1280</token>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>-8.5</Y>
+          <Z>0</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>1600</X>
+          <Y>16</Y>
+          <Z>1600</Z>
+        </Vector3>
+        <token name="TopSurface">0</token>
+      </Properties>
+    </Item>
+    <Item class="SpawnLocation" referent="37">
+      <Properties>
+        <string name="Name">SpawnLocation</string>
+        <bool name="Anchored">true</bool>
+        <token name="BottomSurface">0</token>
+        <Color3uint8 name="Color3uint8">16761902</Color3uint8>
+        <int name="Duration">0</int>
+        <token name="Material">1056</token>
+        <bool name="Neutral">true</bool>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>-0.4</Y>
+          <Z>24</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>12</X>
+          <Y>1</Y>
+          <Z>12</Z>
+        </Vector3>
+        <token name="TopSurface">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

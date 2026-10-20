@@ -16,7 +16,7 @@ Spawn in plaza -> pick a tower -> climb -> rest on ledges to recover stamina -> 
 ### Stamina and blackout
 - Climbing drains stamina; hanging still drains slowly; resting (on a ledge, platform, or while "chalk-ing" on a rest bar) refills it.
 - At 0 stamina the player blacks out: vignette to black, character ragdolls, falls. Fall damage scales with height; landing on a lower ledge stops the fall.
-- Stamina is **server-authoritative**. The client only sends input intent (climbing / holding / resting).
+- Stamina is simulated on the **client**. Only the owning client knows its exact Humanoid state (climbing, hanging or grounded) each frame, and stamina only limits the player themselves. Everything of value (cash, climbs, purchases, payouts, fall damage) is server-authoritative. *(This replaces an earlier draft that had the server own stamina.)*
 
 ### Towers
 
@@ -78,7 +78,7 @@ Each unit has one purpose and a defined interface. `shared/*Math` modules are pu
 
 ## 6. Bug prevention (built in, verified by tests or playtest)
 
-- Server-authoritative stamina, cash, payout and purchases; clients can't award themselves anything.
+- Server-authoritative cash, payouts, purchases and fall damage; clients can't award themselves anything.
 - Peak payout is idempotent per tower per climb; the trigger zone debounces.
 - DataStore: retries with backoff, session locking guard, save on `PlayerRemoving` and `BindToClose`, defaults for new players, schema versioning.
 - Ragdoll state is cleaned up on respawn; Humanoid states are restored; no leaked connections (Maid pattern).

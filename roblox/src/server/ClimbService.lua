@@ -1,0 +1,277 @@
+-- Climb tracking: base/peak zones, payouts, checkpoints, lifts, trails.
+--
+-- A climb starts when you touch a tower's BaseZone and pays out once when you
+-- reach its PeakZone. The peak only pays if the climb started on the same
+-- tower and took a physically plausible amount of time.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local DataService = require(script.Parent.DataService)
+
+local ClimbService = {}
+
+type Checkpoint = { tower: string, position: Vector3 }
+
+local active: { [Player]: Rules.ActiveClimb } = {}
+local checkpoints: { [Player]: Checkpoint } = {}
+local lastRejectNotice: { [Player]: number } = {}
+local plazaSpawn: CFrame = CFrame.new(0, 4, 24)
+
+local notify: RemoteEvent
+
+local function playerFromHit(hit: BasePart): (Player?, Humanoid?)
+	local character = hit:FindFirstAncestorOfClass("Model")
+	if not character then
+		return nil, nil
+	end
+	local player = Players:GetPlayerFromCharacter(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not player or not humanoid or humanoid.Health <= 0 then
+		return nil, nil
+	end
+	return player, humanoid
+end
+
+local function rootOf(player: Player): BasePart?
+	local character = player.Character
+	return character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+function ClimbService.toast(player: Player, text: string, style: string?)
+	notify:FireClient(player, "Toast", { text = text, style = style or "info" })
+end
+
+function ClimbService.sendToPlaza(player: Player)
+	checkpoints[player] = nil
+	local character = player.Character
+	if character then
+		local offset = Vector3.new(math.random(-6, 6), 0, math.random(-4, 4))
+		character:PivotTo(plazaSpawn + offset)
+	end
+end
+
+function ClimbService.equipTrail(player: Player)
+	local character = player.Character
+	local root = rootOf(player)
+	local data = DataService.get(player)
+	if not character or not root or not data then
+		return
+	end
+	local best = Rules.bestTrail(Config.Trails, data.Climbs)
+	local existing = root:FindFirstChild("ClimbTrail") :: Trail?
+	if existing and best and existing:GetAttribute("TrailName") == best.Name then
+		return
+	end
+	if existing then
+		existing:Destroy()
+	end
+	for _, name in { "TrailTop", "TrailBottom" } do
+		local old = root:FindFirstChild(name)
+		if old then
+			old:Destroy()
+		end
+	end
+	if not best then
+		return
+	end
+	local a0 = Instance.new("Attachment")
+	a0.Name = "TrailTop"
+	a0.Position = Vector3.new(0, 0.8, 0)
+	a0.Parent = root
+	local a1 = Instance.new("Attachment")
+	a1.Name = "TrailBottom"
+	a1.Position = Vector3.new(0, -0.8, 0)
+	a1.Parent = root
+	local trail = Instance.new("Trail")
+	trail.Name = "ClimbTrail"
+	trail:SetAttribute("TrailName", best.Name)
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = 0.6
+	trail.LightEmission = 0.6
+	trail.FaceCamera = true
+	local c = Color3.fromRGB(best.Color[1], best.Color[2], best.Color[3])
+	trail.Color = ColorSequence.new(c)
+	trail.Transparency = NumberSequence.new(0.2, 1)
+	trail.Parent = root
+end
+
+local function onPeak(tower: Model, player: Player)
+	local id = tower:GetAttribute("TowerId") :: string
+	local height = tower:GetAttribute("Height") :: number
+	local ok, reason = Rules.validatePeak(Config.Climb, active[player], id, height, os.clock())
+	if not ok then
+		local now = os.clock()
+		if now - (lastRejectNotice[player] or 0) > 6 then
+			lastRejectNotice[player] = now
+			ClimbService.toast(player, reason :: string, "bad")
+		end
+		return
+	end
+	local climb = active[player] :: Rules.ActiveClimb
+	climb.paid = true
+	checkpoints[player] = nil
+
+	local payout = tower:GetAttribute("Payout") :: number
+	local before = (DataService.get(player) or {}).Climbs or 0
+	DataService.update(player, function(data)
+		data.Cash += payout
+		data.Climbs += 1
+	end)
+	local data = DataService.get(player)
+	if not data then
+		return
+	end
+	notify:FireClient(player, "Summit", { tower = id, payout = payout, climbs = data.Climbs })
+
+	local oldTrail = Rules.bestTrail(Config.Trails, before)
+	local newTrail = Rules.bestTrail(Config.Trails, data.Climbs)
+	if newTrail and newTrail ~= oldTrail then
+		notify:FireClient(player, "Unlock", { text = newTrail.Name .. " trail unlocked!" })
+		ClimbService.equipTrail(player)
+	end
+end
+
+local function hookTower(tower: Model)
+	local id = tower:GetAttribute("TowerId") :: string
+	local base = tower:FindFirstChild("BaseZone") :: BasePart
+	local peak = tower:FindFirstChild("PeakZone") :: BasePart
+
+	base.Touched:Connect(function(hit)
+		local player = playerFromHit(hit)
+		if not player then
+			return
+		end
+		local climb = active[player]
+		-- Re-arm when starting fresh, switching tower, or after being paid.
+		-- Still at the bottom of the current climb: the timer runs from the last
+		-- base touch, which keeps the "too fast" check strict.
+		if climb and climb.tower == id and not climb.paid then
+			climb.startTime = os.clock()
+			return
+		end
+		active[player] = { tower = id, startTime = os.clock(), paid = false }
+		local cp = checkpoints[player]
+		if cp and cp.tower ~= id then
+			checkpoints[player] = nil
+		end
+	end)
+
+	peak.Touched:Connect(function(hit)
+		local player = playerFromHit(hit)
+		if player then
+			onPeak(tower, player)
+		end
+	end)
+
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part:GetAttribute("Checkpoint") then
+			part.Touched:Connect(function(hit)
+				local player = playerFromHit(hit)
+				local root = player and rootOf(player)
+				if not player or not root then
+					return
+				end
+				local climb = active[player]
+				if not climb or climb.tower ~= id or climb.paid then
+					return
+				end
+				-- Only count it when standing on top, not brushing the underside.
+				local topY = part.Position.Y + part.Size.Y / 2
+				if root.Position.Y < topY then
+					return
+				end
+				local cp = checkpoints[player]
+				if not cp or cp.tower ~= id or root.Position.Y > cp.position.Y + 4 then
+					checkpoints[player] = { tower = id, position = root.Position + Vector3.new(0, Config.Climb.CheckpointRespawnLift, 0) }
+					if cp and cp.tower == id then
+						ClimbService.toast(player, "Checkpoint saved", "good")
+					end
+				end
+			end)
+		end
+	end
+
+	local lift = tower:FindFirstChild("Lift")
+	local prompt = lift and lift:FindFirstChild("LiftPrompt") :: ProximityPrompt?
+	if prompt then
+		prompt.Triggered:Connect(function(player)
+			ClimbService.sendToPlaza(player)
+			ClimbService.toast(player, "Back at the plaza. Pick your next tower!", "info")
+		end)
+	end
+end
+
+local function onCharacter(player: Player, character: Model)
+	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	humanoid.BreakJointsOnDeath = false -- we ragdoll on death instead
+	humanoid.RequiresNeck = false
+	local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
+	if not root then
+		return
+	end
+	task.defer(ClimbService.equipTrail, player)
+
+	local cp = checkpoints[player]
+	if cp then
+		task.wait(0.1)
+		if character.Parent then
+			character:PivotTo(CFrame.new(cp.position))
+			ClimbService.toast(player, "Respawned at your last checkpoint", "info")
+		end
+	end
+end
+
+function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
+	plazaSpawn = spawnCFrame
+	notify = Remotes.get("Notify")
+	for _, tower in towers:GetChildren() do
+		if tower:IsA("Model") and tower:GetAttribute("TowerId") then
+			hookTower(tower)
+		end
+	end
+
+	local function onPlayer(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			onCharacter(player, character)
+		end)
+		if player.Character then
+			task.spawn(onCharacter, player, player.Character)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, player in Players:GetPlayers() do
+		onPlayer(player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		active[player] = nil
+		checkpoints[player] = nil
+		lastRejectNotice[player] = nil
+	end)
+
+	Remotes.get("ResetToPlaza").OnServerEvent:Connect(function(player)
+		active[player] = nil
+		ClimbService.sendToPlaza(player)
+	end)
+
+	-- Track best height reached (shown on the HUD).
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in Players:GetPlayers() do
+				local root = rootOf(player)
+				local data = DataService.get(player)
+				if root and data and root.Position.Y > data.BestHeight + 1 and root.Position.Y < 2000 then
+					DataService.update(player, function(d)
+						d.BestHeight = math.floor(root.Position.Y)
+					end)
+				end
+			end
+		end
+	end)
+end
+
+return ClimbService
