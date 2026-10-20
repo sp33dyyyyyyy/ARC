@@ -245,7 +245,15 @@ local function close()
 		gui:Destroy()
 	end)
 end
-skip.Activated:Connect(close)
+skip.Activated:Connect(function()
+	-- Same keyboard click as the rest of the UI (see Config.Sounds.UIClick).
+	local click = Instance.new("Sound")
+	click.SoundId = "rbxasset://sounds/clickfast.wav"
+	click.Volume = 0.45
+	click.Parent = gui
+	game:GetService("SoundService"):PlayLocalSound(click)
+	close()
+end)
 
 -- The SKIP button appears after a moment (so a quick load just plays through).
 task.delay(1.5, function()
@@ -623,6 +631,9 @@ Config.Sounds = {
 	Bonk = "rbxasset://sounds/uuhhh.mp3",
 	Click = "rbxasset://sounds/action_jump.mp3",
 	Grab = "rbxasset://sounds/action_get_up.mp3",
+	-- Keyboard-style click for every button and every window/tab opening.
+	-- Swap in any sound (e.g. "rbxassetid://<id>") to change it.
+	UIClick = "rbxasset://sounds/clickfast.wav",
 }
 
 Config.DataStoreName = "SkyClimbers_v1"
@@ -5951,6 +5962,7 @@ hud = Hud.new({
 	ragdoll = ClimbController.toggleRagdoll,
 	letGo = ClimbController.letGo,
 	clip = ClimbController.clip,
+	unclip = ClimbController.unclip,
 	rappel = ClimbController.rappel,
 	emotes = function()
 		hud:toggleEmoteBar()
@@ -6158,6 +6170,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		ClimbController.toggleRagdoll()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		hud:toggleEmoteBar()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		hud:toggleControls()
 	elseif input.KeyCode == Enum.KeyCode.O then
 		settings:toggle()
 	elseif input.KeyCode == Enum.KeyCode.P then
@@ -6469,11 +6483,38 @@ return AdminPanel
             <Properties>
               <string name="Name">Components</string>
               <string name="Source"><![CDATA[-- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
+local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(script.Parent.Theme)
 
 local C = {}
+
+-- Keyboard click: every button press and every window/tab opening plays it.
+-- Played locally (only you hear your own UI), with a little pitch variation
+-- so rapid clicks sound like real keys rather than a loop.
+local clickSound: Sound? = nil
+local lastClick = 0
+function C.click(pitch: number?)
+	local now = os.clock()
+	if now - lastClick < 0.03 then
+		return -- one click per press, even when a press opens a window too
+	end
+	lastClick = now
+	if not clickSound then
+		local sound = Instance.new("Sound")
+		sound.Name = "UIClick"
+		sound.SoundId = Config.Sounds.UIClick
+		sound.Volume = 0.45
+		sound.Parent = SoundService
+		clickSound = sound
+	end
+	local sound = clickSound :: Sound
+	sound.PlaybackSpeed = (pitch or 1) * (0.95 + math.random() * 0.1)
+	SoundService:PlayLocalSound(sound)
+end
 
 -- C.new("Frame", { Size = ... }, { child1, child2 })
 function C.new(className: string, props: { [string]: any }?, children: { Instance }?): any
@@ -6609,7 +6650,10 @@ function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
 	button.MouseButton1Up:Connect(function()
 		C.tween(scale, 0.15, { Scale = 1 }, Enum.EasingStyle.Back)
 	end)
-	button.Activated:Connect(onClick)
+	button.Activated:Connect(function()
+		C.click()
+		onClick()
+	end)
 	return button
 end
 
@@ -6648,6 +6692,7 @@ function C.toggle(props: { [string]: any }, initial: boolean, onChange: (boolean
 	end
 	render(false)
 	track.Activated:Connect(function()
+		C.click(if value then 0.9 else 1.1)
 		value = not value
 		render(true)
 		onChange(value)
@@ -6680,6 +6725,68 @@ function C.textbox(props: { [string]: any }): TextBox
 	return box
 end
 
+-- Opening / closing animation shared by every window: the backdrop fades in,
+-- the window pops up from slightly small and low with a little overshoot, and
+-- closing plays it in reverse before the gui is hidden.
+export type Animated = { gui: ScreenGui, window: GuiObject, dim: GuiObject?, open: () -> (), close: () -> (), isOpen: () -> boolean }
+
+function C.animated(gui: ScreenGui, window: GuiObject, dim: GuiObject?): Animated
+	local scale = window:FindFirstChildOfClass("UIScale") or C.new("UIScale", { Parent = window })
+	local home = window.Position
+	local dimTarget = if dim then dim.BackgroundTransparency else 1
+	local isOpen = false
+	local token = 0
+	local self: Animated
+	local function open()
+		if isOpen then
+			return
+		end
+		isOpen = true
+		token += 1
+		C.click(1.15)
+		gui.Enabled = true
+		scale.Scale = 0.86
+		window.Position = home + UDim2.fromOffset(0, 24)
+		C.tween(scale, 0.32, { Scale = 1 }, Enum.EasingStyle.Back)
+		C.tween(window, 0.32, { Position = home }, Enum.EasingStyle.Back)
+		if dim then
+			dim.BackgroundTransparency = 1
+			C.tween(dim, 0.25, { BackgroundTransparency = dimTarget })
+		end
+	end
+	local function close()
+		if not isOpen then
+			return
+		end
+		isOpen = false
+		token += 1
+		local mine = token
+		C.click(0.85)
+		C.tween(scale, 0.16, { Scale = 0.9 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		C.tween(window, 0.16, { Position = home + UDim2.fromOffset(0, 16) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		if dim then
+			C.tween(dim, 0.16, { BackgroundTransparency = 1 })
+		end
+		task.delay(0.17, function()
+			if token == mine then
+				gui.Enabled = false
+				window.Position = home
+			end
+		end)
+	end
+	self = {
+		gui = gui,
+		window = window,
+		dim = dim,
+		open = open,
+		close = close,
+		isOpen = function()
+			return isOpen
+		end,
+	}
+	return self
+end
+
 export type Modal = { gui: ScreenGui, window: Frame, body: Frame, open: () -> (), close: () -> (), isOpen: () -> boolean }
 
 -- A centred window over a dimmed screen, with a title bar and close button.
@@ -6710,7 +6817,6 @@ function C.modal(name: string, title: string, accent: Color3, size: Vector2, dis
 		BackgroundTransparency = 0.04,
 		Parent = root,
 	}, { C.stroke(accent, 2, 0.35) })
-	local scale = C.new("UIScale", { Parent = window })
 	-- Accent strip along the top edge.
 	C.new("Frame", {
 		Size = UDim2.new(1, -24, 0, 3),
@@ -6735,14 +6841,8 @@ function C.modal(name: string, title: string, accent: Color3, size: Vector2, dis
 		Parent = window,
 	})
 	local modal: Modal
-	local function close()
-		gui.Enabled = false
-	end
-	local function open()
-		gui.Enabled = true
-		scale.Scale = 0.88
-		C.tween(scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
-	end
+	local anim = C.animated(gui, window, dim)
+	local close, open = anim.close, anim.open
 	C.button({
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -18, 0, 16),
@@ -6759,9 +6859,7 @@ function C.modal(name: string, title: string, accent: Color3, size: Vector2, dis
 		body = body,
 		open = open,
 		close = close,
-		isOpen = function()
-			return gui.Enabled
-		end,
+		isOpen = anim.isOpen,
 	}
 	return modal
 end
@@ -6814,6 +6912,7 @@ export type Actions = {
 	plaza: () -> (),
 	letGo: () -> (),
 	clip: () -> (),
+	unclip: () -> (),
 	rappel: () -> (),
 	emotes: () -> (),
 	settings: () -> (),
@@ -7093,40 +7192,203 @@ function Hud.new(actions: Actions)
 	self._barStroke = C.stroke(Theme.Bad, 2, 1)
 	self._barStroke.Parent = bar
 
-	-- Right: action buttons -------------------------------------------------------
-	local column = C.new("Frame", {
-		Name = "Actions",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -16, 0.5, 0),
-		Size = UDim2.fromOffset(150, 420),
-		BackgroundTransparency = 1,
-		Parent = root,
-	}, {
-		C.new("UIListLayout", {
-			Padding = UDim.new(0, 8),
-			HorizontalAlignment = Enum.HorizontalAlignment.Right,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}),
-	})
+	-- Right edge: one CONTROLS tab instead of a column of buttons. It slides
+	-- out a panel listing every control; each action row is also a button, so
+	-- touch players can tap them. --------------------------------------------
 	local keyHints = not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled
-	local function action(order: number, text: string, key: string, color: Color3, fn: () -> ())
-		return C.button({
-			LayoutOrder = order,
-			Size = UDim2.fromOffset(150, 44),
-			BackgroundColor3 = color,
-			Text = if keyHints then string.format("%s  [%s]", text, key) else text,
-			TextSize = 17,
-			Parent = column,
-		}, fn)
+	self.controlsTab = C.button({
+		Name = "ControlsTab",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.fromOffset(46, 170),
+		BackgroundColor3 = Theme.Panel,
+		BackgroundTransparency = 0.1,
+		Text = "",
+		Parent = root,
+	}, function()
+		self:toggleControls()
+	end)
+	C.new("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(160, 30),
+		Rotation = -90,
+		Font = Theme.Title,
+		Text = if keyHints then "CONTROLS  [H]" else "CONTROLS",
+		TextSize = 17,
+		TextColor3 = Theme.Accent,
+		Parent = self.controlsTab,
+	})
+	self._tabStroke = self.controlsTab:FindFirstChildOfClass("UIStroke")
+
+	local PANEL_W = 330
+	self.controls = C.panel({
+		Name = "Controls",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, PANEL_W + 20, 0.5, 0), -- hidden off-screen
+		Size = UDim2.fromOffset(PANEL_W, 600),
+		BackgroundTransparency = 0.06,
+		Visible = false,
+		Parent = root,
+	}, { C.stroke(Theme.Accent, 2, 0.45) })
+	self._controlsOpen = false
+	self._controlsShown = UDim2.new(1, -56, 0.5, 0)
+	self._controlsHidden = self.controls.Position
+	C.new("Frame", {
+		Size = UDim2.new(1, -24, 0, 3),
+		Position = UDim2.fromOffset(12, 0),
+		BackgroundColor3 = Theme.Accent,
+		Parent = self.controls,
+	}, { C.round() })
+	label({
+		Position = UDim2.fromOffset(18, 12),
+		Size = UDim2.new(1, -36, 0, 30),
+		Font = Theme.Title,
+		Text = "CONTROLS",
+		TextSize = 24,
+		TextColor3 = Theme.Accent,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = self.controls,
+	})
+	label({
+		Position = UDim2.fromOffset(18, 42),
+		Size = UDim2.new(1, -36, 0, 16),
+		Font = Theme.Body,
+		Text = "Tap a row to use it.",
+		TextSize = 13,
+		TextColor3 = Theme.Muted,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = self.controls,
+	})
+	local list = C.new("ScrollingFrame", {
+		Position = UDim2.fromOffset(12, 66),
+		Size = UDim2.new(1, -24, 1, -78),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 4,
+		ScrollBarImageColor3 = Theme.Accent,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		Parent = self.controls,
+	}, {
+		C.new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+		C.padding(2, 2),
+	})
+	self._rows = {}
+
+	-- A key badge plus a description; with `fn` the whole row is a button.
+	local function row(order: number, key: string, text: string, color: Color3?, fn: (() -> ())?): GuiObject
+		local frame: GuiObject
+		if fn then
+			frame = C.button({
+				LayoutOrder = order,
+				Size = UDim2.new(1, -6, 0, 40),
+				BackgroundColor3 = Theme.Card,
+				Text = "",
+				Parent = list,
+			}, fn)
+		else
+			frame = C.new("Frame", {
+				LayoutOrder = order,
+				Size = UDim2.new(1, -6, 0, 40),
+				BackgroundColor3 = Theme.PanelLight,
+				BackgroundTransparency = 0.4,
+				Parent = list,
+			}, { C.corner(10) })
+		end
+		local badge = C.new("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 6, 0.5, 0),
+			Size = UDim2.fromOffset(78, 28),
+			BackgroundColor3 = color or Color3.fromRGB(58, 64, 84),
+			Parent = frame,
+		}, { C.corner(7), C.stroke(Color3.new(1, 1, 1), 1, 0.7) })
+		label({
+			Size = UDim2.fromScale(1, 1),
+			Font = Theme.Title,
+			Text = key,
+			TextSize = 14,
+			Parent = badge,
+		})
+		local text_ = label({
+			Name = "Desc",
+			Position = UDim2.fromOffset(94, 0),
+			Size = UDim2.new(1, -102, 1, 0),
+			Font = Theme.Bold,
+			Text = text,
+			TextSize = 15,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = frame,
+		})
+		self._rows[order] = text_
+		return frame
 	end
-	action(1, "SHOP", "B", Color3.fromRGB(200, 140, 20), actions.shop)
-	self.chalkButton = action(2, "CHALK x0", "C", Color3.fromRGB(70, 80, 110), actions.chalk)
-	self.letGoButton = action(3, "LET GO", "Q", Color3.fromRGB(70, 80, 110), actions.letGo)
-	self.clipButton = action(4, "CLIP ROPE", "F", Color3.fromRGB(200, 90, 30), actions.clip)
-	action(5, "RAPPEL", "V", Color3.fromRGB(40, 120, 170), actions.rappel)
-	action(6, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
-	action(7, "EMOTES", "G", Color3.fromRGB(120, 70, 160), actions.emotes)
-	action(8, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
+	local function header(order: number, text: string)
+		label({
+			LayoutOrder = order,
+			Size = UDim2.new(1, -6, 0, 22),
+			Font = Theme.Title,
+			Text = text,
+			TextSize = 13,
+			TextColor3 = Theme.Muted,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = list,
+		})
+	end
+	header(1, "CLIMBING")
+	row(2, "W A S D", "Climb up / down, move sideways")
+	row(3, "SPACE", "Grab a tower / dyno / catch the wall")
+	self.letGoButton = row(4, "Q", "Let go", Color3.fromRGB(70, 80, 110), actions.letGo)
+	self.clipButton = row(5, "F", "Clip your rope in", Color3.fromRGB(200, 90, 30), actions.clip)
+	row(6, "X", "Unclip your rope", Color3.fromRGB(140, 70, 40), actions.unclip)
+	row(7, "V", "Rappel down (Rappel Kit)", Color3.fromRGB(40, 120, 170), actions.rappel)
+	self.chalkButton = row(8, "C", "Use chalk (x0)", Color3.fromRGB(150, 155, 175), actions.chalk)
+	header(9, "EVERYTHING ELSE")
+	row(10, "B", "Shop", Color3.fromRGB(200, 140, 20), actions.shop)
+	row(11, "G", "Emotes", Color3.fromRGB(120, 70, 160), actions.emotes)
+	row(12, "R", "Ragdoll / get up", Color3.fromRGB(150, 60, 70), actions.ragdoll)
+	row(13, "P", "Back to the plaza", Color3.fromRGB(50, 110, 90), actions.plaza)
+	row(14, "O", "Settings", Color3.fromRGB(70, 80, 110), actions.settings)
+	row(15, "H", "Show / hide this list", Color3.fromRGB(70, 80, 110), function()
+		self:toggleControls()
+	end)
+
+	-- Touch screens: the three climbing actions you need fast, shown only
+	-- while you're on a wall.
+	self.touchClimb = C.new("Frame", {
+		Name = "TouchClimb",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -70, 1, -130),
+		Size = UDim2.fromOffset(130, 156),
+		BackgroundTransparency = 1,
+		Visible = false,
+		Parent = root,
+	}, { C.new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }) })
+	self._touch = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	for i, entry in { { "LET GO", Color3.fromRGB(60, 130, 220), actions.letGo }, { "CLIP ROPE", Color3.fromRGB(200, 90, 30), actions.clip }, { "RAPPEL", Color3.fromRGB(40, 120, 170), actions.rappel } } do
+		C.button({
+			LayoutOrder = i,
+			Size = UDim2.fromOffset(130, 46),
+			BackgroundColor3 = entry[2],
+			Text = entry[1],
+			TextSize = 16,
+			Parent = self.touchClimb,
+		}, entry[3])
+	end
+
+	-- A gentle pulse on the tab for the first few seconds so new players find it.
+	task.spawn(function()
+		for _ = 1, 3 do
+			task.wait(1.2)
+			local stroke = self._tabStroke :: UIStroke?
+			if not stroke or self._controlsOpen then
+				break
+			end
+			stroke.Color = Theme.Accent
+			stroke.Transparency = 0.1
+			stroke.Thickness = 3
+			C.tween(stroke, 0.9, { Transparency = 0.8, Thickness = 1 })
+		end
+	end)
 
 	return self
 end
@@ -7167,7 +7429,7 @@ function Hud:setCash(n: number)
 end
 
 function Hud:setChalk(count: number, activeFraction: number)
-	self:_set("chalkCount", self.chalkButton, "Text", (self.chalkButton.Text:gsub("x%d+", "x" .. count)))
+	self:_set("chalkCount", self._rows[8], "Text", string.format("Use chalk (x%d)", count))
 	self:_set("chalkGlow", self.chalkGlow, "BackgroundTransparency", 1 - activeFraction * 0.45)
 end
 
@@ -7214,7 +7476,7 @@ function Hud:setRope(kind: any, canClip: boolean)
 	end
 	self:_set("rope", self.rope, "Text", text)
 	self:_set("ropeColor", self.rope, "TextColor3", color)
-	self:_set("clipGlow", self.clipButton, "BackgroundColor3", if canClip then Color3.fromRGB(255, 130, 40) else Color3.fromRGB(200, 90, 30))
+	self:_set("clipGlow", self.clipButton, "BackgroundColor3", if canClip then Color3.fromRGB(120, 70, 30) else Theme.Card)
 end
 
 local WEATHER_TEXT = {
@@ -7249,13 +7511,85 @@ function Hud:setEmotes(emotes: { { id: string, name: string } }, onPlay: (id: st
 	end
 end
 
+-- Emote bar: slides up and fades in, slides back down to close.
 function Hud:toggleEmoteBar()
-	self.emoteBar.Visible = not self.emoteBar.Visible
+	local bar = self.emoteBar
+	local home = UDim2.new(0.5, 0, 1, -114)
+	self._emoteToken = (self._emoteToken or 0) + 1
+	local mine = self._emoteToken
+	if bar.Visible and not self._emoteClosing then
+		self._emoteClosing = true
+		C.click(0.85)
+		C.tween(bar, 0.18, { Position = home + UDim2.fromOffset(0, 30) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		task.delay(0.19, function()
+			if self._emoteToken == mine then
+				bar.Visible = false
+				self._emoteClosing = false
+			end
+		end)
+	else
+		self._emoteClosing = false
+		C.click(1.15)
+		bar.Visible = true
+		bar.Position = home + UDim2.fromOffset(0, 40)
+		C.tween(bar, 0.3, { Position = home }, Enum.EasingStyle.Back)
+		for i, child in bar:GetChildren() do
+			local scale = child:FindFirstChildOfClass("UIScale")
+			if scale then
+				scale.Scale = 0.6
+				task.delay(i * 0.03, function()
+					C.tween(scale, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+				end)
+			end
+		end
+	end
 end
 
--- Highlight the LET GO button while you're on a wall.
+-- The CONTROLS panel slides in from the right edge (and back out).
+function Hud:toggleControls()
+	local panel = self.controls
+	self._controlsOpen = not self._controlsOpen
+	self._controlsToken = (self._controlsToken or 0) + 1
+	local mine = self._controlsToken
+	if self._controlsOpen then
+		C.click(1.15)
+		panel.Visible = true
+		C.tween(panel, 0.35, { Position = self._controlsShown }, Enum.EasingStyle.Back)
+		C.tween(self.controlsTab, 0.2, { BackgroundColor3 = Theme.AccentDark })
+		-- Rows cascade in one after another.
+		local rows = {}
+		for _, child in panel:GetDescendants() do
+			if child:IsA("GuiObject") and child.Parent and child.Parent:IsA("ScrollingFrame") then
+				table.insert(rows, child)
+			end
+		end
+		table.sort(rows, function(a, b)
+			return a.LayoutOrder < b.LayoutOrder
+		end)
+		for i, rowFrame in rows do
+			local scale = rowFrame:FindFirstChildOfClass("UIScale") or C.new("UIScale", { Parent = rowFrame })
+			scale.Scale = 0.85
+			task.delay(0.04 + i * 0.02, function()
+				C.tween(scale, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
+			end)
+		end
+	else
+		C.click(0.85)
+		C.tween(panel, 0.22, { Position = self._controlsHidden }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		C.tween(self.controlsTab, 0.2, { BackgroundColor3 = Theme.Panel })
+		task.delay(0.23, function()
+			if self._controlsToken == mine then
+				panel.Visible = false
+			end
+		end)
+	end
+end
+
+-- Highlight the LET GO row while you're on a wall; show the touch climbing
+-- buttons on phones/tablets.
 function Hud:setClimbing(on: boolean)
-	self:_set("climbing", self.letGoButton, "BackgroundColor3", if on then Color3.fromRGB(60, 130, 220) else Color3.fromRGB(70, 80, 110))
+	self:_set("climbing", self.letGoButton, "BackgroundColor3", if on then Color3.fromRGB(40, 70, 120) else Theme.Card)
+	self:_set("touchClimb", self.touchClimb, "Visible", on and self._touch)
 end
 
 function Hud:setWind(text: string?)
@@ -7778,6 +8112,7 @@ function Shop.new(handlers: Handlers)
 		Parent = root,
 	}, { C.stroke(Theme.Accent, 2, 0.4) })
 	self.windowScale = C.new("UIScale", { Parent = window })
+	self.anim = C.animated(gui, window, dim)
 
 	C.new("TextLabel", {
 		Position = UDim2.fromOffset(24, 18),
@@ -8005,17 +8340,15 @@ function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number,
 end
 
 function Shop:isOpen(): boolean
-	return self.gui.Enabled
+	return self.anim.isOpen()
 end
 
 function Shop:open()
-	self.gui.Enabled = true
-	self.windowScale.Scale = 0.85
-	C.tween(self.windowScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	self.anim.open()
 end
 
 function Shop:close()
-	self.gui.Enabled = false
+	self.anim.close()
 end
 
 function Shop:toggle()

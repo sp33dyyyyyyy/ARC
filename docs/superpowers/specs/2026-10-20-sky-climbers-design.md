@@ -239,3 +239,15 @@ Changes requested after the first playable build:
   works off the wall too (e.g. standing on a deck), and warns if the server
   doesn't answer within 3 seconds.
 
+## 17. Revision: controls tab, animations, UI click (2026-10-20)
+
+- The column of eight action buttons on the right is replaced by a single
+  CONTROLS tab on the right edge (H). It slides out a panel listing every
+  control with a key badge, and each action row is a button. On touch-only
+  devices, LET GO / CLIP ROPE / RAPPEL appear while climbing.
+- Shared `C.animated` open/close for every window (backdrop fade, pop-up with
+  overshoot, reverse on close). The emote bar slides up with its buttons
+  popping in; the controls rows cascade in.
+- `C.click()`: a local keyboard-click sound (`Config.Sounds.UIClick`) on every
+  button, toggle and window/tab opening (debounced so one press is one click).
+

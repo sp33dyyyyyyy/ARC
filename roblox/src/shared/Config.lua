@@ -305,6 +305,9 @@ Config.Sounds = {
 	Bonk = "rbxasset://sounds/uuhhh.mp3",
 	Click = "rbxasset://sounds/action_jump.mp3",
 	Grab = "rbxasset://sounds/action_get_up.mp3",
+	-- Keyboard-style click for every button and every window/tab opening.
+	-- Swap in any sound (e.g. "rbxassetid://<id>") to change it.
+	UIClick = "rbxasset://sounds/clickfast.wav",
 }
 
 Config.DataStoreName = "SkyClimbers_v1"

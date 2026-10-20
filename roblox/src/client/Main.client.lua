@@ -34,6 +34,7 @@ hud = Hud.new({
 	ragdoll = ClimbController.toggleRagdoll,
 	letGo = ClimbController.letGo,
 	clip = ClimbController.clip,
+	unclip = ClimbController.unclip,
 	rappel = ClimbController.rappel,
 	emotes = function()
 		hud:toggleEmoteBar()
@@ -241,6 +242,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		ClimbController.toggleRagdoll()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		hud:toggleEmoteBar()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		hud:toggleControls()
 	elseif input.KeyCode == Enum.KeyCode.O then
 		settings:toggle()
 	elseif input.KeyCode == Enum.KeyCode.P then

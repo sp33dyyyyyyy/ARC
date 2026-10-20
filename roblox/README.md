@@ -53,12 +53,20 @@ yellow rest bars instead.
 | P | Back to the plaza |
 | G | Emote bar (play any emote you own) |
 | O (or the SETTINGS button) | Settings: name tags, camera shake, admin code |
+| H (or the CONTROLS tab on the right edge) | Show / hide the controls list |
 
 You climb in moves: reach for the next hold, then pull up. The animation is
 Roblox's standard climb animation from each avatar's own animation set, so it
 works for every avatar (R15 and R6), never T-poses, and other players see it.
-On touch screens, push the stick toward the wall to climb; the jump button grabs
-and dynos, and the HUD has LET GO, CLIP ROPE and RAPPEL buttons.
+All of these are listed in the **CONTROLS** tab on the right edge of the screen
+(H): it slides out a list of every key, and tapping a row does that action. On
+touch screens, push the stick toward the wall to climb; the jump button grabs
+and dynos, and LET GO, CLIP ROPE and RAPPEL buttons appear while you're on a
+wall.
+
+Every button and window makes a keyboard click, and windows (shop, settings,
+admin, controls, emote bar) animate open and closed. The click sound is
+`Config.Sounds.UIClick`, so you can swap in any sound ID.
 
 **Climbing rope:** the rope is 16 studs long, so as you climb, clip in again
 higher (F) like lead climbing. Pressing F makes your character reach up, and

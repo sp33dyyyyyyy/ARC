@@ -1,9 +1,36 @@
 -- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
+local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(script.Parent.Theme)
 
 local C = {}
+
+-- Keyboard click: every button press and every window/tab opening plays it.
+-- Played locally (only you hear your own UI), with a little pitch variation
+-- so rapid clicks sound like real keys rather than a loop.
+local clickSound: Sound? = nil
+local lastClick = 0
+function C.click(pitch: number?)
+	local now = os.clock()
+	if now - lastClick < 0.03 then
+		return -- one click per press, even when a press opens a window too
+	end
+	lastClick = now
+	if not clickSound then
+		local sound = Instance.new("Sound")
+		sound.Name = "UIClick"
+		sound.SoundId = Config.Sounds.UIClick
+		sound.Volume = 0.45
+		sound.Parent = SoundService
+		clickSound = sound
+	end
+	local sound = clickSound :: Sound
+	sound.PlaybackSpeed = (pitch or 1) * (0.95 + math.random() * 0.1)
+	SoundService:PlayLocalSound(sound)
+end
 
 -- C.new("Frame", { Size = ... }, { child1, child2 })
 function C.new(className: string, props: { [string]: any }?, children: { Instance }?): any
@@ -139,7 +166,10 @@ function C.button(props: { [string]: any }, onClick: () -> ()): TextButton
 	button.MouseButton1Up:Connect(function()
 		C.tween(scale, 0.15, { Scale = 1 }, Enum.EasingStyle.Back)
 	end)
-	button.Activated:Connect(onClick)
+	button.Activated:Connect(function()
+		C.click()
+		onClick()
+	end)
 	return button
 end
 
@@ -178,6 +208,7 @@ function C.toggle(props: { [string]: any }, initial: boolean, onChange: (boolean
 	end
 	render(false)
 	track.Activated:Connect(function()
+		C.click(if value then 0.9 else 1.1)
 		value = not value
 		render(true)
 		onChange(value)
@@ -210,6 +241,68 @@ function C.textbox(props: { [string]: any }): TextBox
 	return box
 end
 
+-- Opening / closing animation shared by every window: the backdrop fades in,
+-- the window pops up from slightly small and low with a little overshoot, and
+-- closing plays it in reverse before the gui is hidden.
+export type Animated = { gui: ScreenGui, window: GuiObject, dim: GuiObject?, open: () -> (), close: () -> (), isOpen: () -> boolean }
+
+function C.animated(gui: ScreenGui, window: GuiObject, dim: GuiObject?): Animated
+	local scale = window:FindFirstChildOfClass("UIScale") or C.new("UIScale", { Parent = window })
+	local home = window.Position
+	local dimTarget = if dim then dim.BackgroundTransparency else 1
+	local isOpen = false
+	local token = 0
+	local self: Animated
+	local function open()
+		if isOpen then
+			return
+		end
+		isOpen = true
+		token += 1
+		C.click(1.15)
+		gui.Enabled = true
+		scale.Scale = 0.86
+		window.Position = home + UDim2.fromOffset(0, 24)
+		C.tween(scale, 0.32, { Scale = 1 }, Enum.EasingStyle.Back)
+		C.tween(window, 0.32, { Position = home }, Enum.EasingStyle.Back)
+		if dim then
+			dim.BackgroundTransparency = 1
+			C.tween(dim, 0.25, { BackgroundTransparency = dimTarget })
+		end
+	end
+	local function close()
+		if not isOpen then
+			return
+		end
+		isOpen = false
+		token += 1
+		local mine = token
+		C.click(0.85)
+		C.tween(scale, 0.16, { Scale = 0.9 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		C.tween(window, 0.16, { Position = home + UDim2.fromOffset(0, 16) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		if dim then
+			C.tween(dim, 0.16, { BackgroundTransparency = 1 })
+		end
+		task.delay(0.17, function()
+			if token == mine then
+				gui.Enabled = false
+				window.Position = home
+			end
+		end)
+	end
+	self = {
+		gui = gui,
+		window = window,
+		dim = dim,
+		open = open,
+		close = close,
+		isOpen = function()
+			return isOpen
+		end,
+	}
+	return self
+end
+
 export type Modal = { gui: ScreenGui, window: Frame, body: Frame, open: () -> (), close: () -> (), isOpen: () -> boolean }
 
 -- A centred window over a dimmed screen, with a title bar and close button.
@@ -240,7 +333,6 @@ function C.modal(name: string, title: string, accent: Color3, size: Vector2, dis
 		BackgroundTransparency = 0.04,
 		Parent = root,
 	}, { C.stroke(accent, 2, 0.35) })
-	local scale = C.new("UIScale", { Parent = window })
 	-- Accent strip along the top edge.
 	C.new("Frame", {
 		Size = UDim2.new(1, -24, 0, 3),
@@ -265,14 +357,8 @@ function C.modal(name: string, title: string, accent: Color3, size: Vector2, dis
 		Parent = window,
 	})
 	local modal: Modal
-	local function close()
-		gui.Enabled = false
-	end
-	local function open()
-		gui.Enabled = true
-		scale.Scale = 0.88
-		C.tween(scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
-	end
+	local anim = C.animated(gui, window, dim)
+	local close, open = anim.close, anim.open
 	C.button({
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -18, 0, 16),
@@ -289,9 +375,7 @@ function C.modal(name: string, title: string, accent: Color3, size: Vector2, dis
 		body = body,
 		open = open,
 		close = close,
-		isOpen = function()
-			return gui.Enabled
-		end,
+		isOpen = anim.isOpen,
 	}
 	return modal
 end

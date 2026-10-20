@@ -58,6 +58,7 @@ function Shop.new(handlers: Handlers)
 		Parent = root,
 	}, { C.stroke(Theme.Accent, 2, 0.4) })
 	self.windowScale = C.new("UIScale", { Parent = window })
+	self.anim = C.animated(gui, window, dim)
 
 	C.new("TextLabel", {
 		Position = UDim2.fromOffset(24, 18),
@@ -285,17 +286,15 @@ function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number,
 end
 
 function Shop:isOpen(): boolean
-	return self.gui.Enabled
+	return self.anim.isOpen()
 end
 
 function Shop:open()
-	self.gui.Enabled = true
-	self.windowScale.Scale = 0.85
-	C.tween(self.windowScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	self.anim.open()
 end
 
 function Shop:close()
-	self.gui.Enabled = false
+	self.anim.close()
 end
 
 function Shop:toggle()

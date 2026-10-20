@@ -162,7 +162,15 @@ local function close()
 		gui:Destroy()
 	end)
 end
-skip.Activated:Connect(close)
+skip.Activated:Connect(function()
+	-- Same keyboard click as the rest of the UI (see Config.Sounds.UIClick).
+	local click = Instance.new("Sound")
+	click.SoundId = "rbxasset://sounds/clickfast.wav"
+	click.Volume = 0.45
+	click.Parent = gui
+	game:GetService("SoundService"):PlayLocalSound(click)
+	close()
+end)
 
 -- The SKIP button appears after a moment (so a quick load just plays through).
 task.delay(1.5, function()
