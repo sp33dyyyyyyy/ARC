@@ -11,7 +11,7 @@ local NAMES = {
 	"UseChalk", -- client -> server
 	"Ragdoll", -- client -> server: isRagdolled, fallStartY?
 	"RestCheckpoint", -- client -> server: wallNormal (hanging on a rest bar)
-	"ClimbPose", -- client -> server: "" | "climb" | "rest" | "leap" (shared climbing animation)
+	"Rope", -- client -> server: "clip", point | "unclip"
 	"ResetToPlaza", -- client -> server
 	"SaveSetting", -- client -> server: key, value
 	"AdminLogin", -- client -> server: code

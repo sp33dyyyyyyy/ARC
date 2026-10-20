@@ -175,3 +175,25 @@ Changes requested after the first playable build:
   scaling.
 - **Admin:** the password `Evan123` is required for everyone. Auto-admin for
   the owner and Studio is removed. The box masks input.
+
+## 14. Revision: standard climb animation, rope, suction cups, rappel (2026-10-20)
+
+- **Animation:** the procedural C0 pose T-posed in practice and is removed.
+  Climbing now plays the avatar's own Animate `climb` animation, which is
+  Roblox-owned, works for R15 and R6, and replicates. Speed follows movement
+  (frozen when hanging, fast for a dyno, reversed for rappel).
+- **No fog:** the Fog weather state is removed and the haze turned down.
+- **Summit service-lift huts removed.** You get down by climbing, rappelling,
+  or pressing P.
+- **Climbing rope:** F clips in. On telecom towers you clip a carabiner onto a
+  horizontal girt (tagged `ClipBar`, including a new girt at the summit). On
+  skyscrapers you stick a suction cup on the glass. `RopeService` validates the
+  point and creates a server-side RopeConstraint (16 studs, visible to all).
+  Moves beyond the rope's length are blocked until you reclip higher. While
+  clipped: no wind knock-off, resting recovers at 50%, and falls are caught
+  (then you re-grab automatically). It unclips automatically at the summit, on
+  the ground, at the plaza or on death.
+- **Rappel Kit** (one-time $2,500 boost): V slides you down the wall at 35
+  studs/s to the ground, from a wall or from a summit edge.
+- The climb simulation now also checks a clip beam is within reach at every
+  step up every telecom face.

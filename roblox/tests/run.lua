@@ -1,7 +1,6 @@
 -- Plain-Luau test runner for the pure game rules: `luau tests/run.lua`
 local Config = require("../src/shared/Config")
 local Rules = require("../src/shared/Rules")
-local ClimbPose = require("../src/shared/ClimbPose")
 
 local passed, failed = 0, 0
 
@@ -89,6 +88,16 @@ test("hanging still on a rest bar recovers; climbing past one still drains", fun
 	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, resting = true }), false), -8)
 end)
 
+test("hanging still on the clipped rope recovers at half rate", function()
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, roped = true }), false), 22 * 0.5)
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, roped = true }), false), -8)
+end)
+
+test("rappel kit is a single purchase", function()
+	eq(Rules.boostCost(B, "Rappel", 0), 2500)
+	eq(Rules.boostCost(B, "Rappel", 1), nil)
+end)
+
 test("rain soaks the walls", function()
 	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, weatherMultiplier = 1.25 }), false), -10)
 	near(Rules.staminaRate(S, C, W, B, none, ctx({ weatherMultiplier = 1.25 }), true), 22) -- recovery unaffected
@@ -110,47 +119,6 @@ test("purchase validation", function()
 	eq(Rules.canBuyBoost(B, "Hack", 0, 1e9).reason, "Unknown boost")
 	eq(Rules.canBuyChalk(C, 10, 1e9).ok, false)
 	eq(Rules.canBuyChalk(C, 0, 75).ok, true)
-end)
-
--- Climbing animation
-test("climb poses flow from one move into the next with hands swapped", function()
-	local R = Config.Climb.ReachFraction
-	for move = 0, 3 do
-		local finish = ClimbPose.angles("climb", move + 0.9999, 0, R)
-		local start = ClimbPose.angles("climb", move + 1, 0, R)
-		for i = 1, 2 do
-			assert(math.abs(finish.shoulder[i] - start.shoulder[i]) < 0.1, "shoulder pops between moves")
-			assert(math.abs(finish.elbow[i] - start.elbow[i]) < 0.1, "elbow pops between moves")
-			assert(math.abs(finish.hip[i] - start.hip[i]) < 0.1, "hip pops between moves")
-		end
-	end
-end)
-
-test("lead hand reaches highest at the end of the reach, then pulls", function()
-	local R = Config.Climb.ReachFraction
-	local reached = ClimbPose.angles("climb", R, 0, R) -- move 0: left leads
-	local start = ClimbPose.angles("climb", 0, 0, R)
-	assert(reached.shoulder[1] > start.shoulder[1] + 20, "left arm should reach up")
-	assert(reached.shoulder[1] > reached.shoulder[2], "lead arm is the higher one")
-	assert(reached.hip[2] > reached.hip[1] + 20, "opposite (right) foot steps up")
-	local odd = ClimbPose.angles("climb", 1 + R, 0, R) -- move 1: right leads
-	assert(odd.shoulder[2] > odd.shoulder[1], "hands alternate")
-end)
-
-test("climb poses stay physically sensible", function()
-	local R = Config.Climb.ReachFraction
-	for _, mode in { "climb", "rest", "leap" } do
-		for c = 0, 2, 0.05 do
-			local a = ClimbPose.angles(mode, c, c, R)
-			for i = 1, 2 do
-				assert(a.shoulder[i] >= 90 and a.shoulder[i] <= 185, mode .. " shoulder out of range")
-				assert(a.elbow[i] >= 0 and a.elbow[i] <= 100, mode .. " elbow should bend toward the wall")
-				assert(a.hip[i] >= 0 and a.hip[i] <= 80, mode .. " hip out of range")
-				assert(a.knee[i] >= 0 and a.knee[i] <= 110, mode .. " knee out of range")
-			end
-			assert(a.lean <= 0, "lean into the wall, not away")
-		end
-	end
 end)
 
 -- Gamepasses

@@ -10,6 +10,7 @@ Config.Stamina = {
 	HangDrainFraction = 0.25, -- gripping a wall without moving drains at 25% of climbing
 	RecoverPerSecond = 22, -- standing on solid ground
 	RestBarRecoveryFraction = 0.7, -- hanging still on a rest bar recovers at 70% of that
+	RopeRestFraction = 0.5, -- hanging still on your clipped rope recovers at 50%
 	DangerFraction = 0.2, -- HUD pulses red below this
 	WakeFraction = 0.4, -- stamina you wake up with after a blackout
 }
@@ -76,12 +77,11 @@ Config.Weather = {
 	MinDuration = 90,
 	MaxDuration = 180,
 	TransitionTime = 10,
-	Chances = { Clear = 0.5, Fog = 0.25, Rain = 0.25 },
+	Chances = { Clear = 0.65, Rain = 0.35 }, -- no fog
 	RainDrainMultiplier = 1.25,
 	States = {
-		Clear = { Density = 0.3, Haze = 1.6, Brightness = 2.6, CloudCover = 0.45, Saturation = 0.12 },
-		Fog = { Density = 0.62, Haze = 3, Brightness = 2.1, CloudCover = 0.75, Saturation = 0 },
-		Rain = { Density = 0.48, Haze = 2.6, Brightness = 1.5, CloudCover = 0.9, Saturation = -0.15 },
+		Clear = { Density = 0.06, Haze = 0, Brightness = 2.6, CloudCover = 0.45, Saturation = 0.12 },
+		Rain = { Density = 0.14, Haze = 0.4, Brightness = 1.6, CloudCover = 0.9, Saturation = -0.15 },
 	},
 }
 
@@ -167,6 +167,25 @@ Config.Boosts = {
 		MaxLevel = 5,
 		PerLevel = 0.15,
 	},
+	{
+		Id = "Rappel",
+		Name = "Rappel Kit",
+		Description = "Press V on a wall or at a summit to rappel to the ground.",
+		BaseCost = 2500,
+		Growth = 1,
+		MaxLevel = 1,
+		PerLevel = 1,
+	},
+}
+
+-- Climbing rope. Telecom towers: clip a carabiner onto a horizontal beam.
+-- Skyscrapers: stick a suction cup onto the glass. Either way the rope is this
+-- long, so you clip in again higher as you climb. While clipped, wind can't
+-- knock you off, you can rest hanging on the rope, and a fall is caught.
+Config.Rope = {
+	Length = 16,
+	Reach = 7, -- how far from your hands a clip point can be
+	RappelSpeed = 35, -- studs/second sliding down with the Rappel Kit
 }
 
 -- Tower archetypes. Telecom towers are tapered lattice towers; skyscrapers are

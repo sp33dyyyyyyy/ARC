@@ -72,6 +72,7 @@ export type DrainContext = {
 	gust: boolean,
 	weatherMultiplier: number?, -- rain soaks the walls
 	resting: boolean?, -- hands on a rest bar
+	roped: boolean?, -- clipped into the climbing rope
 }
 
 -- Stamina change per second for the given situation. Negative = draining.
@@ -88,6 +89,9 @@ function Rules.staminaRate(
 	local recovery = staminaCfg.RecoverPerSecond * (1 + (rec and rec.PerLevel or 0) * level(boosts, "Recovery"))
 	if ctx.climbing and ctx.resting and not ctx.moving then
 		return recovery * staminaCfg.RestBarRecoveryFraction
+	end
+	if ctx.climbing and ctx.roped and not ctx.moving then
+		return recovery * (staminaCfg.RopeRestFraction or 0)
 	end
 	if ctx.climbing then
 		local rate = staminaCfg.DrainPerSecond * ctx.towerMultiplier

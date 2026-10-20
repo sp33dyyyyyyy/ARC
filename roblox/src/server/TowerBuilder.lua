@@ -59,33 +59,6 @@ local function restBar(model: Model, towerCF: CFrame, o: Vector3, faceU: number,
 	})
 end
 
-local function liftKiosk(model: Model, cf: CFrame)
-	local kiosk = Build.part(model, {
-		Name = "Lift",
-		Size = Vector3.new(4, 7, 4),
-		CFrame = cf * CFrame.new(0, 3.5, 0),
-		Color = Color3.fromRGB(40, 45, 55),
-		Material = Enum.Material.DiamondPlate,
-	})
-	Build.part(model, {
-		Name = "LiftLamp",
-		Size = Vector3.new(4.2, 0.4, 4.2),
-		CFrame = cf * CFrame.new(0, 7.2, 0),
-		Color = Color3.fromRGB(80, 255, 140),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-	})
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "LiftPrompt"
-	prompt.ActionText = "Ride down"
-	prompt.ObjectText = "Service lift"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 10
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = kiosk
-	return kiosk
-end
-
 local function zones(model: Model, towerCF: CFrame, baseHalf: number, peakY: number, peakHalf: number)
 	Build.part(model, {
 		Name = "BaseZone",
@@ -140,7 +113,10 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 				local y0, y1 = bottom + j * panelH, bottom + (j + 1) * panelH
 				Build.beam(model, corner(o, -1, y0), corner(o, 1, y1), 0.5, metal)
 				Build.beam(model, corner(o, 1, y0), corner(o, -1, y1), 0.5, metal)
-				Build.beam(model, corner(o, -1, y0), corner(o, 1, y0), 0.5, metal)
+				-- Horizontal girt: a clip bar for the climbing rope.
+				local girt = Build.beam(model, corner(o, -1, y0), corner(o, 1, y0), 0.5, metal)
+				girt.Name = "ClipBar"
+				girt:AddTag("ClipBar")
 			end
 
 			-- Invisible climb panel lying in the (tapered) lattice face.
@@ -202,6 +178,15 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 		end
 	end
 
+	-- Top girt on every face at the summit, so there's a beam to clip into
+	-- right to the top (the others sit at the bottom of each bracing panel).
+	for f = 0, 3 do
+		local o = faceDir(f)
+		local girt = Build.beam(model, corner(o, -1, H), corner(o, 1, H), 0.5, { Color = WHITE, Material = Enum.Material.Metal })
+		girt.Name = "ClipBar"
+		girt:AddTag("ClipBar")
+	end
+
 	-- Panel antennas just under the summit.
 	for f = 0, 3 do
 		local o = faceDir(f)
@@ -219,16 +204,15 @@ local function buildTelecom(model: Model, towerCF: CFrame, def: any): (number, n
 		end
 	end
 
-	-- Summit: service lift in the middle with the antenna mast on its roof.
-	liftKiosk(model, towerCF * CFrame.new(0, H, 0))
+	-- Summit: antenna mast standing on the deck.
 	local mastHeight = math.clamp(H * 0.06, 14, 60)
-	Build.cylinder(model, towerCF:PointToWorldSpace(Vector3.new(0, H + 7 + mastHeight / 2, 0)), mastHeight, 1, {
+	Build.cylinder(model, towerCF:PointToWorldSpace(Vector3.new(0, H + mastHeight / 2, 0)), mastHeight, 1, {
 		Name = "Antenna",
 		Color = paint,
 		Material = Enum.Material.Metal,
 		CanCollide = false,
 	})
-	Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(0, H + 7 + mastHeight + 0.8, 0)), 2)
+	Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(0, H + mastHeight + 0.8, 0)), 2)
 
 	return H, hw(H) + 0.5, restLevels
 end
@@ -422,7 +406,6 @@ local function buildSkyscraper(model: Model, towerCF: CFrame, def: any): (number
 	for _, c in { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } } do
 		Build.aviationLight(model, towerCF:PointToWorldSpace(Vector3.new(c[1] * (h - 0.8), H + 2.8, c[2] * (h - 0.8))), 1.4)
 	end
-	liftKiosk(model, towerCF * CFrame.new(0, H, if def.Helipad then h * 0.55 else 0))
 	return H, h + 0.5, restLevels
 end
 

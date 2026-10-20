@@ -38,21 +38,31 @@ to block you; you rest on yellow rest bars instead.
 | Q | Let go |
 | Stop with your hands on a yellow rest bar | Hang there to recover stamina (also saves a checkpoint) |
 | Keep climbing at the top | Climb over onto the summit |
+| F | Clip your rope in (carabiner on a telecom beam / suction cup on skyscraper glass); press again higher to reclip |
+| X | Unclip your rope |
+| V | Rappel down to the ground (needs the Rappel Kit power-up), from a wall or a summit |
 | B (or the Power Up Shop) | Shop |
 | C | Use chalk (halves drain for 12s) |
 | R | Ragdoll / get up |
 | P | Back to the plaza |
 | G | Emote bar (play any emote you own) |
 | O (or the SETTINGS button) | Settings: name tags, camera shake, admin code |
-| E at a summit lift | Ride down |
 
-Climbing works like rock climbing: each move, one hand reaches up for the next
-hold while your body stays put, then you pull up as the opposite leg steps high
-and pushes. Hands alternate every move. On touch screens, push the stick toward
-the wall to climb; the jump button grabs and dynos, and the HUD has a LET GO
-button. The animation is procedural (posed through joint offsets, so Roblox's
-own animations can't override it), shared with every player, and needs no
-uploaded animations.
+You climb in moves: reach for the next hold, then pull up. The animation is
+Roblox's standard climb animation from each avatar's own animation set, so it
+works for every avatar (R15 and R6), never T-poses, and other players see it.
+On touch screens, push the stick toward the wall to climb; the jump button grabs
+and dynos, and the HUD has LET GO, CLIP ROPE and RAPPEL buttons.
+
+**Climbing rope:** the rope is 16 studs long, so as you climb, clip in again
+higher (F) like lead climbing. While you're clipped, wind gusts can't knock you
+off, you can hang still on the rope to recover stamina (half the ground rate),
+and if you black out or let go the rope catches your fall. Telecom towers: clip
+a carabiner onto any horizontal beam. Skyscrapers: stick a suction cup onto the
+glass. It unclips by itself when you climb onto the summit or reach the ground.
+
+**Getting down:** climb down (S), rappel with the Rappel Kit (V), or press P to
+go back to the plaza.
 
 ## Map
 
@@ -85,14 +95,14 @@ Skyscraper 3, and windows that light up at night.
 - Boosts: Endurance, Deep Breaths, Quick Hands, Sticky Gloves, Rubber Bones
 - Chalk, and a wind gust about every two minutes (with a warning) that can
   blow climbers who are nearly out of stamina off the wall
-- Weather: clear, fog and rain cycles. The server tweens the haze, clouds and
-  light. Rain falls around you with lightning flashes, and every wall gets
-  slippery (+25% stamina drain).
+- Weather: clear skies and rain (no fog). Rain falls around you with lightning
+  flashes, and every wall gets slippery (+25% stamina drain).
 - Emotes you buy at the Power Up Shop: Wave (free), Point, Cheer, Laugh, and
   Dance 1-3. Play them with G. Your starred summit emote plays automatically
   when you reach a peak. They use the animations built into every avatar, so no
   uploads are needed.
-- Checkpoints on rest bars (you respawn hanging on the wall), summit service lifts
+- Checkpoints on rest bars (you respawn hanging on the wall)
+- Rappel Kit power-up ($2,500) in the Power Up Shop
 - `Tower climbs: N` counter, summit banner and confetti, leaderstats,
   all-time leaderboard board, daily streak reward, unlockable trails
 - Day/night cycle with street lights, string lights, lit windows and aviation lights
@@ -125,9 +135,9 @@ them for Robux; until then they can only be granted by an admin.
 ## Layout
 
 ```
-src/shared   Config (all tuning), Rules (pure game logic), ClimbPose (animation maths), Remotes
+src/shared   Config (all tuning), Rules (pure game logic), Remotes
 src/server   Main, WorldBuilder, TowerBuilder, Build, DataService,
-             ClimbService, RagdollService, ShopService, AdminService,
+             ClimbService, RagdollService, RopeService, ShopService, AdminService,
              AdminConfig (server-only code), EnvironmentService, LeaderboardService
 src/client   Main, ClimbController, WallClimb, ClimbAnimator, Emotes, Weather, Effects,
              UI/{Theme,Components,Hud,Overlay,Shop,Settings,AdminPanel}
@@ -137,11 +147,12 @@ tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 ## Checks
 
 ```
-luau tests/run.lua                          # 31 unit tests for the game rules and balance
+luau tests/run.lua                          # 30 unit tests for the game rules and balance
 python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock with
                                             # ray casting, then runs the game's own climbing code
                                             # (WallClimb) up every face of every tower from three
-                                            # start heights: grab, chain moves, rest bars in reach,
+                                            # start heights: grab, chain moves, rest bars and rope
+                                            # clip beams in reach,
                                             # traverse, dyno, climb down, climb over the summit
 ```
 

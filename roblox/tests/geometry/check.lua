@@ -237,13 +237,33 @@ for _, tower in towers:GetChildren() do
 	local inv = towerCF:Inverse()
 	local parts = { islandTop }
 	local climbables = {}
+	local clipBars = {}
 	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and part:HasTag("ClipBar") then
+			table.insert(clipBars, part)
+		end
 		if part:IsA("BasePart") and part.CanQuery ~= false then
 			table.insert(parts, part)
 			if part:HasTag("Climbable") then
 				table.insert(climbables, box(inv, part))
 			end
 		end
+	end
+	local isTelecom = tower:GetAttribute("Kind") == "Telecom"
+	if isTelecom and #clipBars == 0 then
+		fail(tower.Name .. ": telecom tower has no beams to clip a rope to")
+	end
+	-- Mirrors ClimbController.findClipPoint for telecom towers.
+	local function nearestClip(hands)
+		local best = math.huge
+		for _, bar in clipBars do
+			local cf = bar.CFrame
+			local look = -cf.b -- a beam's length runs along its look vector
+			local half = bar.Size.Z / 2
+			local d = math.clamp((hands - cf.p):Dot(look), -half, half)
+			best = math.min(best, ((cf.p + look * d) - hands).Magnitude)
+		end
+		return best
 	end
 	local world = {
 		cast = function(origin, direction)
@@ -303,6 +323,12 @@ for _, tower in towers:GetChildren() do
 				local leap = WallClimb.planLeap(world, CC, anchor, normal)
 				if not leap or leap.to.Y <= anchor.Y + 1 then
 					fail(face .. string.format(": can't leap at y=%.0f", anchor.Y))
+				end
+			end
+			if isTelecom and firstRun then
+				local reach = nearestClip(anchor + Vector3.new(0, WallClimb.HAND_HEIGHT, 0))
+				if reach > Config.Rope.Reach then
+					fail(face .. string.format(": no beam to clip the rope to within reach at y=%.0f (nearest %.1f)", anchor.Y, reach))
 				end
 			end
 			local move, action = WallClimb.plan(world, CC, anchor, normal, 1, 0, speed)

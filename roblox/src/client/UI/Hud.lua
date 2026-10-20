@@ -15,6 +15,8 @@ export type Actions = {
 	ragdoll: () -> (),
 	plaza: () -> (),
 	letGo: () -> (),
+	clip: () -> (),
+	rappel: () -> (),
 	emotes: () -> (),
 	settings: () -> (),
 }
@@ -135,6 +137,22 @@ function Hud.new(actions: Actions)
 		TextSize = 16,
 		Parent = root,
 	}, actions.settings)
+
+	-- Rope status under the weather.
+	self.ropePanel = C.panel({
+		Name = "Rope",
+		Position = UDim2.fromOffset(16, 166),
+		Size = UDim2.fromOffset(190, 34),
+		Parent = root,
+	})
+	self.rope = label({
+		Size = UDim2.fromScale(1, 1),
+		Font = Theme.Bold,
+		Text = "Rope: not clipped",
+		TextSize = 14,
+		TextColor3 = Theme.Muted,
+		Parent = self.ropePanel,
+	})
 
 	-- Emote bar above the stamina panel (toggled with G / the EMOTES button).
 	self.emoteBar = C.new("Frame", {
@@ -282,12 +300,12 @@ function Hud.new(actions: Actions)
 		Name = "Actions",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -16, 0.5, 0),
-		Size = UDim2.fromOffset(150, 380),
+		Size = UDim2.fromOffset(150, 420),
 		BackgroundTransparency = 1,
 		Parent = root,
 	}, {
 		C.new("UIListLayout", {
-			Padding = UDim.new(0, 10),
+			Padding = UDim.new(0, 8),
 			HorizontalAlignment = Enum.HorizontalAlignment.Right,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
@@ -296,7 +314,7 @@ function Hud.new(actions: Actions)
 	local function action(order: number, text: string, key: string, color: Color3, fn: () -> ())
 		return C.button({
 			LayoutOrder = order,
-			Size = UDim2.fromOffset(150, 52),
+			Size = UDim2.fromOffset(150, 44),
 			BackgroundColor3 = color,
 			Text = if keyHints then string.format("%s  [%s]", text, key) else text,
 			TextSize = 17,
@@ -306,9 +324,11 @@ function Hud.new(actions: Actions)
 	action(1, "SHOP", "B", Color3.fromRGB(200, 140, 20), actions.shop)
 	self.chalkButton = action(2, "CHALK x0", "C", Color3.fromRGB(70, 80, 110), actions.chalk)
 	self.letGoButton = action(3, "LET GO", "Q", Color3.fromRGB(70, 80, 110), actions.letGo)
-	action(4, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
-	action(5, "EMOTES", "G", Color3.fromRGB(120, 70, 160), actions.emotes)
-	action(6, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
+	self.clipButton = action(4, "CLIP ROPE", "F", Color3.fromRGB(200, 90, 30), actions.clip)
+	action(5, "RAPPEL", "V", Color3.fromRGB(40, 120, 170), actions.rappel)
+	action(6, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
+	action(7, "EMOTES", "G", Color3.fromRGB(120, 70, 160), actions.emotes)
+	action(8, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
 
 	return self
 end
@@ -382,9 +402,25 @@ function Hud:setAltitude(y: number, towerName: string?, towerInfo: string?, prog
 	self:_set("progressText", self.progressText, "Text", if progress then string.format("%d%%", p * 100) else "")
 end
 
+-- kind: "carabiner" | "suction" | nil. canClip: a clip point is in reach.
+function Hud:setRope(kind: any, canClip: boolean)
+	local text, color
+	if kind == "carabiner" then
+		text, color = "Rope: clipped to beam", Theme.Good
+	elseif kind == "suction" then
+		text, color = "Rope: suction cup on", Theme.Good
+	elseif canClip then
+		text, color = "Rope: press F to clip in", Theme.Accent
+	else
+		text, color = "Rope: not clipped", Theme.Muted
+	end
+	self:_set("rope", self.rope, "Text", text)
+	self:_set("ropeColor", self.rope, "TextColor3", color)
+	self:_set("clipGlow", self.clipButton, "BackgroundColor3", if canClip then Color3.fromRGB(255, 130, 40) else Color3.fromRGB(200, 90, 30))
+end
+
 local WEATHER_TEXT = {
 	Clear = { "Clear skies", Color3.fromRGB(255, 220, 120) },
-	Fog = { "Fog rolling in", Color3.fromRGB(190, 200, 215) },
 	Rain = { "Rain: walls slippery!", Color3.fromRGB(120, 180, 255) },
 }
 

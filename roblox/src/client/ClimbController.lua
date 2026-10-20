@@ -13,16 +13,22 @@
 --   * Q lets go.
 --   * Hang still with your hands on a yellow rest bar to recover stamina; that
 --     also saves a checkpoint. At the top you climb straight over onto the summit.
+--   * F clips your rope in: a carabiner on a telecom tower's beam, or a suction
+--     cup on skyscraper glass. The rope is Config.Rope.Length long, so clip in
+--     again higher as you go. Clipped, wind can't knock you off, you can rest
+--     hanging on the rope, and the rope catches you if you fall. X unclips.
+--   * V rappels you down to the ground (needs the Rappel Kit power-up).
 --
 -- The body is held on the wall with AlignPosition/AlignOrientation on the
 -- HumanoidRootPart (the client owns its character's physics, so this
 -- replicates). Limbs stop colliding while you climb so they can't snag the wall.
--- ClimbAnimator draws the climbing animation from the move progress.
+-- ClimbAnimator plays Roblox's standard climb animation to match.
 --
 -- Stamina runs on the client because only the owning client knows its exact
 -- climbing state every frame. That is safe: stamina only limits the player
 -- themselves. Everything that has value (cash, climbs, purchases, fall damage)
 -- is decided on the server.
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -47,7 +53,7 @@ local HAND_HEIGHT = WallClimb.HAND_HEIGHT
 local player = Players.LocalPlayer
 local ragdollRemote = Remotes.get("Ragdoll")
 local restRemote = Remotes.get("RestCheckpoint")
-local poseRemote = Remotes.get("ClimbPose")
+local ropeRemote = Remotes.get("Rope")
 local rng = Random.new()
 
 local humanoid: Humanoid? = nil
@@ -73,12 +79,17 @@ local moveCount = 0 -- drives which hand leads (and the animation cycle)
 local lungeReadyAt = 0
 local climbMoving = false
 local savedCollisions: { [BasePart]: boolean } = {}
+local ropeTaut = false -- last move was blocked by the rope's length
+local nextClipScan, clipInReach = 0, false
+local groundedSince = 0
+-- Rappel (Rappel Kit power-up)
+local rappelling = false
+local rappelVisual: Instance? = nil
 local resting = false
 local restLevel: number? = nil
 local checkpointLevel: number? = nil
 local regrabAt = 0
 local autoGripUntil = 0
-local sentPose = ""
 local alignPos: AlignPosition? = nil
 local alignOri: AlignOrientation? = nil
 local climbAttachment: Attachment? = nil
@@ -164,6 +175,7 @@ local function drainContext(tower: Model?, moving: boolean, now: number, y: numb
 		gust = now < gustUntil and y > Config.Wind.MinHeight,
 		weatherMultiplier = Weather.drainMultiplier(),
 		resting = resting,
+		roped = rappelling or player:GetAttribute("RopeAnchor") ~= nil,
 	}
 end
 
@@ -173,13 +185,6 @@ end
 
 local function findMantle(): Vector3?
 	return WallClimb.findMantle(world, CC, anchor, wallNormal)
-end
-
-local function sendPose(pose: string)
-	if pose ~= sentPose then
-		sentPose = pose
-		poseRemote:FireServer(pose)
-	end
 end
 
 local function release(push: boolean)
@@ -210,8 +215,12 @@ local function release(push: boolean)
 		climbAttachment:Destroy()
 		climbAttachment = nil
 	end
-	ClimbAnimator.setLocal("", 0)
-	sendPose("")
+	ClimbAnimator.set("")
+	rappelling = false
+	if rappelVisual then
+		rappelVisual:Destroy()
+		rappelVisual = nil
+	end
 	local hum, rootPart = humanoid, root
 	if hum then
 		hum.PlatformStand = false
@@ -224,6 +233,8 @@ local function release(push: boolean)
 	end
 	cooldownUntil = os.clock() + 0.3
 end
+
+local attachToWall: (Vector3, Vector3) -> boolean
 
 -- Grab the climbable wall along `dir` within `range`, if any.
 local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
@@ -239,6 +250,15 @@ local function grab(dir: Vector3, range: number, quiet: boolean?): boolean
 	end
 	local hold, normal = WallClimb.grab(world, CC, rootPart.Position, dir, range)
 	if not hold or not normal then
+		return false
+	end
+	return attachToWall(hold, normal)
+end
+
+-- Hold the body on the wall at `hold`, facing it.
+function attachToWall(hold: Vector3, normal: Vector3): boolean
+	local hum, rootPart = humanoid, root
+	if climbing or not hum or not rootPart then
 		return false
 	end
 	wallNormal = normal
@@ -286,6 +306,9 @@ end
 local function mantle(stand: Vector3)
 	local rootPart = root
 	release(false)
+	if player:GetAttribute("RopeAnchor") ~= nil then
+		ropeRemote:FireServer("unclip")
+	end
 	if rootPart then
 		rootPart.CFrame = CFrame.lookAt(stand, stand - wallNormal)
 		rootPart.AssemblyLinearVelocity = Vector3.zero
@@ -333,6 +356,10 @@ local function exitRagdoll()
 		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		Effects.sound(Config.Sounds.GetUp, 0.6)
 	end
+	if player:GetAttribute("RopeAnchor") ~= nil then
+		-- The rope caught you: grab the wall again straight away.
+		ClimbController.regrip()
+	end
 	if wasBlackout then
 		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 		stamina = math.max(stamina, max * Config.Stamina.WakeFraction)
@@ -354,6 +381,147 @@ end
 
 function ClimbController.isClimbing(): boolean
 	return climbing
+end
+
+-- The best rope clip point within reach of your hands, and what it is.
+local function findClipPoint(): (Vector3?, string?)
+	local rootPart = root
+	if not rootPart then
+		return nil, nil
+	end
+	local tower = currentTower(rootPart.Position)
+	if not tower then
+		return nil, nil
+	end
+	local hands = if climbing then anchor + Vector3.new(0, HAND_HEIGHT, 0) else rootPart.Position + Vector3.new(0, 1.5, 0)
+	if tower:GetAttribute("Kind") == "Telecom" then
+		-- Carabiner onto the nearest horizontal beam.
+		local best, bestDist = nil, Config.Rope.Reach
+		for _, bar in CollectionService:GetTagged("ClipBar") do
+			if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
+				local cf = bar.CFrame
+				local half = bar.Size.Z / 2
+				local d = math.clamp((hands - cf.Position):Dot(cf.LookVector), -half, half)
+				local point = cf.Position + cf.LookVector * d
+				local dist = (point - hands).Magnitude
+				if dist < bestDist then
+					best, bestDist = point, dist
+				end
+			end
+		end
+		return best, if best then "carabiner" else nil
+	end
+	-- Suction cup straight onto the glass in front of your hands.
+	if not climbing then
+		return nil, nil
+	end
+	local hit = probeWall(hands, wallNormal)
+	if hit then
+		return hit.Position + hit.Normal * 0.3, "suction"
+	end
+	return nil, nil
+end
+
+function ClimbController.clip()
+	if not climbing then
+		ui.overlay:toast("Grab onto a tower first, then clip in (F).", "bad")
+		return
+	end
+	local point, kind = findClipPoint()
+	if not point then
+		ui.overlay:toast("Nothing to clip into here - climb closer to a beam.", "bad")
+		return
+	end
+	ropeRemote:FireServer("clip", point)
+	ropeTaut = false
+	Effects.sound(Config.Sounds.Grab, 0.6, if kind == "suction" then 0.7 else 1.6)
+end
+
+function ClimbController.unclip()
+	if player:GetAttribute("RopeAnchor") ~= nil then
+		ropeRemote:FireServer("unclip")
+	end
+end
+
+-- Rappel Kit: slide down the wall to the ground. Works while on a wall, or
+-- standing on a summit (you go over the nearest edge).
+function ClimbController.rappel()
+	local rootPart = root
+	if not rootPart or mode ~= "normal" then
+		return
+	end
+	if (player:GetAttribute("Boost_Rappel") or 0) < 1 then
+		ui.overlay:toast("You need the Rappel Kit (Power Up Shop) to rappel.", "bad")
+		return
+	end
+	if rappelling then
+		rappelling = false -- stop and hang where you are
+		if rappelVisual then
+			rappelVisual:Destroy()
+			rappelVisual = nil
+		end
+		return
+	end
+	if not climbing then
+		-- On a summit: go over the edge nearest to you.
+		local tower = currentTower(rootPart.Position)
+		local height = tower and tower:GetAttribute("Height")
+		if not tower or not height or rootPart.Position.Y < height then
+			ui.overlay:toast("Rappel from a tower wall or a summit.", "bad")
+			return
+		end
+		local pivot = tower.WorldPivot
+		local rel = pivot:PointToObjectSpace(rootPart.Position)
+		local axis = if math.abs(rel.X) > math.abs(rel.Z)
+			then Vector3.new(math.sign(rel.X), 0, 0)
+			else Vector3.new(0, 0, if rel.Z == 0 then 1 else math.sign(rel.Z))
+		local out = pivot:VectorToWorldSpace(axis)
+		local radius = tower:GetAttribute("Radius") or 60
+		local origin = Vector3.new(pivot.X, height - 4, pivot.Z) + out * radius
+		local hold, normal = WallClimb.grab(world, CC, origin, -out, radius + 5)
+		if not hold or not normal then
+			return
+		end
+		rootPart.CFrame = CFrame.lookAt(hold, hold - normal)
+		if not attachToWall(hold, normal) then
+			return
+		end
+	end
+	ClimbController.unclip()
+	rappelling = true
+	move = nil
+	-- A rope from where you started down to your harness (just for show).
+	local top = Instance.new("Part")
+	top.Anchored = true
+	top.CanCollide = false
+	top.CanQuery = false
+	top.CanTouch = false
+	top.Transparency = 1
+	top.Size = Vector3.one * 0.2
+	top.CFrame = CFrame.new(anchor + Vector3.new(0, 4, 0) - wallNormal * 1)
+	local a0 = Instance.new("Attachment")
+	a0.Parent = top
+	local a1 = Instance.new("Attachment")
+	a1.Parent = rootPart
+	local beam = Instance.new("Beam")
+	beam.Attachment0 = a0
+	beam.Attachment1 = a1
+	beam.Width0, beam.Width1 = 0.15, 0.15
+	beam.Color = ColorSequence.new(Color3.fromRGB(255, 120, 40))
+	beam.FaceCamera = true
+	beam.Segments = 1
+	beam.Parent = top
+	top.Parent = Workspace
+	a1.AncestryChanged:Connect(function()
+		if not a1.Parent and top.Parent then
+			top:Destroy()
+		end
+	end)
+	top.Destroying:Connect(function()
+		a1:Destroy()
+	end)
+	rappelVisual = top
+	Effects.sound(Config.Sounds.Grab, 0.6, 0.6)
 end
 
 -- After respawning at a checkpoint: grab the wall in front without any input.
@@ -385,6 +553,11 @@ local function startLeap(now: number): boolean
 	end
 	local leap = WallClimb.planLeap(world, CC, anchor, wallNormal)
 	if not leap then
+		return false
+	end
+	local ropeAnchor = player:GetAttribute("RopeAnchor")
+	if typeof(ropeAnchor) == "Vector3" and (leap.to - ropeAnchor).Magnitude > Config.Rope.Length - 0.5 then
+		ui.overlay:toast("Your rope won't reach - clip in higher first (F)", "bad")
 		return false
 	end
 	stamina -= cost
@@ -435,7 +608,10 @@ local function onGust(phase_: string, dir: Vector3, duration: number)
 		end
 		Effects.shake(duration * 0.5, 0.2)
 		local max = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
-		if climbing and not resting and stamina < max * Config.Wind.KnockOffFraction then
+		local roped = player:GetAttribute("RopeAnchor") ~= nil
+		if roped and climbing then
+			ui.overlay:toast("Your rope held you against the wind.", "good")
+		elseif climbing and not resting and stamina < max * Config.Wind.KnockOffFraction then
 			-- Too tired to hold on: the wind rips you off the wall.
 			local y = rootPart.Position.Y
 			enterRagdoll("fall", y)
@@ -474,6 +650,29 @@ end
 -- Advance the current move (or start the next one). Returns true if the
 -- climber left the wall this frame (mantled onto a ledge or stepped off).
 local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Model?): boolean
+	if rappelling then
+		-- Slide down the wall on the rope until the ground.
+		local floor = Workspace:Raycast(anchor, Vector3.new(0, -(WallClimb.ROOT_HEIGHT + 1), 0), rayParams)
+		if floor and floor.Normal.Y > 0.7 then
+			release(false)
+			ui.overlay:toast("Touched down. Nice rappel!", "good")
+			return true
+		end
+		local probe = probeWall(anchor, wallNormal)
+		local n = if probe then probe.Normal else wallNormal
+		local target = anchor - WallClimb.wallUp(n) * (Config.Rope.RappelSpeed * dt)
+		local hit = probeWall(target, wallNormal)
+		if not hit then
+			release(true) -- ran out of wall: drop the last bit
+			return true
+		end
+		setHold(hit.Position + hit.Normal * CC.WallOffset)
+		climbMoving = false
+		resting = false
+		ClimbAnimator.set("rappel")
+		return false
+	end
+
 	local vert, lat = climbInput(hum)
 	local speed = Rules.climbSpeed(CC, Config.Boosts, b)
 
@@ -489,7 +688,12 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 			release(false)
 			return true
 		end
-		if planned then
+		-- The rope only reaches so far above your clip: clip in again higher.
+		local ropeAnchor = player:GetAttribute("RopeAnchor")
+		ropeTaut = planned ~= nil
+			and typeof(ropeAnchor) == "Vector3"
+			and (planned.to - ropeAnchor).Magnitude > Config.Rope.Length - 0.5
+		if planned and not ropeTaut then
 			move = planned
 			if planned.kind ~= "side" then
 				moveCount += 1 -- the other hand leads this time
@@ -541,12 +745,14 @@ local function stepClimb(hum: Humanoid, dt: number, b: Rules.Boosts, tower: Mode
 		end
 	end
 
-	-- Animation: cycle = move number + progress through it (frozen when still).
 	local m = move
-	local pose = if m and m.kind == "leap" then "leap" elseif resting then "rest" else "climb"
-	local progress = if m and m.kind ~= "side" then math.clamp(m.t / m.duration, 0, 0.9999) else 0.9999
-	ClimbAnimator.setLocal(pose, (moveCount - 1) + progress)
-	sendPose(pose)
+	if m and m.kind == "leap" then
+		ClimbAnimator.set("leap")
+	elseif m then
+		ClimbAnimator.set("climb", speed / CC.ClimbSpeed)
+	else
+		ClimbAnimator.set("hold")
+	end
 	return false
 end
 
@@ -557,14 +763,20 @@ local function statusFor(grounded: boolean, frac: number, nearWall: boolean): (s
 		return "Falling! (SPACE to catch the wall)", Color3.fromRGB(255, 86, 86)
 	elseif mode == "ragdoll" then
 		return "Ragdolling (press R to get up)", Color3.fromRGB(255, 196, 46)
+	elseif rappelling then
+		return "Rappelling down...  (V: stop, Q: let go)", Color3.fromRGB(110, 200, 255)
+	elseif climbing and ropeTaut then
+		return "Rope's at full length - clip in higher (F)", Color3.fromRGB(255, 200, 60)
 	elseif climbing and resting then
 		return "Resting on a rest bar...", Color3.fromRGB(88, 224, 132)
 	elseif climbing and frac < Config.Stamina.DangerFraction then
 		return "Out of breath! Get to a rest bar!", Color3.fromRGB(255, 86, 86)
 	elseif climbing and climbMoving then
 		return "Climbing...  (SPACE: dyno, Q: let go)", nil
+	elseif climbing and player:GetAttribute("RopeAnchor") ~= nil then
+		return "Hanging on your rope (resting)", Color3.fromRGB(88, 224, 132)
 	elseif climbing and restLevel == nil then
-		return "Holding on (still draining)", Color3.fromRGB(255, 200, 60)
+		return "Holding on (still draining)  (F: clip rope)", Color3.fromRGB(255, 200, 60)
 	elseif nearWall then
 		return "Walk into the tower to climb", Color3.fromRGB(255, 196, 46)
 	elseif grounded and frac < 0.999 then
@@ -617,7 +829,10 @@ local function step(dt: number)
 			-- Auto-grip: walking or jumping into a tower grabs it.
 			local move = hum.MoveDirection
 			if now < autoGripUntil then
-				grab(horizontal(rootPart.CFrame.LookVector), CC.GripRange, true)
+				-- Respawned / caught by the rope: the wall we were on first.
+				if not grab(-wallNormal, CC.GripRange + 2, true) then
+					grab(horizontal(rootPart.CFrame.LookVector), CC.GripRange, true)
+				end
 			elseif move.Magnitude > 0.5 then
 				grab(horizontal(move), CC.AutoGripRange, true)
 			end
@@ -651,6 +866,17 @@ local function step(dt: number)
 		if climbing and stamina <= 0 then
 			enterRagdoll("blackout", pos.Y)
 		end
+		-- Back on the ground: take the rope off.
+		if grounded and pos.Y < 8 then
+			if groundedSince == 0 then
+				groundedSince = now
+			elseif now - groundedSince > 0.5 and player:GetAttribute("RopeAnchor") ~= nil then
+				ropeRemote:FireServer("unclip")
+				groundedSince = now + 5
+			end
+		else
+			groundedSince = 0
+		end
 		if grounded and not lastGrounded and stamina < max then
 			Effects.sound(Config.Sounds.Click, 0.25, 0.8)
 		end
@@ -671,6 +897,11 @@ local function step(dt: number)
 	ui.hud:setStatus(text, color)
 	ui.hud:setChalk(player:GetAttribute("Chalk") or 0, math.clamp(chalkRemaining() / Config.Chalk.Duration, 0, 1))
 	ui.hud:setClimbing(climbing)
+	if now >= nextClipScan then
+		nextClipScan = now + 0.25
+		clipInReach = climbing and player:GetAttribute("RopeAnchor") == nil and findClipPoint() ~= nil
+	end
+	ui.hud:setRope(player:GetAttribute("RopeKind"), clipInReach)
 
 	local tower = currentTower(pos)
 	if tower then
@@ -700,7 +931,6 @@ local function onCharacter(char: Model)
 	ragdollTime, settleTime, freefallTime = 0, 0, 0
 	airPeakY = nil
 	checkpointLevel = nil
-	sentPose = ""
 	cooldownUntil = os.clock() + 1.5 -- respawning at a checkpoint can start mid-air
 	stamina = Rules.maxStamina(Config.Stamina, Config.Boosts, boosts(), Config.GamePasses)
 	ui.overlay:blackout(false)
@@ -717,7 +947,6 @@ end
 
 function ClimbController.start(uiRefs: any)
 	ui = uiRefs
-	ClimbAnimator.start()
 	Remotes.get("Gust").OnClientEvent:Connect(onGust)
 	UserInputService.JumpRequest:Connect(onJump)
 	player.CharacterAdded:Connect(onCharacter)

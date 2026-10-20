@@ -33,6 +33,8 @@ hud = Hud.new({
 	chalk = useChalk,
 	ragdoll = ClimbController.toggleRagdoll,
 	letGo = ClimbController.letGo,
+	clip = ClimbController.clip,
+	rappel = ClimbController.rappel,
 	emotes = function()
 		hud:toggleEmoteBar()
 	end,
@@ -153,7 +155,6 @@ Weather.start(function(name)
 	if not firstWeather then
 		local messages = {
 			Rain = "It's raining! Every wall is slippery (+25% stamina drain).",
-			Fog = "Fog is rolling in. Watch your step up there.",
 			Clear = "The skies have cleared.",
 		}
 		overlay:toast(messages[name] or name, if name == "Rain" then "bad" else "info")
@@ -230,6 +231,12 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		useChalk()
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		ClimbController.letGo()
+	elseif input.KeyCode == Enum.KeyCode.F then
+		ClimbController.clip()
+	elseif input.KeyCode == Enum.KeyCode.X then
+		ClimbController.unclip()
+	elseif input.KeyCode == Enum.KeyCode.V then
+		ClimbController.rappel()
 	elseif input.KeyCode == Enum.KeyCode.R then
 		ClimbController.toggleRagdoll()
 	elseif input.KeyCode == Enum.KeyCode.G then
@@ -288,6 +295,6 @@ end)
 -- First-time hint.
 task.delay(2, function()
 	if climbsValue.Value == 0 then
-		overlay:toast("Start with the Tutorial Tower: walk into it to grab on, hold W to climb, SPACE to leap. Hang on the yellow rest bars to breathe!", "info")
+		overlay:toast("Start with the Tutorial Tower: walk into it to grab on, hold W to climb. Press F to clip your rope to a beam, and rest on the yellow bars!", "info")
 	end
 end)

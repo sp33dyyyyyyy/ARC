@@ -1,4 +1,4 @@
--- Climb tracking: base/peak zones, payouts, checkpoints, lifts, trails.
+-- Climb tracking: base/peak zones, payouts, checkpoints, trails.
 --
 -- A climb starts when you touch a tower's BaseZone and pays out once when you
 -- reach its PeakZone. The peak only pays if the climb started on the same
@@ -10,6 +10,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local DataService = require(script.Parent.DataService)
+local RopeService = require(script.Parent.RopeService)
 
 local ClimbService = {}
 
@@ -22,7 +23,6 @@ local plazaSpawn: CFrame = CFrame.new(0, 4, 24)
 
 local notify: RemoteEvent
 local towersById: { [string]: Model } = {}
-local POSES = { [""] = true, climb = true, rest = true, leap = true }
 
 local function playerFromHit(hit: BasePart): (Player?, Humanoid?)
 	local character = hit:FindFirstAncestorOfClass("Model")
@@ -48,6 +48,7 @@ end
 
 function ClimbService.sendToPlaza(player: Player)
 	checkpoints[player] = nil
+	RopeService.unclip(player)
 	local character = player.Character
 	if character then
 		local offset = Vector3.new(math.random(-6, 6), 0, math.random(-4, 4))
@@ -222,14 +223,6 @@ local function hookTower(tower: Model)
 		end
 	end)
 
-	local lift = tower:FindFirstChild("Lift")
-	local prompt = lift and lift:FindFirstChild("LiftPrompt") :: ProximityPrompt?
-	if prompt then
-		prompt.Triggered:Connect(function(player)
-			ClimbService.sendToPlaza(player)
-			ClimbService.toast(player, "Back at the plaza. Pick your next tower!", "info")
-		end)
-	end
 end
 
 local function onCharacter(player: Player, character: Model)
@@ -289,17 +282,6 @@ function ClimbService.start(towers: Folder, spawnCFrame: CFrame)
 		end
 		lastRest[player] = now
 		onRestCheckpoint(player, normal)
-	end)
-
-	-- Share each climber's pose so every client can animate them.
-	Remotes.get("ClimbPose").OnServerEvent:Connect(function(player, pose)
-		if typeof(pose) ~= "string" or not POSES[pose] then
-			return
-		end
-		local character = player.Character
-		if character then
-			character:SetAttribute("ClimbPose", pose)
-		end
 	end)
 
 	Remotes.get("ResetToPlaza").OnServerEvent:Connect(function(player)
