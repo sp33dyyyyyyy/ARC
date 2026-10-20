@@ -123,14 +123,42 @@ function CFrame.Angles(rx, ry, rz)
 	return rX(rx) * rY(ry) * rZ(rz)
 end
 
-Color3 = {
-	new = function(r, g, b)
-		return { R = r, G = g, B = b }
-	end,
-	fromRGB = function(r, g, b)
-		return { R = r / 255, G = g / 255, B = b / 255 }
+local Color3Meta = {}
+Color3Meta.__index = {
+	Lerp = function(a, b, t)
+		return setmetatable({ R = a.R + (b.R - a.R) * t, G = a.G + (b.G - a.G) * t, B = a.B + (b.B - a.B) * t }, Color3Meta)
 	end,
 }
+Color3 = {
+	new = function(r, g, b)
+		return setmetatable({ R = r, G = g, B = b }, Color3Meta)
+	end,
+	fromRGB = function(r, g, b)
+		return setmetatable({ R = r / 255, G = g / 255, B = b / 255 }, Color3Meta)
+	end,
+}
+
+-- Deterministic stand-in for Roblox's Random.
+Random = {}
+function Random.new(seed)
+	local state = (seed or 1) % 2147483647
+	if state <= 0 then
+		state += 2147483646
+	end
+	local r = {}
+	local function nextFloat()
+		state = (state * 16807) % 2147483647
+		return state / 2147483647
+	end
+	function r:NextNumber(a, b)
+		a, b = a or 0, b or 1
+		return a + (b - a) * nextFloat()
+	end
+	function r:NextInteger(a, b)
+		return math.min(b, a + math.floor((b - a + 1) * nextFloat()))
+	end
+	return r
+end
 UDim = { new = function(...)
 	return { ... }
 end }
@@ -163,9 +191,10 @@ Enum = setmetatable({}, {
 -- Instances --------------------------------------------------------------------
 local DEFAULTS = {
 	Part = { Size = v3(4, 1, 2), CanCollide = true, Transparency = 0 },
+	WedgePart = { Size = v3(4, 1, 2), CanCollide = true, Transparency = 0 },
 	TrussPart = { Size = v3(2, 2, 2), CanCollide = true, Transparency = 0 },
 }
-local BASEPART = { Part = true, TrussPart = true, SpawnLocation = true }
+local BASEPART = { Part = true, TrussPart = true, WedgePart = true, SpawnLocation = true }
 
 InstanceMeta = {}
 local methods = {}
@@ -183,6 +212,9 @@ function methods.GetAttribute(self, k)
 end
 function methods.AddTag(self, tag)
 	self._tags[tag] = true
+end
+function methods.HasTag(self, tag)
+	return self._tags[tag] == true
 end
 function methods.GetChildren(self)
 	return table.clone(self._children)

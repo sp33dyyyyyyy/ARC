@@ -27,6 +27,7 @@ local hud = Hud.new({
 	end,
 	chalk = useChalk,
 	ragdoll = ClimbController.toggleRagdoll,
+	letGo = ClimbController.letGo,
 	plaza = function()
 		Remotes.get("ResetToPlaza"):FireServer()
 	end,
@@ -86,6 +87,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		shop:toggle()
 	elseif input.KeyCode == Enum.KeyCode.C then
 		useChalk()
+	elseif input.KeyCode == Enum.KeyCode.Q then
+		ClimbController.letGo()
 	elseif input.KeyCode == Enum.KeyCode.R then
 		ClimbController.toggleRagdoll()
 	elseif input.KeyCode == Enum.KeyCode.P then
@@ -129,6 +132,6 @@ end)
 -- First-time hint.
 task.delay(2, function()
 	if climbsValue.Value == 0 then
-		overlay:toast("Walk to a tower and climb the yellow ladders. Rest on platforms!", "info")
+		overlay:toast("Start with the Tutorial Tower: face it and press SPACE to grab on. W to climb, SPACE to lunge!", "info")
 	end
 end)

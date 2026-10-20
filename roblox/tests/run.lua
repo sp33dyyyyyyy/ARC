@@ -71,7 +71,14 @@ test("stamina clamps to [0, max]", function()
 end)
 
 test("climb speed boost", function()
-	near(Rules.climbWalkSpeed(Config.Climb, B, { ClimbSpeed = 5 }), 24)
+	near(Rules.climbSpeed(Config.Climb, B, none), 10)
+	near(Rules.climbSpeed(Config.Climb, B, { ClimbSpeed = 5 }), 15)
+end)
+
+test("lunge costs more than crawling the same distance", function()
+	-- crawling 8 studs at 10 studs/s with drain 8/s costs 6.4; lunge is 30% more
+	near(Rules.lungeCost(Config.Climb, -8), 6.4 * 1.3)
+	near(Rules.lungeCost(Config.Climb, -16), 12.8 * 1.3)
 end)
 
 -- Shop
@@ -149,18 +156,45 @@ end)
 -- Config sanity: every value the tower builder relies on
 test("tower configs are buildable", function()
 	for name, t in Config.TowerTypes do
-		eq(t.SectionHeight % 2, 0, name .. " section height must be even")
 		if t.Kind == "Telecom" then
-			local taper = (t.BaseHalfWidth - t.TopHalfWidth) / t.Sections
-			assert(taper < 4, name .. " taper must stay under the platform overhang")
+			assert(t.SectionHeight >= 10, name .. " sections too short")
+			assert(t.TopHalfWidth >= 3, name .. " top too narrow to climb")
+			assert(t.BaseHalfWidth > t.TopHalfWidth, name .. " must taper")
 		else
-			for i = 2, #t.HalfWidths do
-				assert(t.HalfWidths[i - 1] - t.HalfWidths[i] >= 5, name .. " setbacks must be >= 5 studs to stand on")
-			end
+			eq(t.Height % t.BalconyEvery, 0, name .. " height must be a multiple of the balcony spacing")
 		end
 	end
 	for _, entry in Config.Layout do
 		assert(Config.TowerTypes[entry.Type], "unknown tower type " .. entry.Type)
+	end
+end)
+
+test("towers are at least 3.5x the original heights, except the tutorial", function()
+	local function height(t)
+		return if t.Kind == "Telecom" then t.SectionHeight * t.Sections else t.Height
+	end
+	eq(height(Config.TowerTypes.Tutorial), 80)
+	-- originals: lattice 200, skyscraper 400, supertall 800
+	assert(height(Config.TowerTypes.TelecomMedium) >= 200 * 3.5)
+	assert(height(Config.TowerTypes.TelecomTall) >= 200 * 3.5)
+	assert(height(Config.TowerTypes.SkySmall) >= 400 * 3.5)
+	assert(height(Config.TowerTypes.SkyMedium) >= 400 * 3.5)
+	assert(height(Config.TowerTypes.SkyLarge) >= 800 * 3.5)
+end)
+
+test("every tower is beatable with maxed boosts", function()
+	-- worst rest-to-rest stretch with max endurance, grip, climb speed, no chalk
+	local maxed = {}
+	for _, def in B do
+		maxed[def.Id] = def.MaxLevel
+	end
+	local maxStamina = Rules.maxStamina(S, B, maxed)
+	local speed = Rules.climbSpeed(Config.Climb, B, maxed)
+	for name, t in Config.TowerTypes do
+		local stretch = if t.Kind == "Telecom" then t.SectionHeight else t.BalconyEvery
+		local rate = Rules.staminaRate(S, C, W, B, maxed, ctx({ climbing = true, moving = true, towerMultiplier = t.DrainMultiplier, slippery = t.Slippery }), false)
+		local cost = -rate * stretch / speed
+		assert(cost < maxStamina * 0.9, string.format("%s needs %.0f stamina per stretch, max is %.0f", name, cost, maxStamina))
 	end
 end)
 

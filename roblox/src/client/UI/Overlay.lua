@@ -12,7 +12,9 @@ local BLACKOUT_TIPS = {
 	"Tip: Endurance boosts let you climb further without resting.",
 	"Tip: chalk halves stamina drain for a while. Press C.",
 	"Tip: skyscraper glass is slippery. Sticky Gloves help.",
-	"Tip: hanging still on a ladder still costs stamina.",
+	"Tip: gripping the wall without moving still costs stamina.",
+	"Tip: press SPACE while falling to catch the wall.",
+	"Tip: lunging is fast but costs more stamina than crawling.",
 	"Tip: wind gusts can blow tired climbers clean off.",
 }
 

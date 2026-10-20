@@ -14,11 +14,15 @@ end
 
 local function setStreetLights(on: boolean)
 	for _, head in CollectionService:GetTagged("StreetLight") do
-		local light = head:FindFirstChildOfClass("SpotLight")
+		local light = head:FindFirstChildWhichIsA("Light")
 		if light then
 			light.Enabled = on
 		end
 		(head :: BasePart).Material = if on then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	end
+	-- A scattering of skyscraper windows glow at night.
+	for _, window in CollectionService:GetTagged("NightWindow") do
+		(window :: BasePart).Transparency = if on then 0 else 1
 	end
 end
 

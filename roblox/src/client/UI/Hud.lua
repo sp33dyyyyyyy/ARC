@@ -14,6 +14,7 @@ export type Actions = {
 	chalk: () -> (),
 	ragdoll: () -> (),
 	plaza: () -> (),
+	letGo: () -> (),
 }
 
 local function label(props: { [string]: any }): TextLabel
@@ -234,7 +235,7 @@ function Hud.new(actions: Actions)
 		Name = "Actions",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -16, 0.5, 0),
-		Size = UDim2.fromOffset(150, 260),
+		Size = UDim2.fromOffset(150, 320),
 		BackgroundTransparency = 1,
 		Parent = root,
 	}, {
@@ -257,8 +258,9 @@ function Hud.new(actions: Actions)
 	end
 	action(1, "SHOP", "B", Color3.fromRGB(200, 140, 20), actions.shop)
 	self.chalkButton = action(2, "CHALK x0", "C", Color3.fromRGB(70, 80, 110), actions.chalk)
-	action(3, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
-	action(4, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
+	self.letGoButton = action(3, "LET GO", "Q", Color3.fromRGB(70, 80, 110), actions.letGo)
+	action(4, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
+	action(5, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
 
 	return self
 end
@@ -330,6 +332,11 @@ function Hud:setAltitude(y: number, towerName: string?, towerInfo: string?, prog
 	local p = math.clamp(progress or 0, 0, 1)
 	self:_set("progress", self.progress, "Size", UDim2.fromScale(1, p))
 	self:_set("progressText", self.progressText, "Text", if progress then string.format("%d%%", p * 100) else "")
+end
+
+-- Highlight the LET GO button while you're on a wall.
+function Hud:setClimbing(on: boolean)
+	self:_set("climbing", self.letGoButton, "BackgroundColor3", if on then Color3.fromRGB(60, 130, 220) else Color3.fromRGB(70, 80, 110))
 end
 
 function Hud:setWind(text: string?)

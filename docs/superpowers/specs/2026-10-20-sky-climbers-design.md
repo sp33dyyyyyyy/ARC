@@ -95,3 +95,20 @@ Each unit has one purpose and a defined interface. `shared/*Math` modules are pu
 
 - The user's original reference images never arrived; towers are based on researched references (lattice-tower and Burj Khalifa-style structures). They can be adjusted if images are supplied later.
 - Format A (Rojo) is assumed because no preference was given.
+
+## 9. Revision: map, heights and climbing (2026-10-20)
+
+Changes requested after the first playable build:
+
+- **Map** now follows the user's top-down diagram: spawn plaza at the north,
+  a central path to the Power Up Shop in the south, Skyscrapers 1-3 on the west,
+  Tutorial Tower and Telecom Towers 1-2 on the east, on a fenced cliff island.
+- **Heights:** every tower except the smallest is at least 3.5x the original
+  (Telecom 700 / 1050, Skyscrapers 1400 / 2100 / 2800). The original small mast
+  stays at 80 studs and is renamed "Tutorial Tower".
+- **Climbing:** ladders are gone, replaced by "Grip & Lunge". You grab any
+  climbable surface, crawl in four directions, lunge upward for extra stamina,
+  catch the wall while falling, and mantle onto platforms, balconies and roofs.
+- **Bug fix:** the old baseplate was written with `Position`, which Roblox
+  place files don't store. It loaded at the origin and buried the map by 8
+  studs. The spawn now uses `CFrame`, and the ground is built in code.

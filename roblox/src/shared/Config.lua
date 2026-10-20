@@ -7,7 +7,7 @@ local Config = {}
 Config.Stamina = {
 	Base = 100,
 	DrainPerSecond = 8, -- while actively climbing, before the tower multiplier
-	HangDrainFraction = 0.25, -- hanging still on a ladder drains at 25% of climbing
+	HangDrainFraction = 0.25, -- gripping a wall without moving drains at 25% of climbing
 	RecoverPerSecond = 22, -- standing on solid ground
 	DangerFraction = 0.2, -- HUD pulses red below this
 	WakeFraction = 0.4, -- stamina you wake up with after a blackout
@@ -26,6 +26,17 @@ Config.Fall = {
 
 Config.Climb = {
 	BaseWalkSpeed = 16,
+	-- Grip & Lunge climbing
+	ClimbSpeed = 10, -- studs/second crawling up a wall
+	SideSpeed = 7, -- studs/second sideways
+	GripRange = 3.5, -- how close a wall must be to grab it
+	WallOffset = 1.6, -- distance kept between the body and the wall
+	LungeDistance = 8, -- a lunge throws you this far up the wall
+	LungeSpeed = 40,
+	LungeCooldown = 0.7,
+	LungeCostFactor = 1.3, -- lunging costs 30% more than crawling the same distance
+	CatchMaxFallSpeed = 70, -- you can only catch the wall if falling slower than this
+	MantleReach = 7, -- ledges up to this far above your waist can be climbed onto
 	-- Anti-cheat: nobody legitimately climbs faster than this (studs/second),
 	-- so a peak touched sooner than height / this after the base is rejected.
 	MaxPlausibleSpeed = 40,
@@ -106,64 +117,105 @@ Config.Boosts = {
 	},
 }
 
--- Tower archetypes. Section heights must be even (TrussPart lengths snap to 2).
+-- Tower archetypes. Telecom towers are tapered lattice towers with a rest
+-- platform on top of every section; skyscrapers are glass boxes with a
+-- maintenance balcony every `BalconyEvery` studs. Platforms and balconies are
+-- the only places to catch your breath.
 Config.TowerTypes = {
-	Mast = {
+	Tutorial = {
 		Kind = "Telecom",
-		DisplayName = "Small Mast",
+		DisplayName = "Tutorial Tower",
 		SectionHeight = 20,
-		Sections = 4,
+		Sections = 4, -- 80 studs
 		BaseHalfWidth = 9,
-		TopHalfWidth = 2,
+		TopHalfWidth = 3,
 		DrainMultiplier = 1,
 		Slippery = false,
 		Payout = 50,
-		Color = { 200, 60, 50 },
+		Color = { 200, 45, 40 },
 	},
-	Lattice = {
+	TelecomMedium = {
 		Kind = "Telecom",
-		DisplayName = "Lattice Tower",
-		SectionHeight = 40,
-		Sections = 5,
-		BaseHalfWidth = 16,
-		TopHalfWidth = 4,
-		DrainMultiplier = 1.5,
+		DisplayName = "Telecom Tower",
+		SectionHeight = 50,
+		Sections = 14, -- 700 studs
+		BaseHalfWidth = 28,
+		TopHalfWidth = 5,
+		DrainMultiplier = 1.3,
 		Slippery = false,
-		Payout = 200,
-		Color = { 225, 225, 225 },
+		Payout = 600,
+		Color = { 205, 40, 35 },
 	},
-	Skyscraper = {
+	TelecomTall = {
+		Kind = "Telecom",
+		DisplayName = "Telecom Tower",
+		SectionHeight = 70,
+		Sections = 15, -- 1050 studs
+		BaseHalfWidth = 36,
+		TopHalfWidth = 6,
+		DrainMultiplier = 1.8,
+		Slippery = false,
+		Payout = 2000,
+		Color = { 210, 35, 30 },
+	},
+	SkySmall = {
 		Kind = "Skyscraper",
 		DisplayName = "Skyscraper",
-		SectionHeight = 100,
-		HalfWidths = { 40, 33, 26, 19 },
-		DrainMultiplier = 2.5,
+		Height = 1400,
+		HalfWidth = 32,
+		BalconyEvery = 100,
+		DrainMultiplier = 1.6,
 		Slippery = true,
-		Payout = 1000,
-		Color = { 90, 140, 170 },
+		Payout = 1500,
+		Color = { 175, 195, 215 },
+		Frame = { 225, 225, 220 },
 	},
-	Supertall = {
+	SkyMedium = {
 		Kind = "Skyscraper",
-		DisplayName = "Supertall",
-		SectionHeight = 100,
-		HalfWidths = { 52, 46, 40, 34, 28, 22, 17, 12 },
-		DrainMultiplier = 4,
+		DisplayName = "Skyscraper",
+		Height = 2100,
+		HalfWidth = 38,
+		BalconyEvery = 150,
+		DrainMultiplier = 2.2,
 		Slippery = true,
-		Payout = 5000,
-		Spire = 120,
-		Color = { 150, 175, 195 },
+		Payout = 4000,
+		Color = { 60, 95, 150 },
+		Frame = { 200, 200, 205 },
+	},
+	SkyLarge = {
+		Kind = "Skyscraper",
+		DisplayName = "Skyscraper",
+		Height = 2800,
+		HalfWidth = 46,
+		BalconyEvery = 200,
+		DrainMultiplier = 3,
+		Slippery = true,
+		Payout = 10000,
+		Helipad = true,
+		Color = { 35, 45, 75 },
+		Frame = { 70, 75, 90 },
 	},
 }
 
--- Where each tower stands: type, distance from the plaza, angle in degrees.
+-- Map (top-down, north = -Z): plaza at the north end, a path runs south to the
+-- Power Up Shop, skyscrapers down the west side, telecom towers down the east.
 Config.Layout = {
-	{ Type = "Mast", Name = "Old Relay", Radius = 150, Angle = 20 },
-	{ Type = "Mast", Name = "Hilltop Mast", Radius = 150, Angle = 200 },
-	{ Type = "Lattice", Name = "Signal Spire", Radius = 230, Angle = 95 },
-	{ Type = "Lattice", Name = "Radio Ridge", Radius = 230, Angle = 275 },
-	{ Type = "Skyscraper", Name = "Glasshouse", Radius = 330, Angle = 140 },
-	{ Type = "Skyscraper", Name = "Meridian Tower", Radius = 330, Angle = 320 },
-	{ Type = "Supertall", Name = "The Needle", Radius = 470, Angle = 230 },
+	{ Type = "SkySmall", Name = "Skyscraper 1", Size = "SMALL", Difficulty = "EASY", X = -190, Z = -300 },
+	{ Type = "SkyMedium", Name = "Skyscraper 2", Size = "MEDIUM", Difficulty = "NORMAL", X = -190, Z = -20 },
+	{ Type = "SkyLarge", Name = "Skyscraper 3", Size = "LARGE", Difficulty = "HARD", X = -190, Z = 260 },
+	{ Type = "Tutorial", Name = "Tutorial Tower", Size = "SMALL", Difficulty = "EASY", X = 190, Z = -300 },
+	{ Type = "TelecomMedium", Name = "Telecom Tower 1", Size = "MEDIUM", Difficulty = "NORMAL", X = 190, Z = -20 },
+	{ Type = "TelecomTall", Name = "Telecom Tower 2", Size = "TALL", Difficulty = "HARD", X = 190, Z = 260 },
+}
+
+Config.Map = {
+	IslandHalfX = 330,
+	IslandHalfZ = 680,
+	LotHalf = 75,
+	PathHalfWidth = 14,
+	PlazaCenter = { 0, -540 },
+	ShopCenter = { 0, 560 },
+	WaterLevel = -90,
 }
 
 -- Cosmetic trails, unlocked by total climbs. Highest unlocked one is worn.
@@ -181,6 +233,7 @@ Config.Sounds = {
 	GetUp = "rbxasset://sounds/action_get_up.mp3",
 	Bonk = "rbxasset://sounds/uuhhh.mp3",
 	Click = "rbxasset://sounds/action_jump.mp3",
+	Grab = "rbxasset://sounds/action_get_up.mp3",
 }
 
 Config.DataStoreName = "SkyClimbers_v1"

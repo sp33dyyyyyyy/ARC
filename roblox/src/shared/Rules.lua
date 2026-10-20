@@ -74,9 +74,16 @@ function Rules.stepStamina(current: number, rate: number, dt: number, max: numbe
 	return math.clamp(current + rate * dt, 0, max)
 end
 
-function Rules.climbWalkSpeed(climbCfg: any, boostDefs: { any }, boosts: Boosts): number
+-- Wall crawl speed (studs/second) with the Quick Hands boost.
+function Rules.climbSpeed(climbCfg: any, boostDefs: { any }, boosts: Boosts): number
 	local def = boostDef(boostDefs, "ClimbSpeed")
-	return climbCfg.BaseWalkSpeed * (1 + (def and def.PerLevel or 0) * level(boosts, "ClimbSpeed"))
+	return climbCfg.ClimbSpeed * (1 + (def and def.PerLevel or 0) * level(boosts, "ClimbSpeed"))
+end
+
+-- Stamina a lunge costs, given the (negative) stamina rate of crawling right now:
+-- the same as crawling LungeDistance at base speed, times LungeCostFactor.
+function Rules.lungeCost(climbCfg: any, climbingRate: number): number
+	return math.abs(climbingRate) * (climbCfg.LungeDistance / climbCfg.ClimbSpeed) * climbCfg.LungeCostFactor
 end
 
 -- Shop ------------------------------------------------------------------
