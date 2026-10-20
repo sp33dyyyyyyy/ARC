@@ -70,6 +70,14 @@ local function sync(player: Player, data: any)
 		player:SetAttribute("Boost_" .. id, lvl)
 	end
 	player:SetAttribute("Chalk", data.Chalk)
+	local owned = {}
+	for _, def in Config.Emotes do
+		if Rules.ownsEmote(Config.Emotes, data.Emotes, def.Id) then
+			table.insert(owned, def.Id)
+		end
+	end
+	player:SetAttribute("Emotes", table.concat(owned, ","))
+	player:SetAttribute("SummitEmote", data.SummitEmote)
 	player:SetAttribute("Streak", data.Streak)
 	player:SetAttribute("BestHeight", math.floor(data.BestHeight))
 	for _, cb in changedCallbacks do
@@ -142,7 +150,7 @@ function DataService.load(player: Player): any
 		return nil
 	end
 
-	local data = Rules.reconcileProfile(Config.Boosts, Config.Chalk, saved)
+	local data = Rules.reconcileProfile(Config.Boosts, Config.Chalk, saved, Config.Emotes)
 	profiles[player] = { data = data, persistent = persistent, dirty = false }
 	sync(player, data)
 	player:SetAttribute("DataLoaded", true)
@@ -186,6 +194,7 @@ function DataService.save(player: Player, release: boolean)
 	local key = keyFor(player)
 	local snapshot = table.clone(profile.data)
 	snapshot.Boosts = table.clone(profile.data.Boosts)
+	snapshot.Emotes = table.clone(profile.data.Emotes)
 	local ok = withRetries("save " .. key, function()
 		return (store :: DataStore):UpdateAsync(key, function(old)
 			old = old or {}

@@ -2,6 +2,8 @@
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
@@ -24,6 +26,45 @@ local function setStreetLights(on: boolean)
 	for _, window in CollectionService:GetTagged("NightWindow") do
 		(window :: BasePart).Transparency = if on then 0 else 1
 	end
+end
+
+-- Weather: tween the sky to the new state and publish it as a Workspace
+-- attribute; clients draw the rain and apply the slippery-wall drain.
+local function pickWeather(rng: Random, current: string): string
+	local options, total = {}, 0
+	for name, chance in Config.Weather.Chances do
+		if name ~= current then
+			table.insert(options, { name, chance })
+			total += chance
+		end
+	end
+	table.sort(options, function(a, b)
+		return a[1] < b[1]
+	end)
+	local roll = rng:NextNumber(0, total)
+	for _, option in options do
+		roll -= option[2]
+		if roll <= 0 then
+			return option[1]
+		end
+	end
+	return options[#options][1]
+end
+
+local function applyWeather(name: string, clouds: Clouds)
+	local state = Config.Weather.States[name]
+	local info = TweenInfo.new(Config.Weather.TransitionTime, Enum.EasingStyle.Sine)
+	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+	if atmosphere then
+		TweenService:Create(atmosphere, info, { Density = state.Density, Haze = state.Haze }):Play()
+	end
+	local grade = Lighting:FindFirstChild("ColorGrade")
+	if grade and grade:IsA("ColorCorrectionEffect") then
+		TweenService:Create(grade, info, { Saturation = state.Saturation }):Play()
+	end
+	TweenService:Create(Lighting, info, { Brightness = state.Brightness }):Play()
+	TweenService:Create(clouds, info, { Cover = state.CloudCover, Density = 0.4 + state.CloudCover * 0.4 }):Play()
+	Workspace:SetAttribute("Weather", name)
 end
 
 function EnvironmentService.start()
@@ -59,6 +100,22 @@ function EnvironmentService.start()
 				end
 				(bulb :: BasePart).Transparency = if on then 0 else 0.6
 			end
+		end
+	end)
+
+	local clouds = Workspace.Terrain:FindFirstChildOfClass("Clouds")
+	if not clouds then
+		clouds = Instance.new("Clouds")
+		clouds.Parent = Workspace.Terrain
+	end
+	local weatherRng = Random.new()
+	applyWeather("Clear", clouds :: Clouds)
+	task.spawn(function()
+		local current = "Clear"
+		while true do
+			task.wait(weatherRng:NextNumber(Config.Weather.MinDuration, Config.Weather.MaxDuration))
+			current = pickWeather(weatherRng, current)
+			applyWeather(current, clouds :: Clouds)
 		end
 	end)
 

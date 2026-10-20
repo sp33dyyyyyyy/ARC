@@ -6,6 +6,8 @@ local Remotes = {}
 local NAMES = {
 	"BuyBoost", -- client -> server: boostId
 	"BuyChalk", -- client -> server
+	"BuyEmote", -- client -> server: emoteId
+	"EquipEmote", -- client -> server: emoteId (played automatically at summits)
 	"UseChalk", -- client -> server
 	"Ragdoll", -- client -> server: isRagdolled, fallStartY?
 	"ResetToPlaza", -- client -> server

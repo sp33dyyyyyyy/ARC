@@ -27,6 +27,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Effects = require(script.Parent.Effects)
+local Weather = require(script.Parent.Weather)
 
 local ClimbController = {}
 
@@ -352,6 +353,7 @@ local function onJump()
 				slippery = if tower then tower:GetAttribute("Slippery") == true else false,
 				chalk = chalkRemaining() > 0,
 				gust = now < gustUntil,
+				weatherMultiplier = Weather.drainMultiplier(),
 			}, false)
 			local cost = Rules.lungeCost(CC, rate)
 			if stamina > cost then
@@ -594,6 +596,7 @@ local function step(dt: number)
 			slippery = if tower then tower:GetAttribute("Slippery") == true else false,
 			chalk = chalkRemaining() > 0,
 			gust = now < gustUntil and pos.Y > Config.Wind.MinHeight,
+			weatherMultiplier = Weather.drainMultiplier(),
 		}
 		local rate = Rules.staminaRate(Config.Stamina, Config.Chalk, Config.Wind, Config.Boosts, b, ctx, grounded)
 		stamina = Rules.stepStamina(stamina, rate, dt, max)

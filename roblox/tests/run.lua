@@ -81,6 +81,11 @@ test("lunge costs more than crawling the same distance", function()
 	near(Rules.lungeCost(Config.Climb, -16), 12.8 * 1.3)
 end)
 
+test("rain soaks the walls", function()
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ climbing = true, moving = true, weatherMultiplier = 1.25 }), false), -10)
+	near(Rules.staminaRate(S, C, W, B, none, ctx({ weatherMultiplier = 1.25 }), true), 22) -- recovery unaffected
+end)
+
 -- Shop
 test("boost cost grows and caps at max level", function()
 	eq(Rules.boostCost(B, "Endurance", 0), 100)
@@ -97,6 +102,29 @@ test("purchase validation", function()
 	eq(Rules.canBuyBoost(B, "Hack", 0, 1e9).reason, "Unknown boost")
 	eq(Rules.canBuyChalk(C, 10, 1e9).ok, false)
 	eq(Rules.canBuyChalk(C, 0, 75).ok, true)
+end)
+
+-- Emotes
+test("emotes: free ones owned, buying checks cash and ownership", function()
+	local E = Config.Emotes
+	eq(Rules.ownsEmote(E, {}, "Wave"), true)
+	eq(Rules.ownsEmote(E, {}, "Dance"), false)
+	eq(Rules.ownsEmote(E, { Dance = true }, "Dance"), true)
+	eq(Rules.ownsEmote(E, {}, "Nope"), false)
+	eq(Rules.canBuyEmote(E, {}, "Dance", 999).reason, "Not enough cash")
+	eq(Rules.canBuyEmote(E, {}, "Dance", 1000).ok, true)
+	eq(Rules.canBuyEmote(E, { Dance = true }, "Dance", 1e9).ok, false)
+	eq(Rules.canBuyEmote(E, {}, "Hack", 1e9).reason, "Unknown emote")
+end)
+
+test("profiles keep owned emotes and fix an unowned summit emote", function()
+	local E = Config.Emotes
+	local p = Rules.reconcileProfile(B, C, { Emotes = { Cheer = true, Fake = true }, SummitEmote = "Dance3" }, E)
+	eq(p.Emotes.Cheer, true)
+	eq(p.Emotes.Wave, true)
+	eq(p.Emotes.Fake, nil)
+	eq(p.SummitEmote, "Wave")
+	eq(Rules.reconcileProfile(B, C, { Emotes = { Cheer = true }, SummitEmote = "Cheer" }, E).SummitEmote, "Cheer")
 end)
 
 -- Falls
@@ -182,8 +210,8 @@ test("towers are at least 3.5x the original heights, except the tutorial", funct
 	assert(height(Config.TowerTypes.SkyLarge) >= 800 * 3.5)
 end)
 
-test("every tower is beatable with maxed boosts", function()
-	-- worst rest-to-rest stretch with max endurance, grip, climb speed, no chalk
+test("every tower is beatable with maxed boosts, even in the rain", function()
+	-- worst rest-to-rest stretch with max endurance, grip, climb speed, no chalk, raining
 	local maxed = {}
 	for _, def in B do
 		maxed[def.Id] = def.MaxLevel
@@ -192,7 +220,7 @@ test("every tower is beatable with maxed boosts", function()
 	local speed = Rules.climbSpeed(Config.Climb, B, maxed)
 	for name, t in Config.TowerTypes do
 		local stretch = if t.Kind == "Telecom" then t.SectionHeight else t.BalconyEvery
-		local rate = Rules.staminaRate(S, C, W, B, maxed, ctx({ climbing = true, moving = true, towerMultiplier = t.DrainMultiplier, slippery = t.Slippery }), false)
+		local rate = Rules.staminaRate(S, C, W, B, maxed, ctx({ climbing = true, moving = true, towerMultiplier = t.DrainMultiplier, slippery = t.Slippery, weatherMultiplier = Config.Weather.RainDrainMultiplier }), false)
 		local cost = -rate * stretch / speed
 		assert(cost < maxStamina * 0.9, string.format("%s needs %.0f stamina per stretch, max is %.0f", name, cost, maxStamina))
 	end

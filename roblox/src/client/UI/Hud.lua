@@ -15,6 +15,7 @@ export type Actions = {
 	ragdoll: () -> (),
 	plaza: () -> (),
 	letGo: () -> (),
+	emotes: () -> (),
 }
 
 local function label(props: { [string]: any }): TextLabel
@@ -106,6 +107,39 @@ function Hud.new(actions: Actions)
 		Parent = cashPanel,
 	})
 	self._cashScale = C.new("UIScale", { Parent = cashPanel })
+
+	-- Weather pill under the cash.
+	self.weatherPanel = C.panel({
+		Name = "Weather",
+		Position = UDim2.fromOffset(16, 126),
+		Size = UDim2.fromOffset(190, 34),
+		Parent = root,
+	})
+	self.weather = label({
+		Size = UDim2.fromScale(1, 1),
+		Font = Theme.Bold,
+		Text = "Clear skies",
+		TextSize = 14,
+		Parent = self.weatherPanel,
+	})
+
+	-- Emote bar above the stamina panel (toggled with G / the EMOTES button).
+	self.emoteBar = C.new("Frame", {
+		Name = "EmoteBar",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -114),
+		Size = UDim2.fromOffset(640, 46),
+		BackgroundTransparency = 1,
+		Visible = false,
+		Parent = root,
+	}, {
+		C.new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
 
 	-- Left: altitude meter ---------------------------------------------------------
 	local meter = C.panel({
@@ -235,7 +269,7 @@ function Hud.new(actions: Actions)
 		Name = "Actions",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -16, 0.5, 0),
-		Size = UDim2.fromOffset(150, 320),
+		Size = UDim2.fromOffset(150, 380),
 		BackgroundTransparency = 1,
 		Parent = root,
 	}, {
@@ -260,7 +294,8 @@ function Hud.new(actions: Actions)
 	self.chalkButton = action(2, "CHALK x0", "C", Color3.fromRGB(70, 80, 110), actions.chalk)
 	self.letGoButton = action(3, "LET GO", "Q", Color3.fromRGB(70, 80, 110), actions.letGo)
 	action(4, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
-	action(5, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
+	action(5, "EMOTES", "G", Color3.fromRGB(120, 70, 160), actions.emotes)
+	action(6, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
 
 	return self
 end
@@ -332,6 +367,43 @@ function Hud:setAltitude(y: number, towerName: string?, towerInfo: string?, prog
 	local p = math.clamp(progress or 0, 0, 1)
 	self:_set("progress", self.progress, "Size", UDim2.fromScale(1, p))
 	self:_set("progressText", self.progressText, "Text", if progress then string.format("%d%%", p * 100) else "")
+end
+
+local WEATHER_TEXT = {
+	Clear = { "Clear skies", Color3.fromRGB(255, 220, 120) },
+	Fog = { "Fog rolling in", Color3.fromRGB(190, 200, 215) },
+	Rain = { "Rain: walls slippery!", Color3.fromRGB(120, 180, 255) },
+}
+
+function Hud:setWeather(name: string)
+	local entry = WEATHER_TEXT[name] or WEATHER_TEXT.Clear
+	self.weather.Text = entry[1]
+	self.weather.TextColor3 = entry[2]
+end
+
+-- Rebuild the emote bar from the owned emotes: { { id, name } }.
+function Hud:setEmotes(emotes: { { id: string, name: string } }, onPlay: (id: string) -> ())
+	for _, child in self.emoteBar:GetChildren() do
+		if child:IsA("GuiButton") then
+			child:Destroy()
+		end
+	end
+	for i, emote in emotes do
+		C.button({
+			LayoutOrder = i,
+			Size = UDim2.fromOffset(84, 42),
+			BackgroundColor3 = Color3.fromRGB(120, 70, 160),
+			Text = emote.name,
+			TextSize = 15,
+			Parent = self.emoteBar,
+		}, function()
+			onPlay(emote.id)
+		end)
+	end
+end
+
+function Hud:toggleEmoteBar()
+	self.emoteBar.Visible = not self.emoteBar.Visible
 end
 
 -- Highlight the LET GO button while you're on a wall.

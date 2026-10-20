@@ -35,6 +35,7 @@ export type DrainContext = {
 	slippery: boolean,
 	chalk: boolean,
 	gust: boolean,
+	weatherMultiplier: number?, -- rain soaks the walls
 }
 
 -- Stamina change per second for the given situation. Negative = draining.
@@ -62,6 +63,7 @@ function Rules.staminaRate(
 		if ctx.gust then
 			rate *= windCfg.DrainMultiplier
 		end
+		rate *= ctx.weatherMultiplier or 1
 		return -rate
 	elseif grounded then
 		local rec = boostDef(boostDefs, "Recovery")
@@ -124,6 +126,37 @@ function Rules.canBuyChalk(chalkCfg: any, held: number, cash: number): PurchaseR
 	return { ok = true, cost = chalkCfg.Price }
 end
 
+-- Emotes ----------------------------------------------------------------
+
+function Rules.emoteDef(emoteDefs: { any }, id: string): any?
+	for _, def in emoteDefs do
+		if def.Id == id then
+			return def
+		end
+	end
+	return nil
+end
+
+function Rules.canBuyEmote(emoteDefs: { any }, owned: { [string]: boolean }, id: string, cash: number): PurchaseResult
+	local def = Rules.emoteDef(emoteDefs, id)
+	if not def then
+		return { ok = false, reason = "Unknown emote" }
+	end
+	if owned[id] then
+		return { ok = false, reason = "You already own " .. def.Name }
+	end
+	if cash < def.Price then
+		return { ok = false, reason = "Not enough cash", cost = def.Price }
+	end
+	return { ok = true, cost = def.Price }
+end
+
+-- Free emotes are always owned.
+function Rules.ownsEmote(emoteDefs: { any }, owned: { [string]: boolean }, id: string): boolean
+	local def = Rules.emoteDef(emoteDefs, id)
+	return def ~= nil and (def.Price == 0 or owned[id] == true)
+end
+
 -- Falls -----------------------------------------------------------------
 
 function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number): number
@@ -183,12 +216,21 @@ end
 
 -- Profiles ----------------------------------------------------------------
 
-function Rules.defaultProfile(boostDefs: { any }): any
+function Rules.defaultProfile(boostDefs: { any }, emoteDefs: { any }?): any
 	local boosts = {}
 	for _, def in boostDefs do
 		boosts[def.Id] = 0
 	end
+	local emotes = {}
+	for _, def in (emoteDefs or {}) :: { any } do
+		if def.Price == 0 then
+			emotes[def.Id] = true
+		end
+	end
+	local first = emoteDefs and emoteDefs[1]
 	return {
+		Emotes = emotes,
+		SummitEmote = if first then first.Id else "",
 		Version = 1,
 		Cash = 0,
 		Climbs = 0,
@@ -202,13 +244,13 @@ end
 
 -- Fill in anything missing from saved data (new fields added in updates) and
 -- clamp values back into range so corrupt saves can't break the game.
-function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any): any
-	local profile = Rules.defaultProfile(boostDefs)
+function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any, emoteDefs: { any }?): any
+	local profile = Rules.defaultProfile(boostDefs, emoteDefs)
 	if type(saved) ~= "table" then
 		return profile
 	end
 	for key, value in profile do
-		if key ~= "Boosts" and type(saved[key]) == type(value) then
+		if key ~= "Boosts" and key ~= "Emotes" and type(saved[key]) == type(value) then
 			profile[key] = saved[key]
 		end
 	end
@@ -219,6 +261,16 @@ function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any): 
 				profile.Boosts[def.Id] = math.clamp(math.floor(v), 0, def.MaxLevel)
 			end
 		end
+	end
+	if type(saved.Emotes) == "table" then
+		for _, def in (emoteDefs or {}) :: { any } do
+			if saved.Emotes[def.Id] == true then
+				profile.Emotes[def.Id] = true
+			end
+		end
+	end
+	if emoteDefs and not Rules.ownsEmote(emoteDefs, profile.Emotes, profile.SummitEmote) then
+		profile.SummitEmote = emoteDefs[1].Id
 	end
 	profile.Cash = math.max(0, math.floor(profile.Cash))
 	profile.Climbs = math.max(0, math.floor(profile.Climbs))

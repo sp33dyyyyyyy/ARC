@@ -112,3 +112,13 @@ Changes requested after the first playable build:
 - **Bug fix:** the old baseplate was written with `Position`, which Roblox
   place files don't store. It loaded at the origin and buried the map by 8
   studs. The spawn now uses `CFrame`, and the ground is built in code.
+
+## 10. Revision: weather and emotes (2026-10-20)
+
+- **Weather** cycles Clear / Fog / Rain every 90-180s. The server tweens
+  Atmosphere, Clouds, brightness and saturation, and publishes the state as
+  Workspace's `Weather` attribute. Clients render the rain and lightning, and
+  rain multiplies climbing drain by 1.25. The balance test covers rain.
+- **Emotes** are bought at the Power Up Shop (server-validated, saved in the
+  profile). G opens an emote bar, and the equipped summit emote auto-plays at
+  every peak. Animations come from the avatar's own Animate script.

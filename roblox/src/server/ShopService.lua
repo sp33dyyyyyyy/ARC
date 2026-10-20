@@ -67,6 +67,41 @@ function ShopService.start()
 		toast(player, "Bought chalk (" .. data.Chalk .. " in bag)", "good")
 	end)
 
+	Remotes.get("BuyEmote").OnServerEvent:Connect(function(player, emoteId)
+		if typeof(emoteId) ~= "string" or #emoteId > 32 or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data then
+			return
+		end
+		local result = Rules.canBuyEmote(Config.Emotes, data.Emotes, emoteId, data.Cash)
+		if not result.ok then
+			toast(player, result.reason :: string, "bad")
+			return
+		end
+		local def = Rules.emoteDef(Config.Emotes, emoteId)
+		DataService.update(player, function(d)
+			d.Cash -= result.cost :: number
+			d.Emotes[emoteId] = true
+			d.SummitEmote = emoteId -- a fresh purchase becomes your summit emote
+		end)
+		toast(player, def.Name .. " emote unlocked! Press G to use it.", "good")
+	end)
+
+	Remotes.get("EquipEmote").OnServerEvent:Connect(function(player, emoteId)
+		if typeof(emoteId) ~= "string" or #emoteId > 32 or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data or not Rules.ownsEmote(Config.Emotes, data.Emotes, emoteId) then
+			return
+		end
+		DataService.update(player, function(d)
+			d.SummitEmote = emoteId
+		end)
+	end)
+
 	Remotes.get("UseChalk").OnServerEvent:Connect(function(player)
 		if not allowed(player) then
 			return

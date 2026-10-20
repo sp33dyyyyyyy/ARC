@@ -13,6 +13,8 @@ Shop.__index = Shop
 export type Handlers = {
 	buyBoost: (id: string) -> (),
 	buyChalk: () -> (),
+	buyEmote: (id: string) -> (),
+	equipEmote: (id: string) -> (),
 }
 
 local CARD_HEIGHT = 92
@@ -169,16 +171,46 @@ function Shop.new(handlers: Handlers)
 		return { frame = frame, pips = pips, buy = buy, levelLabel = levelLabel }
 	end
 
+	local function header(order: number, text: string)
+		C.new("TextLabel", {
+			LayoutOrder = order,
+			Size = UDim2.new(1, 0, 0, 26),
+			Font = Theme.Title,
+			Text = text,
+			TextSize = 18,
+			TextColor3 = Theme.Accent,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = list,
+		})
+	end
+
+	header(0, "BOOSTS")
 	for i, def in Config.Boosts do
 		self.cards[def.Id] = card(i, def.Name, def.Description, def.MaxLevel, function()
 			handlers.buyBoost(def.Id)
 		end)
 	end
-	self.chalkCard = card(#Config.Boosts + 1, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
+	header(100, "GEAR")
+	self.chalkCard = card(101, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
+
+	-- Emotes: buy, then pick which one plays automatically at every summit.
+	header(200, "EMOTES  (G to use · the starred one plays at every summit)")
+	self.emoteCards = {}
+	self._owned = {}
+	self._summit = ""
+	for i, def in Config.Emotes do
+		self.emoteCards[def.Id] = card(200 + i, def.Name, "Emote. Play it any time with G.", nil, function()
+			if not self._owned[def.Id] then
+				handlers.buyEmote(def.Id)
+			elseif self._summit ~= def.Id then
+				handlers.equipEmote(def.Id)
+			end
+		end)
+	end
 	return self
 end
 
-function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number)
+function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number, ownedEmotes: { string }, summitEmote: string)
 	self.balance.Text = "Balance: $" .. Theme.formatNumber(cash)
 	for _, def in Config.Boosts do
 		local cardRef = self.cards[def.Id]
@@ -204,6 +236,32 @@ function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number)
 	local ok = not full and cash >= Config.Chalk.Price
 	self.chalkCard.buy.BackgroundColor3 = if ok then Theme.Good else Theme.PanelLight
 	self.chalkCard.buy.TextColor3 = if ok then Color3.fromRGB(15, 30, 20) else Theme.Muted
+
+	self._owned, self._summit = {}, summitEmote
+	for _, id in ownedEmotes do
+		self._owned[id] = true
+	end
+	for _, def in Config.Emotes do
+		local cardRef = self.emoteCards[def.Id]
+		local owned = self._owned[def.Id] == true
+		local summit = owned and summitEmote == def.Id
+		cardRef.levelLabel.Text = if summit then "★ Summit emote" elseif owned then "Owned" else (if def.Price == 0 then "Free" else "Not owned")
+		cardRef.levelLabel.TextColor3 = if summit then Theme.Gold elseif owned then Theme.Good else Theme.Muted
+		if summit then
+			cardRef.buy.Text = "EQUIPPED"
+			cardRef.buy.BackgroundColor3 = Theme.PanelLight
+			cardRef.buy.TextColor3 = Theme.Gold
+		elseif owned then
+			cardRef.buy.Text = "SET SUMMIT"
+			cardRef.buy.BackgroundColor3 = Theme.Info
+			cardRef.buy.TextColor3 = Color3.fromRGB(10, 20, 40)
+		else
+			local affordable = cash >= def.Price
+			cardRef.buy.Text = "$" .. Theme.formatNumber(def.Price)
+			cardRef.buy.BackgroundColor3 = if affordable then Theme.Good else Theme.PanelLight
+			cardRef.buy.TextColor3 = if affordable then Color3.fromRGB(15, 30, 20) else Theme.Muted
+		end
+	end
 end
 
 function Shop:isOpen(): boolean

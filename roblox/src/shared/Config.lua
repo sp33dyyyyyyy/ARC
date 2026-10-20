@@ -63,6 +63,33 @@ Config.Wind = {
 
 Config.DayLengthSeconds = 600
 
+-- Weather cycles between clear skies, fog and rain. Rain soaks every wall, so
+-- climbing drains more stamina.
+Config.Weather = {
+	MinDuration = 90,
+	MaxDuration = 180,
+	TransitionTime = 10,
+	Chances = { Clear = 0.5, Fog = 0.25, Rain = 0.25 },
+	RainDrainMultiplier = 1.25,
+	States = {
+		Clear = { Density = 0.3, Haze = 1.6, Brightness = 2.6, CloudCover = 0.45, Saturation = 0.12 },
+		Fog = { Density = 0.62, Haze = 3, Brightness = 2.1, CloudCover = 0.75, Saturation = 0 },
+		Rain = { Density = 0.48, Haze = 2.6, Brightness = 1.5, CloudCover = 0.9, Saturation = -0.15 },
+	},
+}
+
+-- Emotes use the animations every Roblox avatar's Animate script already has.
+-- `Anim` is the folder name inside Animate. Wave is free.
+Config.Emotes = {
+	{ Id = "Wave", Name = "Wave", Anim = "wave", Price = 0 },
+	{ Id = "Point", Name = "Point", Anim = "point", Price = 150 },
+	{ Id = "Cheer", Name = "Cheer", Anim = "cheer", Price = 300 },
+	{ Id = "Laugh", Name = "Laugh", Anim = "laugh", Price = 500 },
+	{ Id = "Dance", Name = "Dance", Anim = "dance", Price = 1000 },
+	{ Id = "Dance2", Name = "Dance 2", Anim = "dance2", Price = 2500 },
+	{ Id = "Dance3", Name = "Dance 3", Anim = "dance3", Price = 5000 },
+}
+
 Config.Daily = {
 	BaseReward = 100,
 	MaxStreakMultiplier = 7,

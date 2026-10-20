@@ -325,6 +325,7 @@ local function buildPlaza(world: Instance)
 		{ text = "Climbing burns stamina. Mantle onto platforms to breathe.", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
 		{ text = "Run out and you BLACK OUT and fall.", size = 34, color = Color3.fromRGB(255, 120, 120), font = Enum.Font.GothamMedium },
 		{ text = "SPACE while falling: catch the wall!", size = 34, color = Color3.fromRGB(110, 230, 140), font = Enum.Font.GothamBold },
+		{ text = "Rain makes walls slippery · G: emotes", size = 34, color = Color3.fromRGB(150, 190, 255), font = Enum.Font.GothamMedium },
 	})
 	Build.part(world, {
 		Name = "Leaderboard",

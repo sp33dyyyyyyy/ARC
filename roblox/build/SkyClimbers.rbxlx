@@ -150,6 +150,33 @@ Config.Wind = {
 
 Config.DayLengthSeconds = 600
 
+-- Weather cycles between clear skies, fog and rain. Rain soaks every wall, so
+-- climbing drains more stamina.
+Config.Weather = {
+	MinDuration = 90,
+	MaxDuration = 180,
+	TransitionTime = 10,
+	Chances = { Clear = 0.5, Fog = 0.25, Rain = 0.25 },
+	RainDrainMultiplier = 1.25,
+	States = {
+		Clear = { Density = 0.3, Haze = 1.6, Brightness = 2.6, CloudCover = 0.45, Saturation = 0.12 },
+		Fog = { Density = 0.62, Haze = 3, Brightness = 2.1, CloudCover = 0.75, Saturation = 0 },
+		Rain = { Density = 0.48, Haze = 2.6, Brightness = 1.5, CloudCover = 0.9, Saturation = -0.15 },
+	},
+}
+
+-- Emotes use the animations every Roblox avatar's Animate script already has.
+-- `Anim` is the folder name inside Animate. Wave is free.
+Config.Emotes = {
+	{ Id = "Wave", Name = "Wave", Anim = "wave", Price = 0 },
+	{ Id = "Point", Name = "Point", Anim = "point", Price = 150 },
+	{ Id = "Cheer", Name = "Cheer", Anim = "cheer", Price = 300 },
+	{ Id = "Laugh", Name = "Laugh", Anim = "laugh", Price = 500 },
+	{ Id = "Dance", Name = "Dance", Anim = "dance", Price = 1000 },
+	{ Id = "Dance2", Name = "Dance 2", Anim = "dance2", Price = 2500 },
+	{ Id = "Dance3", Name = "Dance 3", Anim = "dance3", Price = 5000 },
+}
+
 Config.Daily = {
 	BaseReward = 100,
 	MaxStreakMultiplier = 7,
@@ -343,6 +370,8 @@ local Remotes = {}
 local NAMES = {
 	"BuyBoost", -- client -> server: boostId
 	"BuyChalk", -- client -> server
+	"BuyEmote", -- client -> server: emoteId
+	"EquipEmote", -- client -> server: emoteId (played automatically at summits)
 	"UseChalk", -- client -> server
 	"Ragdoll", -- client -> server: isRagdolled, fallStartY?
 	"ResetToPlaza", -- client -> server
@@ -410,6 +439,7 @@ export type DrainContext = {
 	slippery: boolean,
 	chalk: boolean,
 	gust: boolean,
+	weatherMultiplier: number?, -- rain soaks the walls
 }
 
 -- Stamina change per second for the given situation. Negative = draining.
@@ -437,6 +467,7 @@ function Rules.staminaRate(
 		if ctx.gust then
 			rate *= windCfg.DrainMultiplier
 		end
+		rate *= ctx.weatherMultiplier or 1
 		return -rate
 	elseif grounded then
 		local rec = boostDef(boostDefs, "Recovery")
@@ -499,6 +530,37 @@ function Rules.canBuyChalk(chalkCfg: any, held: number, cash: number): PurchaseR
 	return { ok = true, cost = chalkCfg.Price }
 end
 
+-- Emotes ----------------------------------------------------------------
+
+function Rules.emoteDef(emoteDefs: { any }, id: string): any?
+	for _, def in emoteDefs do
+		if def.Id == id then
+			return def
+		end
+	end
+	return nil
+end
+
+function Rules.canBuyEmote(emoteDefs: { any }, owned: { [string]: boolean }, id: string, cash: number): PurchaseResult
+	local def = Rules.emoteDef(emoteDefs, id)
+	if not def then
+		return { ok = false, reason = "Unknown emote" }
+	end
+	if owned[id] then
+		return { ok = false, reason = "You already own " .. def.Name }
+	end
+	if cash < def.Price then
+		return { ok = false, reason = "Not enough cash", cost = def.Price }
+	end
+	return { ok = true, cost = def.Price }
+end
+
+-- Free emotes are always owned.
+function Rules.ownsEmote(emoteDefs: { any }, owned: { [string]: boolean }, id: string): boolean
+	local def = Rules.emoteDef(emoteDefs, id)
+	return def ~= nil and (def.Price == 0 or owned[id] == true)
+end
+
 -- Falls -----------------------------------------------------------------
 
 function Rules.fallDamage(fallCfg: any, boostDefs: { any }, boosts: Boosts, drop: number): number
@@ -558,12 +620,21 @@ end
 
 -- Profiles ----------------------------------------------------------------
 
-function Rules.defaultProfile(boostDefs: { any }): any
+function Rules.defaultProfile(boostDefs: { any }, emoteDefs: { any }?): any
 	local boosts = {}
 	for _, def in boostDefs do
 		boosts[def.Id] = 0
 	end
+	local emotes = {}
+	for _, def in (emoteDefs or {}) :: { any } do
+		if def.Price == 0 then
+			emotes[def.Id] = true
+		end
+	end
+	local first = emoteDefs and emoteDefs[1]
 	return {
+		Emotes = emotes,
+		SummitEmote = if first then first.Id else "",
 		Version = 1,
 		Cash = 0,
 		Climbs = 0,
@@ -577,13 +648,13 @@ end
 
 -- Fill in anything missing from saved data (new fields added in updates) and
 -- clamp values back into range so corrupt saves can't break the game.
-function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any): any
-	local profile = Rules.defaultProfile(boostDefs)
+function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any, emoteDefs: { any }?): any
+	local profile = Rules.defaultProfile(boostDefs, emoteDefs)
 	if type(saved) ~= "table" then
 		return profile
 	end
 	for key, value in profile do
-		if key ~= "Boosts" and type(saved[key]) == type(value) then
+		if key ~= "Boosts" and key ~= "Emotes" and type(saved[key]) == type(value) then
 			profile[key] = saved[key]
 		end
 	end
@@ -594,6 +665,16 @@ function Rules.reconcileProfile(boostDefs: { any }, chalkCfg: any, saved: any): 
 				profile.Boosts[def.Id] = math.clamp(math.floor(v), 0, def.MaxLevel)
 			end
 		end
+	end
+	if type(saved.Emotes) == "table" then
+		for _, def in (emoteDefs or {}) :: { any } do
+			if saved.Emotes[def.Id] == true then
+				profile.Emotes[def.Id] = true
+			end
+		end
+	end
+	if emoteDefs and not Rules.ownsEmote(emoteDefs, profile.Emotes, profile.SummitEmote) then
+		profile.SummitEmote = emoteDefs[1].Id
 	end
 	profile.Cash = math.max(0, math.floor(profile.Cash))
 	profile.Climbs = math.max(0, math.floor(profile.Climbs))
@@ -1091,6 +1172,14 @@ local function sync(player: Player, data: any)
 		player:SetAttribute("Boost_" .. id, lvl)
 	end
 	player:SetAttribute("Chalk", data.Chalk)
+	local owned = {}
+	for _, def in Config.Emotes do
+		if Rules.ownsEmote(Config.Emotes, data.Emotes, def.Id) then
+			table.insert(owned, def.Id)
+		end
+	end
+	player:SetAttribute("Emotes", table.concat(owned, ","))
+	player:SetAttribute("SummitEmote", data.SummitEmote)
 	player:SetAttribute("Streak", data.Streak)
 	player:SetAttribute("BestHeight", math.floor(data.BestHeight))
 	for _, cb in changedCallbacks do
@@ -1163,7 +1252,7 @@ function DataService.load(player: Player): any
 		return nil
 	end
 
-	local data = Rules.reconcileProfile(Config.Boosts, Config.Chalk, saved)
+	local data = Rules.reconcileProfile(Config.Boosts, Config.Chalk, saved, Config.Emotes)
 	profiles[player] = { data = data, persistent = persistent, dirty = false }
 	sync(player, data)
 	player:SetAttribute("DataLoaded", true)
@@ -1207,6 +1296,7 @@ function DataService.save(player: Player, release: boolean)
 	local key = keyFor(player)
 	local snapshot = table.clone(profile.data)
 	snapshot.Boosts = table.clone(profile.data.Boosts)
+	snapshot.Emotes = table.clone(profile.data.Emotes)
 	local ok = withRetries("save " .. key, function()
 		return (store :: DataStore):UpdateAsync(key, function(old)
 			old = old or {}
@@ -1279,6 +1369,8 @@ return DataService
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
@@ -1301,6 +1393,45 @@ local function setStreetLights(on: boolean)
 	for _, window in CollectionService:GetTagged("NightWindow") do
 		(window :: BasePart).Transparency = if on then 0 else 1
 	end
+end
+
+-- Weather: tween the sky to the new state and publish it as a Workspace
+-- attribute; clients draw the rain and apply the slippery-wall drain.
+local function pickWeather(rng: Random, current: string): string
+	local options, total = {}, 0
+	for name, chance in Config.Weather.Chances do
+		if name ~= current then
+			table.insert(options, { name, chance })
+			total += chance
+		end
+	end
+	table.sort(options, function(a, b)
+		return a[1] < b[1]
+	end)
+	local roll = rng:NextNumber(0, total)
+	for _, option in options do
+		roll -= option[2]
+		if roll <= 0 then
+			return option[1]
+		end
+	end
+	return options[#options][1]
+end
+
+local function applyWeather(name: string, clouds: Clouds)
+	local state = Config.Weather.States[name]
+	local info = TweenInfo.new(Config.Weather.TransitionTime, Enum.EasingStyle.Sine)
+	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+	if atmosphere then
+		TweenService:Create(atmosphere, info, { Density = state.Density, Haze = state.Haze }):Play()
+	end
+	local grade = Lighting:FindFirstChild("ColorGrade")
+	if grade and grade:IsA("ColorCorrectionEffect") then
+		TweenService:Create(grade, info, { Saturation = state.Saturation }):Play()
+	end
+	TweenService:Create(Lighting, info, { Brightness = state.Brightness }):Play()
+	TweenService:Create(clouds, info, { Cover = state.CloudCover, Density = 0.4 + state.CloudCover * 0.4 }):Play()
+	Workspace:SetAttribute("Weather", name)
 end
 
 function EnvironmentService.start()
@@ -1336,6 +1467,22 @@ function EnvironmentService.start()
 				end
 				(bulb :: BasePart).Transparency = if on then 0 else 0.6
 			end
+		end
+	end)
+
+	local clouds = Workspace.Terrain:FindFirstChildOfClass("Clouds")
+	if not clouds then
+		clouds = Instance.new("Clouds")
+		clouds.Parent = Workspace.Terrain
+	end
+	local weatherRng = Random.new()
+	applyWeather("Clear", clouds :: Clouds)
+	task.spawn(function()
+		local current = "Clear"
+		while true do
+			task.wait(weatherRng:NextNumber(Config.Weather.MinDuration, Config.Weather.MaxDuration))
+			current = pickWeather(weatherRng, current)
+			applyWeather(current, clouds :: Clouds)
 		end
 	end)
 
@@ -1819,6 +1966,41 @@ function ShopService.start()
 			d.Chalk += 1
 		end)
 		toast(player, "Bought chalk (" .. data.Chalk .. " in bag)", "good")
+	end)
+
+	Remotes.get("BuyEmote").OnServerEvent:Connect(function(player, emoteId)
+		if typeof(emoteId) ~= "string" or #emoteId > 32 or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data then
+			return
+		end
+		local result = Rules.canBuyEmote(Config.Emotes, data.Emotes, emoteId, data.Cash)
+		if not result.ok then
+			toast(player, result.reason :: string, "bad")
+			return
+		end
+		local def = Rules.emoteDef(Config.Emotes, emoteId)
+		DataService.update(player, function(d)
+			d.Cash -= result.cost :: number
+			d.Emotes[emoteId] = true
+			d.SummitEmote = emoteId -- a fresh purchase becomes your summit emote
+		end)
+		toast(player, def.Name .. " emote unlocked! Press G to use it.", "good")
+	end)
+
+	Remotes.get("EquipEmote").OnServerEvent:Connect(function(player, emoteId)
+		if typeof(emoteId) ~= "string" or #emoteId > 32 or not allowed(player) then
+			return
+		end
+		local data = DataService.get(player)
+		if not data or not Rules.ownsEmote(Config.Emotes, data.Emotes, emoteId) then
+			return
+		end
+		DataService.update(player, function(d)
+			d.SummitEmote = emoteId
+		end)
 	end)
 
 	Remotes.get("UseChalk").OnServerEvent:Connect(function(player)
@@ -2662,6 +2844,7 @@ local function buildPlaza(world: Instance)
 		{ text = "Climbing burns stamina. Mantle onto platforms to breathe.", size = 34, color = Color3.new(1, 1, 1), font = Enum.Font.GothamMedium },
 		{ text = "Run out and you BLACK OUT and fall.", size = 34, color = Color3.fromRGB(255, 120, 120), font = Enum.Font.GothamMedium },
 		{ text = "SPACE while falling: catch the wall!", size = 34, color = Color3.fromRGB(110, 230, 140), font = Enum.Font.GothamBold },
+		{ text = "Rain makes walls slippery · G: emotes", size = 34, color = Color3.fromRGB(150, 190, 255), font = Enum.Font.GothamMedium },
 	})
 	Build.part(world, {
 		Name = "Leaderboard",
@@ -2972,6 +3155,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Rules = require(ReplicatedStorage.Shared.Rules)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Effects = require(script.Parent.Effects)
+local Weather = require(script.Parent.Weather)
 
 local ClimbController = {}
 
@@ -3297,6 +3481,7 @@ local function onJump()
 				slippery = if tower then tower:GetAttribute("Slippery") == true else false,
 				chalk = chalkRemaining() > 0,
 				gust = now < gustUntil,
+				weatherMultiplier = Weather.drainMultiplier(),
 			}, false)
 			local cost = Rules.lungeCost(CC, rate)
 			if stamina > cost then
@@ -3539,6 +3724,7 @@ local function step(dt: number)
 			slippery = if tower then tower:GetAttribute("Slippery") == true else false,
 			chalk = chalkRemaining() > 0,
 			gust = now < gustUntil and pos.Y > Config.Wind.MinHeight,
+			weatherMultiplier = Weather.drainMultiplier(),
 		}
 		local rate = Rules.staminaRate(Config.Stamina, Config.Chalk, Config.Wind, Config.Boosts, b, ctx, grounded)
 		stamina = Rules.stepStamina(stamina, rate, dt, max)
@@ -3728,7 +3914,133 @@ return Effects
 ]]></string>
           </Properties>
         </Item>
-        <Item class="LocalScript" referent="28">
+        <Item class="ModuleScript" referent="28">
+          <Properties>
+            <string name="Name">Emotes</string>
+            <string name="Source"><![CDATA[-- Plays emotes from the avatar's own Animate script (no uploaded animations),
+-- stops them when you move, jump or climb, and plays your summit emote when you
+-- reach a peak. Animations played on your own character replicate to everyone.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+
+local Emotes = {}
+
+local player = Players.LocalPlayer
+local track: AnimationTrack? = nil
+local isClimbing: () -> boolean = function()
+	return false
+end
+local toast: (string, string?) -> () = function() end
+
+-- Emote ids the player owns (free ones included), in shop order.
+function Emotes.owned(): { string }
+	local owned = {}
+	for id in string.gmatch(player:GetAttribute("Emotes") or "", "[^,]+") do
+		owned[id] = true
+	end
+	local list = {}
+	for _, def in Config.Emotes do
+		if Rules.ownsEmote(Config.Emotes, owned, def.Id) then
+			table.insert(list, def.Id)
+		end
+	end
+	return list
+end
+
+function Emotes.stop()
+	if track then
+		track:Stop(0.2)
+		track = nil
+	end
+end
+
+function Emotes.play(id: string)
+	local def = Rules.emoteDef(Config.Emotes, id)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	if not def or not character or not humanoid or not animator or humanoid.Health <= 0 then
+		return
+	end
+	if not table.find(Emotes.owned(), id) then
+		toast("Buy " .. def.Name .. " at the Power Up Shop first", "bad")
+		return
+	end
+	if isClimbing() then
+		toast("You can't emote while climbing!", "bad")
+		return
+	end
+	local animate = character:FindFirstChild("Animate")
+	local folder = animate and (animate:FindFirstChild(def.Anim) or animate:FindFirstChild("dance"))
+	local anim = folder and folder:FindFirstChildOfClass("Animation")
+	if not anim then
+		toast("This avatar has no " .. def.Name .. " animation", "bad")
+		return
+	end
+	Emotes.stop()
+	local ok, loaded = pcall(animator.LoadAnimation, animator, anim)
+	if not ok then
+		return
+	end
+	loaded.Priority = Enum.AnimationPriority.Action
+	loaded.Looped = string.find(def.Anim, "dance") ~= nil
+	loaded:Play(0.2)
+	track = loaded
+end
+
+-- After reaching a peak: wait until you're standing, then show off.
+function Emotes.playSummit()
+	task.spawn(function()
+		local deadline = os.clock() + 4
+		while os.clock() < deadline do
+			local character = player.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if humanoid and not isClimbing() and humanoid.FloorMaterial ~= Enum.Material.Air then
+				task.wait(0.3)
+				Emotes.play(player:GetAttribute("SummitEmote") or "Wave")
+				return
+			end
+			task.wait(0.1)
+		end
+	end)
+end
+
+function Emotes.start(climbingFn: () -> boolean, toastFn: (string, string?) -> ())
+	isClimbing, toast = climbingFn, toastFn
+	RunService.Heartbeat:Connect(function()
+		local current = track
+		if not current then
+			return
+		end
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local state = humanoid and humanoid:GetState()
+		if
+			not current.IsPlaying
+			or not humanoid
+			or humanoid.MoveDirection.Magnitude > 0.1
+			or isClimbing()
+			or state == Enum.HumanoidStateType.Jumping
+			or state == Enum.HumanoidStateType.Freefall
+			or state == Enum.HumanoidStateType.Physics
+		then
+			Emotes.stop()
+		end
+	end)
+	player.CharacterAdded:Connect(function()
+		track = nil
+	end)
+end
+
+return Emotes
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="LocalScript" referent="29">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[-- Client entry point: builds the UI, wires input and server notifications.
@@ -3743,6 +4055,8 @@ local Remotes = require(Shared.Remotes)
 
 local Effects = require(script.Parent.Effects)
 local ClimbController = require(script.Parent.ClimbController)
+local Emotes = require(script.Parent.Emotes)
+local Weather = require(script.Parent.Weather)
 local Hud = require(script.Parent.UI.Hud)
 local Overlay = require(script.Parent.UI.Overlay)
 local Shop = require(script.Parent.UI.Shop)
@@ -3753,14 +4067,17 @@ local function useChalk()
 	Remotes.get("UseChalk"):FireServer()
 end
 
-local shop
-local hud = Hud.new({
+local shop, hud -- forward-declared: the button callbacks below refer to both
+hud = Hud.new({
 	shop = function()
 		shop:toggle()
 	end,
 	chalk = useChalk,
 	ragdoll = ClimbController.toggleRagdoll,
 	letGo = ClimbController.letGo,
+	emotes = function()
+		hud:toggleEmoteBar()
+	end,
 	plaza = function()
 		Remotes.get("ResetToPlaza"):FireServer()
 	end,
@@ -3772,11 +4089,34 @@ shop = Shop.new({
 	buyChalk = function()
 		Remotes.get("BuyChalk"):FireServer()
 	end,
+	buyEmote = function(id)
+		Remotes.get("BuyEmote"):FireServer(id)
+	end,
+	equipEmote = function(id)
+		Remotes.get("EquipEmote"):FireServer(id)
+	end,
 })
 local overlay = Overlay.new()
 
 Effects.start()
 ClimbController.start({ hud = hud, overlay = overlay })
+Emotes.start(ClimbController.isClimbing, function(text, style)
+	overlay:toast(text, style)
+end)
+
+local firstWeather = true
+Weather.start(function(name)
+	hud:setWeather(name)
+	if not firstWeather then
+		local messages = {
+			Rain = "It's raining! Every wall is slippery (+25% stamina drain).",
+			Fog = "Fog is rolling in. Watch your step up there.",
+			Clear = "The skies have cleared.",
+		}
+		overlay:toast(messages[name] or name, if name == "Rain" then "bad" else "info")
+	end
+	firstWeather = false
+end)
 
 -- Profile values ----------------------------------------------------------------
 
@@ -3792,10 +4132,25 @@ local function boostLevels(): { [string]: number }
 	return levels
 end
 
+local lastEmotes = nil
 local function refresh()
 	hud:setCash(cashValue.Value)
 	hud:setSubline(player:GetAttribute("BestHeight") or 0, player:GetAttribute("Streak") or 0)
-	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0)
+	local owned = Emotes.owned()
+	shop:refresh(cashValue.Value, boostLevels(), player:GetAttribute("Chalk") or 0, owned, player:GetAttribute("SummitEmote") or "")
+	local key = table.concat(owned, ",")
+	if key ~= lastEmotes then
+		lastEmotes = key
+		local list = {}
+		for _, id in owned do
+			for _, def in Config.Emotes do
+				if def.Id == id then
+					table.insert(list, { id = id, name = def.Name })
+				end
+			end
+		end
+		hud:setEmotes(list, Emotes.play)
+	end
 end
 
 hud:setClimbs(climbsValue.Value)
@@ -3824,6 +4179,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		ClimbController.letGo()
 	elseif input.KeyCode == Enum.KeyCode.R then
 		ClimbController.toggleRagdoll()
+	elseif input.KeyCode == Enum.KeyCode.G then
+		hud:toggleEmoteBar()
 	elseif input.KeyCode == Enum.KeyCode.P then
 		Remotes.get("ResetToPlaza"):FireServer()
 	elseif input.KeyCode == Enum.KeyCode.Escape and shop:isOpen() then
@@ -3852,6 +4209,7 @@ Remotes.get("Notify").OnClientEvent:Connect(function(kind, payload)
 		if root then
 			Effects.confetti((root :: BasePart).Position + Vector3.new(0, 4, 0))
 		end
+		Emotes.playSummit()
 	elseif kind == "Daily" then
 		overlay:toast(string.format("Daily reward: +$%d  (streak %d)", payload.reward or 0, payload.streak or 0), "gold")
 	elseif kind == "Unlock" then
@@ -3871,11 +4229,11 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="29">
+        <Item class="Folder" referent="30">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="30">
+          <Item class="ModuleScript" referent="31">
             <Properties>
               <string name="Name">Components</string>
               <string name="Source"><![CDATA[-- Tiny declarative helpers so the UI code reads as layout, not boilerplate.
@@ -4033,7 +4391,7 @@ return C
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="31">
+          <Item class="ModuleScript" referent="32">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[-- Always-on HUD: climb counter, cash, stamina, height meter, action buttons,
@@ -4053,6 +4411,7 @@ export type Actions = {
 	ragdoll: () -> (),
 	plaza: () -> (),
 	letGo: () -> (),
+	emotes: () -> (),
 }
 
 local function label(props: { [string]: any }): TextLabel
@@ -4144,6 +4503,39 @@ function Hud.new(actions: Actions)
 		Parent = cashPanel,
 	})
 	self._cashScale = C.new("UIScale", { Parent = cashPanel })
+
+	-- Weather pill under the cash.
+	self.weatherPanel = C.panel({
+		Name = "Weather",
+		Position = UDim2.fromOffset(16, 126),
+		Size = UDim2.fromOffset(190, 34),
+		Parent = root,
+	})
+	self.weather = label({
+		Size = UDim2.fromScale(1, 1),
+		Font = Theme.Bold,
+		Text = "Clear skies",
+		TextSize = 14,
+		Parent = self.weatherPanel,
+	})
+
+	-- Emote bar above the stamina panel (toggled with G / the EMOTES button).
+	self.emoteBar = C.new("Frame", {
+		Name = "EmoteBar",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -114),
+		Size = UDim2.fromOffset(640, 46),
+		BackgroundTransparency = 1,
+		Visible = false,
+		Parent = root,
+	}, {
+		C.new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
 
 	-- Left: altitude meter ---------------------------------------------------------
 	local meter = C.panel({
@@ -4273,7 +4665,7 @@ function Hud.new(actions: Actions)
 		Name = "Actions",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -16, 0.5, 0),
-		Size = UDim2.fromOffset(150, 320),
+		Size = UDim2.fromOffset(150, 380),
 		BackgroundTransparency = 1,
 		Parent = root,
 	}, {
@@ -4298,7 +4690,8 @@ function Hud.new(actions: Actions)
 	self.chalkButton = action(2, "CHALK x0", "C", Color3.fromRGB(70, 80, 110), actions.chalk)
 	self.letGoButton = action(3, "LET GO", "Q", Color3.fromRGB(70, 80, 110), actions.letGo)
 	action(4, "RAGDOLL", "R", Color3.fromRGB(150, 60, 70), actions.ragdoll)
-	action(5, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
+	action(5, "EMOTES", "G", Color3.fromRGB(120, 70, 160), actions.emotes)
+	action(6, "TO PLAZA", "P", Color3.fromRGB(50, 110, 90), actions.plaza)
 
 	return self
 end
@@ -4372,6 +4765,43 @@ function Hud:setAltitude(y: number, towerName: string?, towerInfo: string?, prog
 	self:_set("progressText", self.progressText, "Text", if progress then string.format("%d%%", p * 100) else "")
 end
 
+local WEATHER_TEXT = {
+	Clear = { "Clear skies", Color3.fromRGB(255, 220, 120) },
+	Fog = { "Fog rolling in", Color3.fromRGB(190, 200, 215) },
+	Rain = { "Rain: walls slippery!", Color3.fromRGB(120, 180, 255) },
+}
+
+function Hud:setWeather(name: string)
+	local entry = WEATHER_TEXT[name] or WEATHER_TEXT.Clear
+	self.weather.Text = entry[1]
+	self.weather.TextColor3 = entry[2]
+end
+
+-- Rebuild the emote bar from the owned emotes: { { id, name } }.
+function Hud:setEmotes(emotes: { { id: string, name: string } }, onPlay: (id: string) -> ())
+	for _, child in self.emoteBar:GetChildren() do
+		if child:IsA("GuiButton") then
+			child:Destroy()
+		end
+	end
+	for i, emote in emotes do
+		C.button({
+			LayoutOrder = i,
+			Size = UDim2.fromOffset(84, 42),
+			BackgroundColor3 = Color3.fromRGB(120, 70, 160),
+			Text = emote.name,
+			TextSize = 15,
+			Parent = self.emoteBar,
+		}, function()
+			onPlay(emote.id)
+		end)
+	end
+end
+
+function Hud:toggleEmoteBar()
+	self.emoteBar.Visible = not self.emoteBar.Visible
+end
+
 -- Highlight the LET GO button while you're on a wall.
 function Hud:setClimbing(on: boolean)
 	self:_set("climbing", self.letGoButton, "BackgroundColor3", if on then Color3.fromRGB(60, 130, 220) else Color3.fromRGB(70, 80, 110))
@@ -4388,7 +4818,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="32">
+          <Item class="ModuleScript" referent="33">
             <Properties>
               <string name="Name">Overlay</string>
               <string name="Source"><![CDATA[-- Full-screen moments: blackout, summit celebration, hurt flash, toasts.
@@ -4610,7 +5040,7 @@ return Overlay
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="33">
+          <Item class="ModuleScript" referent="34">
             <Properties>
               <string name="Name">Shop</string>
               <string name="Source"><![CDATA[-- Shop window: boost cards with level pips and a chalk card.
@@ -4628,6 +5058,8 @@ Shop.__index = Shop
 export type Handlers = {
 	buyBoost: (id: string) -> (),
 	buyChalk: () -> (),
+	buyEmote: (id: string) -> (),
+	equipEmote: (id: string) -> (),
 }
 
 local CARD_HEIGHT = 92
@@ -4784,16 +5216,46 @@ function Shop.new(handlers: Handlers)
 		return { frame = frame, pips = pips, buy = buy, levelLabel = levelLabel }
 	end
 
+	local function header(order: number, text: string)
+		C.new("TextLabel", {
+			LayoutOrder = order,
+			Size = UDim2.new(1, 0, 0, 26),
+			Font = Theme.Title,
+			Text = text,
+			TextSize = 18,
+			TextColor3 = Theme.Accent,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = list,
+		})
+	end
+
+	header(0, "BOOSTS")
 	for i, def in Config.Boosts do
 		self.cards[def.Id] = card(i, def.Name, def.Description, def.MaxLevel, function()
 			handlers.buyBoost(def.Id)
 		end)
 	end
-	self.chalkCard = card(#Config.Boosts + 1, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
+	header(100, "GEAR")
+	self.chalkCard = card(101, "Climbing Chalk", "Use with C: halves stamina drain for 12s.", nil, handlers.buyChalk)
+
+	-- Emotes: buy, then pick which one plays automatically at every summit.
+	header(200, "EMOTES  (G to use · the starred one plays at every summit)")
+	self.emoteCards = {}
+	self._owned = {}
+	self._summit = ""
+	for i, def in Config.Emotes do
+		self.emoteCards[def.Id] = card(200 + i, def.Name, "Emote. Play it any time with G.", nil, function()
+			if not self._owned[def.Id] then
+				handlers.buyEmote(def.Id)
+			elseif self._summit ~= def.Id then
+				handlers.equipEmote(def.Id)
+			end
+		end)
+	end
 	return self
 end
 
-function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number)
+function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number, ownedEmotes: { string }, summitEmote: string)
 	self.balance.Text = "Balance: $" .. Theme.formatNumber(cash)
 	for _, def in Config.Boosts do
 		local cardRef = self.cards[def.Id]
@@ -4819,6 +5281,32 @@ function Shop:refresh(cash: number, boosts: { [string]: number }, chalk: number)
 	local ok = not full and cash >= Config.Chalk.Price
 	self.chalkCard.buy.BackgroundColor3 = if ok then Theme.Good else Theme.PanelLight
 	self.chalkCard.buy.TextColor3 = if ok then Color3.fromRGB(15, 30, 20) else Theme.Muted
+
+	self._owned, self._summit = {}, summitEmote
+	for _, id in ownedEmotes do
+		self._owned[id] = true
+	end
+	for _, def in Config.Emotes do
+		local cardRef = self.emoteCards[def.Id]
+		local owned = self._owned[def.Id] == true
+		local summit = owned and summitEmote == def.Id
+		cardRef.levelLabel.Text = if summit then "★ Summit emote" elseif owned then "Owned" else (if def.Price == 0 then "Free" else "Not owned")
+		cardRef.levelLabel.TextColor3 = if summit then Theme.Gold elseif owned then Theme.Good else Theme.Muted
+		if summit then
+			cardRef.buy.Text = "EQUIPPED"
+			cardRef.buy.BackgroundColor3 = Theme.PanelLight
+			cardRef.buy.TextColor3 = Theme.Gold
+		elseif owned then
+			cardRef.buy.Text = "SET SUMMIT"
+			cardRef.buy.BackgroundColor3 = Theme.Info
+			cardRef.buy.TextColor3 = Color3.fromRGB(10, 20, 40)
+		else
+			local affordable = cash >= def.Price
+			cardRef.buy.Text = "$" .. Theme.formatNumber(def.Price)
+			cardRef.buy.BackgroundColor3 = if affordable then Theme.Good else Theme.PanelLight
+			cardRef.buy.TextColor3 = if affordable then Color3.fromRGB(15, 30, 20) else Theme.Muted
+		end
+	end
 end
 
 function Shop:isOpen(): boolean
@@ -4847,7 +5335,7 @@ return Shop
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="34">
+          <Item class="ModuleScript" referent="35">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[-- One place for the HUD's look: dark glass panels, hazard-yellow accent.
@@ -4899,10 +5387,103 @@ return Theme
             </Properties>
           </Item>
         </Item>
+        <Item class="ModuleScript" referent="36">
+          <Properties>
+            <string name="Name">Weather</string>
+            <string name="Source"><![CDATA[-- Client weather: rain that follows the camera, lightning flashes, and the
+-- slippery-wall stamina multiplier. The server picks the weather and tweens the
+-- sky; it publishes the current state as Workspace's "Weather" attribute.
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+
+local Weather = {}
+
+local RAIN_RATE = 900
+
+function Weather.current(): string
+	return Workspace:GetAttribute("Weather") or "Clear"
+end
+
+-- Stamina drain multiplier from the weather (rain makes every wall slippery).
+function Weather.drainMultiplier(): number
+	return if Weather.current() == "Rain" then Config.Weather.RainDrainMultiplier else 1
+end
+
+function Weather.start(onChanged: (name: string) -> ())
+	-- Rain: a wide invisible emitter that rides above the camera.
+	local cloud = Instance.new("Part")
+	cloud.Name = "RainCloud"
+	cloud.Anchored = true
+	cloud.CanCollide = false
+	cloud.CanQuery = false
+	cloud.CanTouch = false
+	cloud.Transparency = 1
+	cloud.Size = Vector3.new(160, 1, 160)
+	local rain = Instance.new("ParticleEmitter")
+	rain.Name = "Rain"
+	rain.Shape = Enum.ParticleEmitterShape.Box
+	rain.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	rain.EmissionDirection = Enum.NormalId.Bottom
+	rain.Orientation = Enum.ParticleOrientation.VelocityParallel
+	rain.Speed = NumberRange.new(110, 140)
+	rain.Lifetime = NumberRange.new(0.7, 1)
+	rain.Size = NumberSequence.new(0.18)
+	rain.Squash = NumberSequence.new(2.5) -- stretch drops into streaks
+	rain.Color = ColorSequence.new(Color3.fromRGB(200, 212, 235))
+	rain.Transparency = NumberSequence.new(0.35)
+	rain.LightEmission = 0.2
+	rain.Rate = 0
+	rain.Parent = cloud
+	cloud.Parent = Workspace
+
+	local flash = Instance.new("ColorCorrectionEffect")
+	flash.Name = "Lightning"
+	flash.Parent = Lighting
+
+	RunService.RenderStepped:Connect(function()
+		local camera = Workspace.CurrentCamera
+		if camera then
+			cloud.CFrame = CFrame.new(camera.CFrame.Position + Vector3.new(0, 45, 0))
+		end
+	end)
+
+	local function apply()
+		local name = Weather.current()
+		rain.Rate = if name == "Rain" then RAIN_RATE else 0
+		onChanged(name)
+	end
+	Workspace:GetAttributeChangedSignal("Weather"):Connect(apply)
+	apply()
+
+	-- Lightning: a double flash every so often while it rains.
+	task.spawn(function()
+		local rng = Random.new()
+		while true do
+			task.wait(rng:NextNumber(8, 20))
+			if Weather.current() == "Rain" then
+				for _ = 1, 2 do
+					flash.Brightness = 0.55
+					TweenService:Create(flash, TweenInfo.new(0.25), { Brightness = 0 }):Play()
+					task.wait(0.18)
+				end
+			end
+		end
+	end)
+end
+
+return Weather
+]]></string>
+          </Properties>
+        </Item>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="35">
+  <Item class="Workspace" referent="37">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-400</float>
@@ -4910,7 +5491,7 @@ return Theme
       <bool name="NeedsPivotMigration">false</bool>
       <bool name="StreamingEnabled">false</bool>
     </Properties>
-    <Item class="SpawnLocation" referent="36">
+    <Item class="SpawnLocation" referent="38">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

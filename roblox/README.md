@@ -39,6 +39,7 @@ telecom towers and the glass of the skyscrapers).
 | C | Use chalk (halves drain for 12s) |
 | R | Ragdoll / get up |
 | P | Back to the plaza |
+| G | Emote bar (play any emote you own) |
 | E at a summit lift | Ride down |
 
 On touch screens the jump button grabs and lunges, pushing the stick toward the
@@ -74,6 +75,13 @@ a helipad on Skyscraper 3, and windows that light up at night.
   zero you black out and ragdoll-fall, with height-based fall damage.
 - Boosts: Endurance, Deep Breaths, Quick Hands, Sticky Gloves, Rubber Bones
 - Chalk, and wind gusts (with a warning) that can blow tired climbers off
+- Weather: clear, fog and rain cycles. The server tweens the haze, clouds and
+  light. Rain falls around you with lightning flashes, and every wall gets
+  slippery (+25% stamina drain).
+- Emotes you buy at the Power Up Shop: Wave (free), Point, Cheer, Laugh, and
+  Dance 1-3. Play them with G. Your starred summit emote plays automatically
+  when you reach a peak. They use the animations built into every avatar, so no
+  uploads are needed.
 - Checkpoints on every platform and balcony, summit service lifts
 - `Tower climbs: N` counter, summit banner and confetti, leaderstats,
   all-time leaderboard board, daily streak reward, unlockable trails
@@ -94,7 +102,7 @@ tests        run.lua (rules unit tests), geometry/ (tower climbability check)
 ## Checks
 
 ```
-luau tests/run.lua                          # 18 unit tests for the game rules and balance
+luau tests/run.lua                          # 21 unit tests for the game rules and balance
 python3 tests/geometry/run_geometry.py      # runs the real builders against a Roblox mock and
                                             # verifies every face of every tower is climbable:
                                             # grip from ground to summit, rests stop you, free
