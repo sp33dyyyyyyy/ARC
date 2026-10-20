@@ -3,15 +3,15 @@
 -- your harness to it. Created here so every player sees the rope; the climber's
 -- client simulates their own body, so the rope physically catches their falls.
 --
--- The client asks for a clip point. It's checked here with the same Lattice
--- maths the client used to pick it (so a point the client offers always
--- passes), and the climber always hears back ("RopeResult": ok + why not).
+-- The client asks to clip in (with the point it would like). The server finds
+-- the beam or glass within reach of the climber itself, preferring the
+-- client's point when it checks out, and the climber always hears back
+-- ("RopeResult": ok, or exactly why not).
 --
 -- The gear is a real model: a D-shaped carabiner (orange body, silver gate)
 -- with a quickdraw sling and a small rope-end clip, or a suction cup with a
 -- handle. It flies from your harness up onto the beam/glass when you clip in,
 -- and drops back to your harness when you unclip.
-local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -64,52 +64,72 @@ local function towerAt(point: Vector3): Model?
 	return nil
 end
 
--- Clip bars of each tower as segments (towers never change once built).
-local barCache: { [Model]: { Lattice.Segment } } = {}
-local function clipBars(tower: Model): { Lattice.Segment }
-	local cached = barCache[tower]
+-- Every member of a telecom tower you can clip round (legs, braces, girts),
+-- as segments. Towers never change once built.
+local holdCache: { [Model]: { Lattice.Segment } } = {}
+local function holdSegments(tower: Model): { Lattice.Segment }
+	local cached = holdCache[tower]
 	if cached then
 		return cached
 	end
 	local list = {}
-	for _, bar in CollectionService:GetTagged("ClipBar") do
-		if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
-			table.insert(list, Lattice.segment(bar))
+	for _, part in tower:GetDescendants() do
+		if part:IsA("BasePart") and (part:HasTag("ClimbHold") or part:HasTag("ClipBar")) then
+			table.insert(list, Lattice.segment(part))
 		end
 	end
-	barCache[tower] = list
+	if #list > 0 then
+		holdCache[tower] = list
+	end
 	return list
 end
 
--- What can be clipped at `point`: ("carabiner", beam point, beam direction),
--- ("suction", glass point, glass normal), or nil + the reason.
-function RopeService.validate(point: Vector3): (string?, Vector3 | string, Vector3?)
-	local tower = towerAt(point)
-	if not tower then
-		return nil, "You're not on a tower."
-	end
+-- Decide where a climber whose hands are at `hands` clips in. The server
+-- finds the spot itself; `hint` (the client's choice) is used when it checks
+-- out, so the gear lands exactly where the climber was looking.
+-- Returns ("carabiner", beam point, ring direction) or ("suction", glass
+-- point, glass normal), or nil + the reason.
+function RopeService.pick(tower: Model, hands: Vector3, hint: Vector3?): (string?, Vector3 | string, Vector3?)
+	local reach = Config.Rope.Reach + RopeService.LAG_ALLOWANCE
+	local pivot = tower.WorldPivot
 	if tower:GetAttribute("Kind") == "Telecom" then
-		local q, seg = Lattice.nearest(clipBars(tower), point, RopeService.CLIP_TOLERANCE)
-		if not q or not seg then
-			return nil, "No beam there - get your hands near a horizontal beam."
+		local segments = holdSegments(tower)
+		local q, seg = nil, nil
+		if hint and (hint - hands).Magnitude <= reach then
+			q, seg = Lattice.nearest(segments, hint, RopeService.CLIP_TOLERANCE)
 		end
+		if not q then
+			q, seg = Lattice.nearest(segments, hands, reach)
+		end
+		if not q or not seg then
+			return nil, "No beam within reach - climb closer to the tower's beams."
+		end
+		-- The ring hangs with its gate across the beam: along a horizontal
+		-- beam, or across the face for a leg / steep brace.
 		local along = seg.b - seg.a
-		local dir = Vector3.new(along.X, 0, along.Z)
-		return "carabiner", q, if dir.Magnitude > 1e-3 then dir.Unit else Vector3.xAxis
+		local flat = Vector3.new(along.X, 0, along.Z)
+		local dir = if flat.Magnitude > math.abs(along.Y) then flat.Unit else Lattice.faceNormal(pivot, q):Cross(Vector3.yAxis)
+		return "carabiner", q, dir
 	end
-	local params = OverlapParams.new()
+	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = { tower }
-	for _, part in Workspace:GetPartBoundsInRadius(point, 1.5, params) do
-		if part:HasTag("Climbable") then
-			local localPoint = part.CFrame:PointToObjectSpace(point)
-			local half = part.Size / 2 + Vector3.one * RopeService.CLIP_TOLERANCE
-			if math.abs(localPoint.X) <= half.X and math.abs(localPoint.Y) <= half.Y and math.abs(localPoint.Z) <= half.Z then
-				return "suction", point, Lattice.faceNormal(tower.WorldPivot, point)
-			end
+	local tries = {}
+	if hint and (hint - hands).Magnitude <= reach then
+		local n = Lattice.faceNormal(pivot, hint)
+		table.insert(tries, { hint + n * 2, -n * 4 })
+	end
+	local n = Lattice.faceNormal(pivot, hands)
+	table.insert(tries, { hands, -n * reach })
+	for _, try in tries do
+		local hit = Workspace:Raycast(try[1], try[2], params)
+		if hit and hit.Instance:HasTag("Climbable") then
+			local normal = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
+			normal = if normal.Magnitude > 0.1 then normal.Unit else n
+			return "suction", hit.Position + normal * 0.3, normal
 		end
 	end
-	return nil, "No glass there to stick the suction cup on."
+	return nil, "No glass within reach to stick the suction cup on."
 end
 
 -- Gear models -----------------------------------------------------------------------
@@ -250,18 +270,21 @@ function RopeService.unclip(player: Player, animate: boolean?)
 	end
 end
 
-local function clip(player: Player, point: Vector3)
+local function clip(player: Player, hint: Vector3?)
 	local root = rootOf(player)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not root or not humanoid or humanoid.Health <= 0 then
+		result(player, false, "Can't clip in right now.")
 		return
 	end
-	if (point - root.Position).Magnitude > Config.Rope.Reach + RopeService.LAG_ALLOWANCE + 2.5 then
-		result(player, false, "Too far away to clip there - climb closer.")
+	local tower = towerAt(root.Position)
+	if not tower then
+		result(player, false, "Get on a tower first, then clip in.")
 		return
 	end
-	local kind, at, dir = RopeService.validate(point)
+	local hands = root.Position + Vector3.new(0, 2.5, 0)
+	local kind, at, dir = RopeService.pick(tower, hands, hint)
 	if not kind or typeof(at) ~= "Vector3" or not dir then
 		result(player, false, if typeof(at) == "string" then at else "Can't clip there.")
 		return
@@ -312,7 +335,7 @@ end
 
 function RopeService.start()
 	Remotes.get("Rope").OnServerEvent:Connect(function(player, action, point)
-		if action == "clip" and typeof(point) == "Vector3" then
+		if action == "clip" then
 			-- Rate limit clips only: an unclip (e.g. climbing onto the summit
 			-- right after clipping) must never be dropped.
 			local now = os.clock()
@@ -321,7 +344,11 @@ function RopeService.start()
 				return
 			end
 			lastRequest[player] = now
-			clip(player, point)
+			local ok, err = pcall(clip, player, if typeof(point) == "Vector3" then point else nil)
+			if not ok then
+				warn("[Rope] clip failed: " .. tostring(err))
+				result(player, false, "Clipping failed (server error) - try again.")
+			end
 		elseif action == "unclip" then
 			RopeService.unclip(player, true)
 		end

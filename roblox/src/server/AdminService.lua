@@ -327,7 +327,9 @@ function AdminService.start()
 		actions[action](player, args)
 	end)
 
-	pcall(function()
+	-- SubscribeAsync waits on Roblox's servers (and can stall in Studio), so it
+	-- runs in the background instead of holding up the rest of startup.
+	task.spawn(pcall, function()
 		MessagingService:SubscribeAsync(Config.Admin.AnnounceTopic, function(message)
 			local data = message.Data
 			if type(data) == "table" and type(data.text) == "string" then

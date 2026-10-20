@@ -30,7 +30,6 @@
 -- climbing state every frame. That is safe: stamina only limits the player
 -- themselves. Everything that has value (cash, climbs, purchases, fall damage)
 -- is decided on the server.
-local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -104,7 +103,6 @@ local ui: any = nil
 -- tower's members as segments (built once per tower).
 local holdTower: Model? = nil
 local segmentCache: { [Model]: { Lattice.Segment } } = {}
-local clipBarCache: { [Model]: { Lattice.Segment } } = {}
 
 local function towerSegments(maybeTower: Model?): { Lattice.Segment }
 	if not maybeTower then
@@ -446,21 +444,8 @@ local function findClipPoint(): (Vector3?, string?)
 	end
 	local hands = if climbing then anchor + Vector3.new(0, HAND_HEIGHT, 0) else rootPart.Position + Vector3.new(0, 1.5, 0)
 	if isLattice(tower) then
-		-- Carabiner onto the nearest horizontal beam (the server checks it with
-		-- the same Lattice maths, so they always agree).
-		local bars = clipBarCache[tower]
-		if not bars then
-			bars = {}
-			for _, bar in CollectionService:GetTagged("ClipBar") do
-				if bar:IsA("BasePart") and bar:IsDescendantOf(tower) then
-					table.insert(bars, Lattice.segment(bar))
-				end
-			end
-			if #bars > 0 then
-				clipBarCache[tower] = bars
-			end
-		end
-		local best = Lattice.nearest(bars, hands, Config.Rope.Reach)
+		-- Carabiner round the nearest beam (any leg, brace or girt).
+		local best = Lattice.nearest(towerSegments(tower), hands, Config.Rope.Reach)
 		return best, if best then "carabiner" else nil
 	end
 	-- Suction cup straight onto the glass in front of your hands.
@@ -474,18 +459,30 @@ local function findClipPoint(): (Vector3?, string?)
 	return nil, nil
 end
 
+local clipPendingSince: number? = nil
+
 function ClimbController.clip()
-	if not climbing then
-		ui.overlay:toast("Grab onto a tower first, then clip in (F).", "bad")
+	local rootPart = root
+	if not rootPart or mode ~= "normal" then
 		return
 	end
+	if not currentTower(rootPart.Position) then
+		ui.overlay:toast("Get on a tower first, then clip in (F).", "bad")
+		return
+	end
+	-- The server finds the beam/glass in reach itself; our pick is just a hint
+	-- so the gear lands where you're reaching.
 	local point, kind = findClipPoint()
-	if not point then
-		ui.overlay:toast("Nothing to clip into here - climb closer to a beam.", "bad")
-		return
-	end
 	ropeRemote:FireServer("clip", point)
 	ropeTaut = false
+	local sentAt = os.clock()
+	clipPendingSince = sentAt
+	task.delay(3, function()
+		if clipPendingSince == sentAt then
+			clipPendingSince = nil
+			ui.overlay:toast("The server didn't answer the clip request. Check the Output window for errors.", "bad")
+		end
+	end)
 	-- Reach up and clip it in (the server flies the gear onto the beam).
 	ClimbAnimator.gesture("point", 0.5, 1.6)
 	Effects.sound(Config.Sounds.Grab, 0.4, if kind == "suction" then 0.7 else 1.6)
@@ -493,6 +490,7 @@ end
 
 -- The server's answer to a clip request (see RopeService).
 function ClimbController.onRopeResult(ok: boolean, text: string, kind: string?)
+	clipPendingSince = nil
 	if ok then
 		Effects.sound(Config.Sounds.Click, 0.6, if kind == "suction" then 0.6 else 2.2)
 		ui.overlay:toast(text, "good")

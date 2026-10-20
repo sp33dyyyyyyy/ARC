@@ -68,7 +68,7 @@ back to your harness. You always get a message saying you're clipped in, or
 exactly why not (too far, no beam there, and so on). While you're clipped, wind gusts can't knock you
 off, you can hang still on the rope to recover stamina (half the ground rate),
 and if you black out or let go the rope catches your fall. Telecom towers: clip
-a carabiner onto any horizontal beam. Skyscrapers: stick a suction cup onto the
+a carabiner round any beam in reach (leg, brace or girt). Skyscrapers: stick a suction cup onto the
 glass. It unclips by itself when you climb onto the summit or reach the ground.
 
 **Getting down:** climb down (S), rappel with the Rappel Kit (V), or press P to

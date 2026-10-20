@@ -224,3 +224,18 @@ Changes requested after the first playable build:
   you can rappel the whole way down. It also checks that the server accepts
   every clip point the client would pick.
 
+## 16. Revision: clipping fixed at the source (2026-10-20)
+
+- `RopeService.start()` ran last on the server, after `AdminService.start()`,
+  which called `MessagingService:SubscribeAsync` directly. That call waits on
+  Roblox's servers and can stall (especially in Studio), and while it did the
+  rope remote had no listener, so F silently did nothing. The subscribe now
+  runs in the background and the rope service starts right after data.
+- The server now picks the clip point itself (nearest leg, brace or girt within
+  reach of the climber's hands, or the glass in front of them), using the
+  client's point only as a hint. Client/server disagreement can no longer
+  reject a clip. A server error while clipping is caught and reported.
+- The client always sends the request (even when it sees nothing in reach),
+  works off the wall too (e.g. standing on a deck), and warns if the server
+  doesn't answer within 3 seconds.
+

@@ -27,13 +27,13 @@ local spawn = Workspace:FindFirstChildOfClass("SpawnLocation")
 local spawnCFrame = if spawn then spawn.CFrame + Vector3.new(0, 4, 0) else WorldBuilder.PlazaSpawn
 
 DataService.start()
+RopeService.start()
 ClimbService.start(towers, spawnCFrame)
 RagdollService.start()
 ShopService.start()
 EnvironmentService.start()
 LeaderboardService.start(world:FindFirstChild("Leaderboard") :: BasePart)
 AdminService.start()
-RopeService.start()
 
 local notify = Remotes.get("Notify")
 
