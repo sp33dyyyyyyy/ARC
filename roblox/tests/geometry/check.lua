@@ -398,6 +398,11 @@ for _, name in { "IslandTop", "Plaza", "MainPath", "ShopYard" } do
 end
 local worldParts = #world:GetDescendants()
 
+-- The loading screen reads these: progress must finish at 100% and "ready".
+if workspace:GetAttribute("WorldReady") ~= true or workspace:GetAttribute("LoadProgress") ~= 1 then
+	fail("world build didn't report WorldReady / LoadProgress = 1 for the loading screen")
+end
+
 print(string.format("%d tower parts, %d world parts, %d failures", totalParts, worldParts, failures))
 if failures > 0 then
 	error("geometry check failed")

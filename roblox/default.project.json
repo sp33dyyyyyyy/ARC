@@ -8,6 +8,12 @@
         "$path": "src/shared"
       }
     },
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "LoadingScreen": {
+        "$path": "src/first/LoadingScreen.client.lua"
+      }
+    },
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "Server": {

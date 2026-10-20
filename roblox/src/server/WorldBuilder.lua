@@ -555,35 +555,75 @@ end
 -- responsive and the server never hits the script time limit (building ~9,000
 -- parts in one go froze or "crashed" Studio on slower PCs). The ground and
 -- plaza go in first, so players never spawn over nothing.
+--
+-- Progress is published on Workspace for the loading screen:
+--   LoadStage (text), LoadProgress (0-1), WorldReady (true when finished).
 function WorldBuilder.build()
 	local started = os.clock()
 	local world = Workspace:FindFirstChild("World")
 	local towers = Workspace:FindFirstChild("Towers")
+
+	-- Each step weighted by roughly how much it builds.
+	local steps = {}
+	local function step(label: string, weight: number, fn: () -> ())
+		table.insert(steps, { label = label, weight = weight, fn = fn })
+	end
 	if not world then
 		world = Instance.new("Folder")
 		world.Name = "World"
 		world.Parent = Workspace
 		local rng = Random.new(2024)
-		buildIsland(world, rng)
-		buildPlaza(world)
-		Build.setBatching(true)
-		buildPaths(world)
-		for _, entry in Config.Layout do
-			buildLot(world, rng, entry, Config.TowerTypes[entry.Type])
-		end
-		buildShop(world)
-		scatterTrees(world, rng)
+		local w = world :: Folder
+		step("Shaping the island", 2, function()
+			buildIsland(w, rng)
+		end)
+		step("Laying out the plaza", 1, function()
+			buildPlaza(w)
+			Build.setBatching(true) -- ground is in: pause between batches from here
+		end)
+		step("Paths and tower lots", 3, function()
+			buildPaths(w)
+			for _, entry in Config.Layout do
+				buildLot(w, rng, entry, Config.TowerTypes[entry.Type])
+			end
+		end)
+		step("Opening the Power Up Shop", 1, function()
+			buildShop(w)
+		end)
+		step("Planting trees", 3, function()
+			scatterTrees(w, rng)
+		end)
 	end
 	if not towers then
-		Build.setBatching(true)
 		towers = Instance.new("Folder")
 		towers.Name = "Towers"
 		towers.Parent = Workspace
+		local t = towers :: Folder
 		for _, entry in Config.Layout do
-			TowerBuilder.build(towers, entry, Config.TowerTypes[entry.Type], towerCFrame(entry), M.LotHalf)
+			local def = Config.TowerTypes[entry.Type]
+			local height = if def.Kind == "Telecom" then def.SectionHeight * def.Sections else def.Height
+			step("Building " .. entry.Name, math.max(1, height / 250), function()
+				Build.setBatching(true)
+				TowerBuilder.build(t, entry, def, towerCFrame(entry), M.LotHalf)
+			end)
 		end
 	end
+
+	local total = 0
+	for _, s in steps do
+		total += s.weight
+	end
+	local done = 0
+	for _, s in steps do
+		Workspace:SetAttribute("LoadStage", s.label)
+		Workspace:SetAttribute("LoadProgress", if total > 0 then done / total else 1)
+		s.fn()
+		done += s.weight
+	end
 	Build.setBatching(false)
+	Workspace:SetAttribute("LoadStage", "World ready")
+	Workspace:SetAttribute("LoadProgress", 1)
+	Workspace:SetAttribute("WorldReady", true)
 	print(string.format("[World] built %d parts in %.1fs", Build.count(), os.clock() - started))
 	return world, towers
 end
