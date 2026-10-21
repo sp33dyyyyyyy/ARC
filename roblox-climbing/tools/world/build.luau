@@ -202,6 +202,15 @@ for _, d in Workspace:GetDescendants() do
 		})
 	end
 end
+local slots = {}
+for _, d in Workspace:GetDescendants() do
+	local key = d:GetAttribute("AssetKey")
+	local base = d:GetAttribute("Base")
+	local fit = d:GetAttribute("FitSize")
+	if key and typeof(base) == "CFrame" and typeof(fit) == "Vector3" then
+		table.insert(slots, { path = d:GetFullName(), key = key, cf = { base:GetComponents() }, size = { fit.X, fit.Y, fit.Z } })
+	end
+end
 local lights = {}
 for _, d in Workspace:GetDescendants() do
 	if d:IsA("Light") then
@@ -224,6 +233,7 @@ for _, d in lighting:GetChildren() do
 end
 fs.writeFile(outPath, serde.encode("json", {
 	parts = parts,
+	slots = slots,
 	terrain = terrainFills,
 	lights = lights,
 	lighting = { Brightness = lighting.Brightness, ExposureCompensation = lighting.ExposureCompensation, EnvironmentDiffuseScale = lighting.EnvironmentDiffuseScale, EnvironmentSpecularScale = lighting.EnvironmentSpecularScale, post = post },

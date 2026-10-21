@@ -145,12 +145,43 @@ def main():
                 problems["covered"].append(f"{p['path']} has {depth:.2f} studs buried in {q['path']}")
                 break
 
+    # Props: each slot's space (its fit box standing on the floor) mustn't run into
+    # another prop's or into solid scenery (walls, counters, rock faces).
+    slots = world.get("slots", [])
+    def slot_box(s):
+        pos = np.array(s["cf"][:3]); rot = np.array(s["cf"][3:]).reshape(3, 3)
+        half = np.array(s["size"]) / 2 * 0.8  # models rarely fill their whole box
+        corners_ = np.array([[x, y, z] for x in (-1, 1) for y in (0, 2) for z in (-1, 1)]) * half
+        pts = pos + corners_ @ rot.T
+        return pts.min(axis=0), pts.max(axis=0)
+    sboxes = [(s, *slot_box(s)) for s in slots]
+    def footprint(s):
+        pos = np.array(s["cf"][:3])
+        return pos, 0.8 * max(s["size"][0], s["size"][2]) / 2, pos[1], pos[1] + s["size"][1]
+    feet = [footprint(s) for s in slots]
+    for a in range(len(sboxes)):
+        sa, lo1, hi1 = sboxes[a]
+        pa, ra, ya0, ya1 = feet[a]
+        for b in range(a + 1, len(sboxes)):
+            sb = sboxes[b][0]
+            pb, rb, yb0, yb1 = feet[b]
+            d = np.hypot(pa[0] - pb[0], pa[2] - pb[2])
+            if d < ra + rb - 0.2 and min(ya1, yb1) - max(ya0, yb0) > 0.2:
+                problems["propclash"].append(f"{sa['path']} ({sa['key']}) overlaps {sb['path']} ({sb['key']}): {d:.1f} apart, needs {ra + rb:.1f}")
+        for p, lo2, hi2 in axis_aligned:
+            if p["path"].startswith(sa["path"] + ".") or hi2[1] <= lo1[1] + 0.15 or "Crags" in p["path"] and "Ledge" not in p["path"] and "RockFace" not in p["path"]:
+                continue  # its own stand-in, a floor under it
+            overlap = np.minimum(hi1, hi2) - np.maximum(lo1, lo2)
+            if (overlap > 0.3).all() and np.prod(overlap) > 0.2 * np.prod(np.maximum(hi1 - lo1, 1e-3)):
+                problems["propclash"].append(f"{sa['path']} ({sa['key']}) runs into {p['path']}")
+                break
+
     for light in world["lights"]:
         if light["brightness"] > 2.5 or (light["class"] == "SurfaceLight" and light["brightness"] * light["range"] > 40):
             problems["lights"].append(f"{light['path']} {light['class']} brightness {light['brightness']} range {light['range']}")
 
     total = 0
-    for kind in ("sunk", "buried", "floating", "covered", "clash", "lights"):
+    for kind in ("sunk", "buried", "floating", "covered", "clash", "propclash", "lights"):
         items = problems[kind]
         total += len(items)
         print(f"{kind}: {len(items)}")

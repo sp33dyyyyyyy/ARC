@@ -55,15 +55,26 @@ local function template(key: string): Model?
 	end
 	loading[key] = true
 	local entry = Props.LIBRARY[key]
-	local ok, result = pcall(function()
-		return AssetService:LoadAssetAsync(entry.id)
-	end)
+	-- The model, or the next backup when one won't load.
+	local result: Instance? = nil
+	local lastError: any = nil
+	for _, id in entry.ids do
+		local ok, loaded = pcall(function()
+			return AssetService:LoadAssetAsync(id)
+		end)
+		if ok and loaded and (loaded :: Instance):FindFirstChildWhichIsA("BasePart", true) then
+			result = loaded
+			break
+		end
+		lastError = loaded
+		warn(`[PropService] "{entry.name}" model {id} didn't load ({loaded}); trying the next one`)
+	end
 	loading[key] = nil
-	if not ok or result == nil then
+	if result == nil then
 		templates[key] = false
 		if not warned then
 			warned = true
-			warn(`[PropService] couldn't load the Creator Store model "{entry.name}" ({entry.id}): {result}. The built-in stand-ins are used instead. To get the real models, turn on Game Settings > Security > "Allow Loading Third Party Assets" (the place must be published).`)
+			warn(`[PropService] couldn't load the Creator Store model "{entry.name}": {lastError}. The built-in stand-ins are used instead. To get the real models, turn on Game Settings > Security > "Allow Loading Third Party Assets" (the place must be published).`)
 		end
 		return nil
 	end
@@ -164,13 +175,34 @@ function PropService.Start()
 	CollectionService:GetInstanceAddedSignal(Props.TAG):Connect(function(slot)
 		task.spawn(dress, slot)
 	end)
-	task.spawn(function()
-		for _, slot in CollectionService:GetTagged(Props.TAG) do
-			dress(slot)
+	-- Every kind of prop loads in parallel; then all its slots are filled.
+	local byKey: { [string]: { Instance } } = {}
+	for _, slot in CollectionService:GetTagged(Props.TAG) do
+		local key = slot:GetAttribute("AssetKey")
+		if type(key) == "string" then
+			byKey[key] = byKey[key] or {}
+			table.insert(byKey[key], slot)
 		end
-		local loaded, total = PropService.Stats()
-		print(`[PropService] {loaded}/{total} props use Creator Store models`)
-	end)
+	end
+	local pending = 0
+	for _, slots in byKey do
+		pending += 1
+		task.spawn(function()
+			for _, slot in slots do
+				dress(slot)
+			end
+			pending -= 1
+			if pending == 0 then
+				local loaded, total = PropService.Stats()
+				print(`[PropService] {loaded}/{total} props use Creator Store models`)
+				for key, entry in Props.LIBRARY do
+					if templates[key] == false then
+						warn(`[PropService] still using the stand-in for "{entry.name}"`)
+					end
+				end
+			end
+		end)
+	end
 end
 
 return PropService

@@ -150,27 +150,48 @@ local function blocked(x: number, z: number): boolean
 	return false
 end
 
+-- Space taken by props outdoors (circles on the ground), so nothing is placed into
+-- anything else: camps first, then rocks and bushes, then the forest.
+type Spot = { x: number, z: number, r: number }
+local taken: { Spot } = {}
+
+local function claim(x: number, z: number, r: number): boolean
+	for _, spot in taken do
+		local dx, dz = spot.x - x, spot.z - z
+		if dx * dx + dz * dz < (spot.r + r) * (spot.r + r) then
+			return false
+		end
+	end
+	table.insert(taken, { x = x, z = z, r = r })
+	return true
+end
+
 local function buildTrees(parent: Instance)
 	local forest = Instance.new("Model")
 	forest.Name = "Forest"
 	local rand = scatter(424242)
 	local placed = 0
 	local attempts = 0
-	while placed < 150 and attempts < 2000 do
+	while placed < 150 and attempts < 4000 do
 		attempts += 1
 		local x = (rand() - 0.5) * 900
 		local z = -260 + rand() * 900
-		if blocked(x, z) then
+		local scale = 0.8 + rand() * 0.7
+		-- Creator Store trees: pines, with leafy trees mixed in nearer the gym.
+		local near = math.abs(x) < 200 and z < 300
+		local roll = rand()
+		local key = if near and roll < 0.35 then (if roll < 0.18 then "tree_a" else "tree_b") elseif roll < 0.5 then "pine_a" elseif roll < 0.8 then "pine_b" else "pine_c"
+		local size = if key == "tree_a" or key == "tree_b" then Vector3.new(16, 22, 16) else Vector3.new(14, 26, 14)
+		-- Trees don't grow into each other: keep a canopy's width apart.
+		if blocked(x, z) or not claim(x, z, size.X * scale * 0.4) then
 			continue
 		end
 		placed += 1
-		local scale = 0.8 + rand() * 0.7
 		local base = Vector3.new(x, GROUND_Y, z)
 		local trunkHeight = 6 * scale
-		-- A Creator Store pine (two kinds); the stand-in is the rounded fir below.
-		local key = if placed % 2 == 0 then "pine_a" else "pine_b"
 		local yaw = rand() * math.pi * 2
-		local tree = Props.slot(forest, key, Props.at(base, Vector3.new(math.cos(yaw), 0, math.sin(yaw))), Vector3.new(14, 26, 14) * scale, nil)
+		-- The stand-in: a rounded fir.
+		local tree = Props.slot(forest, key, Props.at(base, Vector3.new(math.cos(yaw), 0, math.sin(yaw))), size * scale, nil)
 		part({
 			name = "Trunk",
 			size = Vector3.new(trunkHeight + 2, 1.2 * scale, 1.2 * scale),
@@ -180,7 +201,6 @@ local function buildTrees(parent: Instance)
 			collide = true,
 			parent = tree,
 		})
-		-- Rounded, overlapping needle tiers that taper to a point: a smooth fir silhouette.
 		local green = Color3.fromRGB(40 + math.floor(rand() * 16), 76 + math.floor(rand() * 20), 48)
 		for tier = 0, 4 do
 			local radius = (5.4 - tier * 1.0) * scale
@@ -199,13 +219,16 @@ local function buildTrees(parent: Instance)
 	forest.Parent = parent
 end
 
--- Rocks and bushes around the crags and along the paths, and a camp (tent and campfire)
--- beside each crag. Creator Store models with simple stand-ins.
+-- Rocks and bushes around the crags and along the paths, and a camp (tent, campfire and
+-- a climber) beside each crag. Creator Store models with simple stand-ins.
 local function buildScatter(parent: Instance)
 	local scatterModel = Instance.new("Model")
 	scatterModel.Name = "Scatter"
 	local rand = scatter(5150)
 	local function rock(position: Vector3, size: number)
+		if not claim(position.X, position.Z, size * 0.45) then
+			return
+		end
 		local keys = { "rock_a", "rock_b", "rock_c" }
 		local yaw = rand() * math.pi * 2
 		Props.slot(scatterModel, keys[math.floor(rand() * 3) + 1], Props.at(position, Vector3.new(math.cos(yaw), 0, math.sin(yaw))), Vector3.new(size, size * 0.7, size), function(m)
@@ -213,13 +236,46 @@ local function buildScatter(parent: Instance)
 		end)
 	end
 	local function bush(position: Vector3, size: number)
+		if not claim(position.X, position.Z, size * 0.42) then
+			return
+		end
 		local key = if rand() < 0.3 then "flowerbush" else "bush"
 		Props.slot(scatterModel, key, Props.at(position, Vector3.new(rand() - 0.5, 0, rand() - 0.5)), Vector3.new(size, size * 0.8, size), function(m)
 			part({ name = "Bush", size = Vector3.new(size, size * 0.7, size), cframe = CFrame.new(position + Vector3.yAxis * size * 0.3), surface = "Leaves", ellipsoid = true, parent = m })
 		end)
 	end
+	-- The crags' own ground (the face and the start areas in front of it) is never used.
+	for _, wall in WALLS do
+		claim(wall.origin.X, wall.origin.Z + 6, wall.width / 2 + 2)
+		for _, route in wall.routes do
+			claim(wall.origin.X + route.lineX * -1, wall.origin.Z - 6, 9)
+		end
+	end
 	for _, wall in WALLS do
 		local half = wall.width / 2
+		-- Camp on the left of the crag: a tent, a campfire and a climber in full kit.
+		local camp = Vector3.new(wall.origin.X - half - 16, GROUND_Y, wall.origin.Z - 18)
+		claim(camp.X, camp.Z, 5)
+		Props.slot(scatterModel, "tent", Props.at(camp, Vector3.new(1, 0, -0.4)), Vector3.new(7, 5, 8), function(m)
+			part({ name = "Tent", size = Vector3.new(6, 4.5, 7), cframe = frameAt(camp + Vector3.yAxis * 2.25, Vector3.new(1, 0, 0), Vector3.yAxis), surface = "Tape", color = Color3.fromRGB(240, 120, 50), wedge = true, collide = true, query = true, parent = m })
+		end)
+		local kits = {
+			{ hat = 117772364185840, back = 128795521464166, waist = 12765447418 },
+			{ hat = 72372066631368, back = 17817037993, waist = 12765462493 },
+			{ hat = 86458819326502, back = 88149022073624, waist = 12765451822 },
+		}
+		local kit = kits[(math.floor(wall.origin.X) % #kits) + 1]
+		local climber = camp + Vector3.new(5, 0, -7)
+		claim(climber.X, climber.Z, 1.5)
+		Npc.spawn("Climber", climber, Vector3.new(0, 0, 1), scatterModel, Color3.fromRGB(70, 110, 160), kit)
+		local fire = camp + Vector3.new(7, 0, -3)
+		claim(fire.X, fire.Z, 2.2)
+		Props.slot(scatterModel, "campfire", Props.at(fire, Vector3.new(0, 0, 1)), Vector3.new(3.4, 2.6, 3.4), function(m)
+			for i = 0, 5 do
+				local angle = i * math.pi / 3
+				part({ name = "Stone", size = Vector3.new(0.9, 0.6, 0.8), cframe = CFrame.new(fire + Vector3.new(math.cos(angle) * 1.4, 0.25, math.sin(angle) * 1.4)), surface = "RockFace", ellipsoid = true, parent = m })
+			end
+		end)
 		for side = -1, 1, 2 do
 			-- Boulders tumbled against the foot of the crag, either side of it.
 			for _ = 1, 4 do
@@ -230,28 +286,8 @@ local function buildScatter(parent: Instance)
 				bush(Vector3.new(wall.origin.X + side * (half + 6 + rand() * 20), GROUND_Y, wall.origin.Z - 8 - rand() * 20), 3 + rand() * 3)
 			end
 		end
-		-- Camp on the left of the crag: a tent and a campfire.
-		local camp = Vector3.new(wall.origin.X - half - 16, GROUND_Y, wall.origin.Z - 18)
-		Props.slot(scatterModel, "tent", Props.at(camp, Vector3.new(1, 0, -0.4)), Vector3.new(7, 5, 8), function(m)
-			part({ name = "Tent", size = Vector3.new(6, 4.5, 7), cframe = frameAt(camp + Vector3.yAxis * 2.25, Vector3.new(1, 0, 0), Vector3.yAxis), surface = "Tape", color = Color3.fromRGB(240, 120, 50), wedge = true, collide = true, query = true, parent = m })
-		end)
-		-- A climber at camp in full kit (catalog helmet, pack and chalk bag).
-		local kits = {
-			{ hat = 117772364185840, back = 128795521464166, waist = 12765447418 },
-			{ hat = 72372066631368, back = 17817037993, waist = 12765462493 },
-			{ hat = 86458819326502, back = 88149022073624, waist = 12765451822 },
-		}
-		local kit = kits[(math.floor(wall.origin.X) % #kits) + 1]
-		Npc.spawn("Climber", camp + Vector3.new(5, 0, -7), Vector3.new(0, 0, 1), scatterModel, Color3.fromRGB(70, 110, 160), kit)
-		local fire = camp + Vector3.new(7, 0, -3)
-		Props.slot(scatterModel, "campfire", Props.at(fire, Vector3.new(0, 0, 1)), Vector3.new(3.4, 2.6, 3.4), function(m)
-			for i = 0, 5 do
-				local angle = i * math.pi / 3
-				part({ name = "Stone", size = Vector3.new(0.9, 0.6, 0.8), cframe = CFrame.new(fire + Vector3.new(math.cos(angle) * 1.4, 0.25, math.sin(angle) * 1.4)), surface = "RockFace", ellipsoid = true, parent = m })
-			end
-		end)
 	end
-	-- Along the paths.
+	-- Along the paths (beside them, never on them).
 	for _ = 1, 26 do
 		local z = 60 + rand() * 440
 		local x = (if rand() < 0.5 then -1 else 1) * (7 + rand() * 10)
@@ -401,8 +437,9 @@ function Outdoors.Build(): Model
 	local model = Instance.new("Model")
 	model.Name = "Outdoors"
 	buildTerrain()
-	buildTrees(model)
+	table.clear(taken)
 	buildScatter(model)
+	buildTrees(model)
 	buildMountains(model)
 	buildSignpost(model, Vector3.new(6, GROUND_Y, 98), `<b>CRAGS</b>\n← Wall A  ·  Wall B →\n↑ The Colossus`)
 	for _, wall in Outdoors.WALLS do

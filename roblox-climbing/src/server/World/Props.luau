@@ -19,7 +19,7 @@ local Props = {}
 Props.TAG = "PropSlot"
 
 export type Entry = {
-	id: number,
+	ids: { number }, -- the model, then backups tried in turn if one won't load
 	name: string,
 	collide: boolean, -- solid to walk into (trees and bushes aren't, so no invisible walls)
 	sink: number?, -- fraction of the fitted height pushed below the floor (rocks)
@@ -27,26 +27,29 @@ export type Entry = {
 }
 
 Props.LIBRARY = table.freeze({
-	plant_palm = { id = 8704290264, name = "Potted palm", collide = true },
-	plant_floor = { id = 3209557930, name = "Floor plant", collide = true },
-	plant_fig = { id = 11900728265, name = "Fiddle-leaf fig", collide = true },
-	sofa = { id = 412942154, name = "Modern sofa", collide = true },
-	coffee = { id = 12520208389, name = "Coffee machine", collide = true },
-	stool = { id = 13001590550, name = "Bar stool", collide = true },
-	vending = { id = 10904552162, name = "Snack vending machine", collide = true },
-	cooler = { id = 468240417, name = "Water cooler", collide = true },
-	locker = { id = 850076059, name = "Gym locker", collide = true },
-	bench = { id = 8763019508, name = "Wooden bench", collide = true },
-	benchpress = { id = 4974524267, name = "Bench press", collide = true },
-	pine_a = { id = 113109119460825, name = "Red cedar pine", collide = false },
-	pine_b = { id = 5392132809, name = "Realistic pine", collide = false },
-	bush = { id = 8647777369, name = "Bush", collide = false },
-	flowerbush = { id = 8174229353, name = "Flower bush", collide = false },
-	rock_a = { id = 1192366796, name = "Realistic rock", collide = true, sink = 0.2 },
-	rock_b = { id = 8442632450, name = "Mossy rock", collide = true, sink = 0.2 },
-	rock_c = { id = 394353111, name = "Realistic rocks", collide = true, sink = 0.15 },
-	tent = { id = 341666811, name = "Camping tent", collide = true },
-	campfire = { id = 9769594863, name = "Campfire", collide = false },
+	plant_palm = { ids = { 8704290264 }, name = "Potted palm", collide = true },
+	plant_floor = { ids = { 3209557930 }, name = "Floor plant", collide = true },
+	plant_fig = { ids = { 11900728265 }, name = "Fiddle-leaf fig", collide = true },
+	sofa = { ids = { 412942154 }, name = "Modern sofa", collide = true },
+	coffee = { ids = { 12520208389 }, name = "Coffee machine", collide = true },
+	stool = { ids = { 13001590550 }, name = "Bar stool", collide = true },
+	vending = { ids = { 10904552162 }, name = "Snack vending machine", collide = true },
+	cooler = { ids = { 468240417 }, name = "Water cooler", collide = true },
+	locker = { ids = { 850076059 }, name = "Gym locker", collide = true },
+	bench = { ids = { 8763019508 }, name = "Wooden bench", collide = true },
+	benchpress = { ids = { 4974524267 }, name = "Bench press", collide = true },
+	pine_a = { ids = { 5392132809, 183435411 }, name = "Realistic pine", collide = false },
+	pine_b = { ids = { 11664016667, 113109119460825 }, name = "PBR pines", collide = false },
+	pine_c = { ids = { 73454171742334, 113109119460825, 183435411 }, name = "Big pine", collide = false },
+	tree_a = { ids = { 9271152246, 580221169 }, name = "Realistic tree", collide = false },
+	tree_b = { ids = { 6020696518, 3256343670 }, name = "Leafy tree", collide = false },
+	bush = { ids = { 8647777369 }, name = "Bush", collide = false },
+	flowerbush = { ids = { 8174229353 }, name = "Flower bush", collide = false },
+	rock_a = { ids = { 1192366796, 9217425479 }, name = "Realistic rock", collide = true, sink = 0.2 },
+	rock_b = { ids = { 8442632450, 5675884763 }, name = "Mossy rock", collide = true, sink = 0.2 },
+	rock_c = { ids = { 394353111 }, name = "Realistic rocks", collide = true, sink = 0.15 },
+	tent = { ids = { 341666811 }, name = "Camping tent", collide = true },
+	campfire = { ids = { 9769594863 }, name = "Campfire", collide = false },
 } :: { [string]: Entry })
 
 -- A prop slot: `base` is the point on the floor (its LookVector is the way the prop
