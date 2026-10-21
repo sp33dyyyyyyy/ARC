@@ -132,23 +132,19 @@ local function row(parent: Instance, rank: number, entry: Entry, textSize: numbe
 	frame.Name = `Row{rank}`
 	frame.LayoutOrder = rank
 	frame.Size = UDim2.new(1, 0, 0, height)
-	frame.BackgroundColor3 = if rank == 1 then Color3.fromRGB(70, 60, 20) else Color3.fromRGB(24, 30, 44)
-	frame.BackgroundTransparency = if rank % 2 == 0 then 0.55 else 0.3
+	frame.BackgroundColor3 = if rank == 1 then Color3.fromRGB(60, 34, 18) else Color3.fromRGB(30, 32, 36)
+	frame.BackgroundTransparency = if rank % 2 == 0 then 0.5 else 0.25
 	frame.BorderSizePixel = 0
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
+	corner.CornerRadius = UDim.new(0, 2)
 	corner.Parent = frame
 	local rankLabel = Instance.new("TextLabel")
 	rankLabel.BackgroundTransparency = 1
 	rankLabel.Size = UDim2.new(0, height * 1.3, 1, 0)
 	rankLabel.Font = Enum.Font.Michroma
 	rankLabel.TextSize = textSize
-	rankLabel.TextColor3 = if rank == 1
-		then Color3.fromRGB(255, 210, 60)
-		elseif rank == 2 then Color3.fromRGB(205, 215, 230)
-		elseif rank == 3 then Color3.fromRGB(220, 150, 90)
-		else Color3.fromRGB(150, 160, 180)
-	rankLabel.Text = if rank == 1 then "👑" else tostring(rank)
+	rankLabel.TextColor3 = if rank == 1 then Color3.fromRGB(255, 122, 48) elseif rank <= 3 then Color3.fromRGB(238, 237, 233) else Color3.fromRGB(146, 149, 156)
+	rankLabel.Text = string.format("%02d", rank)
 	rankLabel.Parent = frame
 	local headshot = Instance.new("ImageLabel")
 	headshot.BackgroundTransparency = 1
@@ -175,7 +171,7 @@ local function row(parent: Instance, rank: number, entry: Entry, textSize: numbe
 	time.Font = Enum.Font.Sarpanch
 	time.TextSize = textSize
 	time.TextXAlignment = Enum.TextXAlignment.Right
-	time.TextColor3 = Color3.fromRGB(120, 240, 170)
+	time.TextColor3 = Color3.fromRGB(126, 222, 152)
 	time.Text = formatTime(entry.ms)
 	time.Parent = frame
 	frame.Parent = parent
@@ -220,10 +216,10 @@ local function drawGymCell(grid: Instance, index: number, route: Instance, entri
 		local frame = Instance.new("Frame")
 		frame.Name = route.Name
 		frame.LayoutOrder = index
-		frame.BackgroundColor3 = Color3.fromRGB(14, 20, 38)
+		frame.BackgroundColor3 = Color3.fromRGB(19, 20, 23)
 		frame.BackgroundTransparency = 0.2
 		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 10)
+		corner.CornerRadius = UDim.new(0, 3)
 		corner.Parent = frame
 		local title = Instance.new("TextLabel")
 		title.Name = "Title"
@@ -233,8 +229,8 @@ local function drawGymCell(grid: Instance, index: number, route: Instance, entri
 		title.Font = Enum.Font.Michroma
 		title.TextSize = 24
 		title.TextXAlignment = Enum.TextXAlignment.Left
-		title.TextColor3 = Color3.fromRGB(255, 214, 64)
-		title.Text = `{string.upper(tostring(route:GetAttribute("RouteName")))}  <font color="#9AA6BE">{route:GetAttribute("Grade")} · {route:GetAttribute("HeightMeters")}m</font>`
+		title.TextColor3 = Color3.fromRGB(255, 122, 48)
+		title.Text = `{string.upper(tostring(route:GetAttribute("RouteName")))}  <font color="#92959C">{route:GetAttribute("Grade")} · {route:GetAttribute("HeightMeters")}m</font>`
 		title.RichText = true
 		title.Parent = frame
 		local rows = Instance.new("Frame")
@@ -253,7 +249,7 @@ local function drawGymCell(grid: Instance, index: number, route: Instance, entri
 		empty.Size = UDim2.new(1, 0, 0, 28)
 		empty.Font = Enum.Font.GothamMedium
 		empty.TextSize = 18
-		empty.TextColor3 = Color3.fromRGB(150, 160, 180)
+		empty.TextColor3 = Color3.fromRGB(146, 149, 156)
 		empty.Text = "No times yet"
 		empty.Parent = rows
 		frame.Parent = grid

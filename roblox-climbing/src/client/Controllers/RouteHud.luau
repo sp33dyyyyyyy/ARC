@@ -1,12 +1,13 @@
 --!strict
--- RouteHud (client): everything on screen about routes and progress. No game logic here;
--- the server (RouteService, RopeService, DataService) decides, this shows it.
---   * profile chip (top left): gems, level with an XP bar, chalk
---   * run card (top right): route, grade, live timer and a progress bar while on a run
---   * summit card: time, best, rewards, leaderboard rank, Retry / Close
---   * rope badge while tied in: "Tied in" / "Auto-belay" (tap to untie); no reminders
---   * routes menu (button or M): every route with your best time and a "Go" button
+-- RouteHud (client): what's on screen about money, routes and the rope. No game logic:
+-- the server (RouteService, RopeService, DataService, ChalkService) decides; this shows it.
+--   * status strip (top left): money, level and XP, chalk left
+--   * run card (top right): route, grade, live timer, progress
+--   * rope line under it while tied in (tap to untie)
+--   * summit card: time, best, money and XP earned, leaderboard rank, Retry / Close
+--   * chalk-up button (bottom right, or G): chalk your hands from your own chalk bag
 --   * short notices (failed runs, other players' big summits)
+-- The route list lives on the phone (Phone controller).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,169 +20,96 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 
-local MENU_KEY = Enum.KeyCode.M
-local NAVY = Color3.fromRGB(16, 24, 42)
-local GOLD = Color3.fromRGB(255, 214, 64)
-local GREEN = Color3.fromRGB(110, 235, 160)
-local GREY = Color3.fromRGB(150, 160, 180)
+local ClientSettings = require(script.Parent:WaitForChild("ClientSettings"))
+local Style = require(script.Parent:WaitForChild("Style"))
+
+local C = Style.Colors
+local F = Style.Fonts
+local CHALK_KEY = Enum.KeyCode.G
 
 local RouteHud = {}
 
 local player = Players.LocalPlayer
 local requestRemote: RemoteEvent
 local screen: ScreenGui
-local gemsLabel: TextLabel
+local moneyLabel: TextLabel
 local levelLabel: TextLabel
 local xpFill: Frame
 local chalkLabel: TextLabel
-local profileChip: Frame
 local runCard: Frame
-local runTitle: TextLabel
+local runRoute: TextLabel
+local runGrade: TextLabel
 local runTimer: TextLabel
 local runFill: Frame
 local runHeight: TextLabel
-local ropeBadge: TextButton
+local ropeLine: TextButton
+local notice: Frame
 local noticeLabel: TextLabel
+local noticeTween: Tween?
 local summitCard: Frame
 local summitTitle: TextLabel
 local summitRoute: TextLabel
 local summitTime: TextLabel
 local summitBest: TextLabel
-local summitRewards: TextLabel
-local menu: Frame
-local menuList: ScrollingFrame
-local noticeTween: Tween?
+local summitMoney: TextLabel
+local summitXp: TextLabel
 local summitToken = 0
-
-local function corner(instance: GuiObject, radius: number)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = instance
-end
-
-local function text(parent: Instance, props: { [string]: any }): TextLabel
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.Sarpanch
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.TextSize = 16
-	for key, value in props do
-		(label :: any)[key] = value
-	end
-	label.Parent = parent
-	return label
-end
-
-local function button(parent: Instance, label: string, color: Color3): TextButton
-	local b = Instance.new("TextButton")
-	b.AutoButtonColor = true
-	b.BackgroundColor3 = color
-	b.Font = Enum.Font.Sarpanch
-	b.TextSize = 16
-	b.TextColor3 = Color3.fromRGB(12, 18, 30)
-	b.Text = label
-	corner(b, 8)
-	b.Parent = parent
-	return b
-end
-
-local function formatTime(seconds: number): string
-	local minutes = math.floor(seconds / 60)
-	return string.format("%d:%05.2f", minutes, seconds - minutes * 60)
-end
+local chalkButton: TextButton
+local chalkCooldown: Frame
+local chalkReadyAt = 0
 
 local function routesFolder(): Instance?
 	return Workspace:FindFirstChild("Routes")
 end
 
-local function sortedRoutes(): { Instance }
-	local list = {}
-	local routes = routesFolder()
-	local children: { Instance } = if routes then routes:GetChildren() else {}
-	for _, route in children do
-		if route:GetAttribute("RouteName") ~= nil then
-			table.insert(list, route)
-		end
-	end
-	table.sort(list, function(a, b)
-		return (tonumber(a:GetAttribute("Order")) or 99) < (tonumber(b:GetAttribute("Order")) or 99)
-	end)
-	return list
-end
-
 ---------------------------------------------------------------------------------------
--- Building the UI
+-- Building
 
-local function buildProfile()
-	local chip = Instance.new("Frame")
-	chip.Name = "Profile"
-	chip.Position = UDim2.fromOffset(12, 8)
-	chip.Size = UDim2.fromOffset(190, 58)
-	chip.BackgroundColor3 = NAVY
-	chip.BackgroundTransparency = 0.15
-	corner(chip, 12)
-	chip.Parent = screen
-	profileChip = chip
-	gemsLabel = text(chip, { Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -24, 0, 22), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(120, 230, 255), Text = "💎 0" })
-	levelLabel = text(chip, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 6), Size = UDim2.fromOffset(70, 22), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = GOLD, Text = "Lv 1" })
-	local bar = Instance.new("Frame")
-	bar.Position = UDim2.fromOffset(12, 34)
-	bar.Size = UDim2.new(1, -24, 0, 8)
-	bar.BackgroundColor3 = Color3.fromRGB(40, 50, 72)
-	corner(bar, 4)
-	bar.Parent = chip
-	xpFill = Instance.new("Frame")
-	xpFill.Size = UDim2.fromScale(0, 1)
-	xpFill.BackgroundColor3 = GOLD
-	corner(xpFill, 4)
-	xpFill.Parent = bar
-	chalkLabel = text(chip, { Position = UDim2.fromOffset(12, 60), Size = UDim2.new(1, -24, 0, 18), TextXAlignment = Enum.TextXAlignment.Left, TextSize = 14, TextColor3 = Color3.fromRGB(235, 235, 228), Text = "", Visible = false })
+local function buildStatus()
+	local strip = Style.panel(screen, "Status", true)
+	strip.Position = UDim2.fromOffset(12, 10)
+	strip.Size = UDim2.fromOffset(196, 64)
+	moneyLabel = Style.label(strip, { Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -90, 0, 30), Font = F.Display, TextSize = 22, Text = "£0" })
+	levelLabel = Style.label(strip, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 10), Size = UDim2.fromOffset(70, 22), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = C.Muted, TextSize = 15, Text = "LV 1" })
+	local bar, fill = Style.bar(strip, 3)
+	bar.Position = UDim2.new(0, 14, 0, 42)
+	bar.Size = UDim2.new(1, -28, 0, 3)
+	xpFill = fill
+	chalkLabel = Style.label(strip, { Position = UDim2.fromOffset(14, 48), Size = UDim2.new(1, -28, 0, 14), TextSize = 12, TextColor3 = C.Muted, Text = "" })
 end
 
 local function buildRunCard()
-	runCard = Instance.new("Frame")
-	runCard.Name = "Run"
+	runCard = Style.panel(screen, "Run", true)
 	runCard.AnchorPoint = Vector2.new(1, 0)
-	runCard.Position = UDim2.new(1, -12, 0, 8)
-	runCard.Size = UDim2.fromOffset(230, 92)
-	runCard.BackgroundColor3 = NAVY
-	runCard.BackgroundTransparency = 0.12
+	runCard.Position = UDim2.new(1, -12, 0, 10)
+	runCard.Size = UDim2.fromOffset(240, 86)
 	runCard.Visible = false
-	corner(runCard, 12)
-	runCard.Parent = screen
-	runTitle = text(runCard, { Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -24, 0, 20), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, RichText = true, TextSize = 15 })
-	runTimer = text(runCard, { Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -24, 0, 34), TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.Michroma, TextSize = 25, TextColor3 = GREEN, Text = "0:00.00" })
-	local bar = Instance.new("Frame")
-	bar.Position = UDim2.fromOffset(12, 66)
-	bar.Size = UDim2.new(1, -90, 0, 10)
-	bar.BackgroundColor3 = Color3.fromRGB(40, 50, 72)
-	corner(bar, 5)
-	bar.Parent = runCard
-	runFill = Instance.new("Frame")
-	runFill.Size = UDim2.fromScale(0, 1)
-	runFill.BackgroundColor3 = GREEN
-	corner(runFill, 5)
-	runFill.Parent = bar
-	runHeight = text(runCard, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 60), Size = UDim2.fromOffset(74, 22), TextXAlignment = Enum.TextXAlignment.Right, TextSize = 14, TextColor3 = GREY })
-end
+	runRoute = Style.label(runCard, { Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -70, 0, 18), TextSize = 14, TextColor3 = C.Muted, TextTruncate = Enum.TextTruncate.AtEnd })
+	runGrade = Style.label(runCard, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 6), Size = UDim2.fromOffset(50, 18), TextXAlignment = Enum.TextXAlignment.Right, TextSize = 14, TextColor3 = C.Accent })
+	runTimer = Style.label(runCard, { Position = UDim2.fromOffset(14, 26), Size = UDim2.new(1, -28, 0, 30), Font = F.Display, TextSize = 24, Text = "0:00.00" })
+	local bar, fill = Style.bar(runCard, 3)
+	bar.Position = UDim2.new(0, 14, 0, 64)
+	bar.Size = UDim2.new(1, -96, 0, 3)
+	runFill = fill
+	runHeight = Style.label(runCard, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 56), Size = UDim2.fromOffset(76, 18), TextXAlignment = Enum.TextXAlignment.Right, TextSize = 13, TextColor3 = C.Muted })
 
-local function buildRopeBadge()
-	ropeBadge = Instance.new("TextButton")
-	ropeBadge.Name = "Rope"
-	ropeBadge.AnchorPoint = Vector2.new(1, 0)
-	ropeBadge.Position = UDim2.new(1, -12, 0, 106)
-	ropeBadge.Size = UDim2.fromOffset(230, 30)
-	ropeBadge.BackgroundColor3 = NAVY
-	ropeBadge.BackgroundTransparency = 0.15
-	ropeBadge.Font = Enum.Font.Sarpanch
-	ropeBadge.TextSize = 14
-	ropeBadge.TextColor3 = Color3.new(1, 1, 1)
-	ropeBadge.RichText = true
-	ropeBadge.AutoButtonColor = false
-	ropeBadge.Visible = false
-	corner(ropeBadge, 8)
-	ropeBadge.Parent = screen
-	ropeBadge.Activated:Connect(function()
+	ropeLine = Instance.new("TextButton")
+	ropeLine.Name = "Rope"
+	ropeLine.AnchorPoint = Vector2.new(1, 0)
+	ropeLine.Position = UDim2.new(1, -12, 0, 102)
+	ropeLine.Size = UDim2.fromOffset(240, 26)
+	ropeLine.BackgroundColor3 = C.Panel
+	ropeLine.BackgroundTransparency = 0.06
+	ropeLine.AutoButtonColor = false
+	ropeLine.Font = F.Head
+	ropeLine.TextSize = 13
+	ropeLine.TextColor3 = C.Text
+	ropeLine.RichText = true
+	ropeLine.Visible = false
+	Style.corner(ropeLine, 3)
+	Style.stroke(ropeLine, C.Rope, 0.2)
+	ropeLine.Parent = screen
+	ropeLine.Activated:Connect(function()
 		local character = player.Character
 		if character and character:GetAttribute("TiedIn") ~= nil and character:GetAttribute("Climbing") ~= true then
 			requestRemote:FireServer("Untie")
@@ -190,154 +118,84 @@ local function buildRopeBadge()
 end
 
 local function buildNotice()
-	noticeLabel = text(screen, {
-		Name = "Notice",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 92),
-		Size = UDim2.fromOffset(420, 32),
-		BackgroundColor3 = NAVY,
-		BackgroundTransparency = 1,
-		TextTransparency = 1,
-		TextSize = 17,
-		RichText = true,
-	})
-	corner(noticeLabel, 10)
+	notice = Style.panel(screen, "Notice", true)
+	notice.AnchorPoint = Vector2.new(0.5, 0)
+	notice.Position = UDim2.new(0.5, 0, 0, 96)
+	notice.Size = UDim2.fromOffset(420, 32)
+	notice.Visible = false
+	noticeLabel = Style.label(notice, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -24, 1, 0), TextSize = 15, RichText = true })
 end
 
 local function buildSummitCard()
-	summitCard = Instance.new("Frame")
-	summitCard.Name = "Summit"
+	summitCard = Style.panel(screen, "Summit", true)
 	summitCard.AnchorPoint = Vector2.new(0.5, 0.5)
 	summitCard.Position = UDim2.fromScale(0.5, 0.42)
-	summitCard.Size = UDim2.fromOffset(340, 270)
-	summitCard.BackgroundColor3 = NAVY
-	summitCard.BackgroundTransparency = 0.05
+	summitCard.Size = UDim2.fromOffset(360, 256)
 	summitCard.Visible = false
-	corner(summitCard, 16)
-	summitCard.Parent = screen
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = GOLD
-	stroke.Thickness = 2
-	stroke.Parent = summitCard
-	summitTitle = text(summitCard, { Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 44), Font = Enum.Font.Michroma, TextSize = 32, TextColor3 = GOLD, Text = "SUMMIT!" })
-	summitRoute = text(summitCard, { Position = UDim2.fromOffset(0, 58), Size = UDim2.new(1, 0, 0, 22), TextSize = 17, RichText = true })
-	summitTime = text(summitCard, { Position = UDim2.fromOffset(0, 86), Size = UDim2.new(1, 0, 0, 44), Font = Enum.Font.Michroma, TextSize = 32, TextColor3 = GREEN })
-	summitBest = text(summitCard, { Position = UDim2.fromOffset(0, 132), Size = UDim2.new(1, 0, 0, 20), TextSize = 15, TextColor3 = GREY, RichText = true })
-	summitRewards = text(summitCard, { Position = UDim2.fromOffset(0, 160), Size = UDim2.new(1, 0, 0, 24), TextSize = 19, RichText = true })
-	local retry = button(summitCard, "Retry", GREEN)
-	retry.Position = UDim2.new(0.5, -150, 1, -62)
-	retry.Size = UDim2.fromOffset(140, 44)
+	summitTitle = Style.label(summitCard, { Position = UDim2.fromOffset(22, 16), Size = UDim2.new(1, -44, 0, 32), Font = F.Display, TextSize = 26, TextColor3 = C.Accent, Text = "SUMMIT" })
+	summitRoute = Style.label(summitCard, { Position = UDim2.fromOffset(22, 50), Size = UDim2.new(1, -44, 0, 20), TextSize = 15, TextColor3 = C.Muted, RichText = true })
+	summitTime = Style.label(summitCard, { Position = UDim2.fromOffset(22, 76), Size = UDim2.new(1, -44, 0, 40), Font = F.Display, TextSize = 32 })
+	summitBest = Style.label(summitCard, { Position = UDim2.fromOffset(22, 118), Size = UDim2.new(1, -44, 0, 18), Font = F.Body, TextSize = 14, TextColor3 = C.Muted, RichText = true })
+	local divider = Instance.new("Frame")
+	divider.BackgroundColor3 = C.Line
+	divider.BorderSizePixel = 0
+	divider.Position = UDim2.fromOffset(22, 146)
+	divider.Size = UDim2.new(1, -44, 0, 1)
+	divider.Parent = summitCard
+	summitMoney = Style.label(summitCard, { Position = UDim2.fromOffset(22, 154), Size = UDim2.new(0.5, -22, 0, 30), Font = F.Display, TextSize = 20, TextColor3 = C.Good })
+	summitXp = Style.label(summitCard, { Position = UDim2.new(0.5, 0, 0, 154), Size = UDim2.new(0.5, -22, 0, 30), Font = F.Display, TextSize = 20, TextColor3 = C.Text })
+	local retry = Style.button(summitCard, "Retry", "primary")
+	retry.Position = UDim2.new(0, 22, 1, -56)
+	retry.Size = UDim2.new(0.5, -28, 0, 38)
 	retry.Activated:Connect(function()
 		summitCard.Visible = false
 		requestRemote:FireServer("Retry")
 	end)
-	local close = button(summitCard, "Close", Color3.fromRGB(200, 210, 226))
-	close.Position = UDim2.new(0.5, 10, 1, -62)
-	close.Size = UDim2.fromOffset(140, 44)
+	local close = Style.button(summitCard, "Close", "ghost")
+	close.Position = UDim2.new(0.5, 6, 1, -56)
+	close.Size = UDim2.new(0.5, -28, 0, 38)
 	close.Activated:Connect(function()
 		summitCard.Visible = false
 	end)
 end
 
-local function buildMenu()
-	local open = button(screen, "🧗 Routes  (M)", GOLD)
-	open.Name = "RoutesButton"
-	open.AnchorPoint = Vector2.new(0, 1)
-	open.Position = UDim2.new(0, 12, 1, -12)
-	open.Size = UDim2.fromOffset(150, 40)
-
-	menu = Instance.new("Frame")
-	menu.Name = "RoutesMenu"
-	menu.AnchorPoint = Vector2.new(0.5, 0.5)
-	menu.Position = UDim2.fromScale(0.5, 0.5)
-	menu.Size = UDim2.new(0, 460, 0.7, 0)
-	menu.BackgroundColor3 = NAVY
-	menu.BackgroundTransparency = 0.04
-	menu.Visible = false
-	corner(menu, 16)
-	menu.Parent = screen
-	local constraint = Instance.new("UISizeConstraint")
-	constraint.MaxSize = Vector2.new(math.huge, 560)
-	constraint.Parent = menu
-	text(menu, { Position = UDim2.fromOffset(18, 12), Size = UDim2.new(1, -80, 0, 34), Font = Enum.Font.Michroma, TextSize = 28, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = GOLD, Text = "ROUTES" })
-	local close = button(menu, "✕", Color3.fromRGB(200, 210, 226))
-	close.AnchorPoint = Vector2.new(1, 0)
-	close.Position = UDim2.new(1, -12, 0, 12)
-	close.Size = UDim2.fromOffset(36, 36)
-	close.Activated:Connect(function()
-		menu.Visible = false
-	end)
-	menuList = Instance.new("ScrollingFrame")
-	menuList.Position = UDim2.fromOffset(12, 58)
-	menuList.Size = UDim2.new(1, -24, 1, -70)
-	menuList.BackgroundTransparency = 1
-	menuList.BorderSizePixel = 0
-	menuList.ScrollBarThickness = 6
-	menuList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	menuList.CanvasSize = UDim2.new()
-	menuList.Parent = menu
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = menuList
-
-	local function toggle()
-		menu.Visible = not menu.Visible
-		if menu.Visible then
-			RouteHud.refreshMenu()
-		end
+local function chalkUp()
+	local now = os.clock()
+	if now < chalkReadyAt then
+		return
 	end
-	open.Activated:Connect(toggle)
-	UserInputService.InputBegan:Connect(function(input, processed)
-		if not processed and input.KeyCode == MENU_KEY then
-			toggle()
-		end
-	end)
+	chalkReadyAt = now + Config.Chalk.BagCooldown
+	requestRemote:FireServer("Chalk")
 end
 
-function RouteHud.refreshMenu()
-	for _, child in menuList:GetChildren() do
-		if child:IsA("Frame") then
-			child:Destroy()
+local function buildChalkButton()
+	chalkButton = Style.button(screen, "Chalk up", "ghost")
+	chalkButton.Name = "ChalkUp"
+	chalkButton.AnchorPoint = Vector2.new(1, 1)
+	chalkButton.Position = UDim2.new(1, -12, 1, -12)
+	chalkButton.Size = UDim2.fromOffset(146, 38)
+	chalkButton.TextXAlignment = Enum.TextXAlignment.Left
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 12)
+	padding.Parent = chalkButton
+	local key = Style.keycap(chalkButton, "G")
+	key.AnchorPoint = Vector2.new(1, 0.5)
+	key.Position = UDim2.new(1, -8, 0.5, 0)
+	-- Cooldown: a fill that drains across the button.
+	chalkCooldown = Instance.new("Frame")
+	chalkCooldown.Name = "Cooldown"
+	chalkCooldown.BackgroundColor3 = C.Accent
+	chalkCooldown.BackgroundTransparency = 0.8
+	chalkCooldown.BorderSizePixel = 0
+	chalkCooldown.Size = UDim2.fromScale(0, 1)
+	chalkCooldown.Position = UDim2.fromOffset(-12, 0)
+	chalkCooldown.Parent = chalkButton
+	chalkButton.Activated:Connect(chalkUp)
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if not processed and input.KeyCode == CHALK_KEY then
+			chalkUp()
 		end
-	end
-	for index, route in sortedRoutes() do
-		local row = Instance.new("Frame")
-		row.LayoutOrder = index
-		row.Size = UDim2.new(1, -8, 0, 54)
-		row.BackgroundColor3 = Color3.fromRGB(28, 38, 62)
-		corner(row, 10)
-		row.Parent = menuList
-		local where = if route:GetAttribute("Indoor") == true then "Gym" else "Outdoors"
-		text(row, {
-			Position = UDim2.fromOffset(12, 6),
-			Size = UDim2.new(1, -110, 0, 22),
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-			RichText = true,
-			Text = `{route:GetAttribute("RouteName")}  <font color="#FFD640">{route:GetAttribute("Grade")}</font>`,
-		})
-		local best = player:GetAttribute(`Best_{route.Name}`)
-		local rope = if route:GetAttribute("AutoBelay") == true then "auto-belay" elseif route:GetAttribute("Rope") == true then "rope" else "boulder"
-		text(row, {
-			Position = UDim2.fromOffset(12, 28),
-			Size = UDim2.new(1, -110, 0, 18),
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Font = Enum.Font.GothamMedium,
-			TextSize = 14,
-			TextColor3 = GREY,
-			RichText = true,
-			Text = `{where} · {route:GetAttribute("HeightMeters")} m · {rope}` .. (if type(best) == "number" then `  ·  <font color="#6EEBA0">best {formatTime(best)}</font>` else ""),
-		})
-		local go = button(row, "Go", GREEN)
-		go.AnchorPoint = Vector2.new(1, 0.5)
-		go.Position = UDim2.new(1, -10, 0.5, 0)
-		go.Size = UDim2.fromOffset(80, 36)
-		go.Activated:Connect(function()
-			menu.Visible = false
-			requestRemote:FireServer("Travel", route.Name)
-		end)
-	end
+	end)
 end
 
 ---------------------------------------------------------------------------------------
@@ -348,25 +206,29 @@ function RouteHud.notice(message: string, color: Color3?)
 		noticeTween:Cancel()
 	end
 	noticeLabel.Text = message
-	noticeLabel.TextColor3 = color or Color3.new(1, 1, 1)
+	noticeLabel.TextColor3 = color or C.Text
 	noticeLabel.TextTransparency = 0
-	noticeLabel.BackgroundTransparency = 0.2
-	local width = math.max(200, #message * 9 + 40)
-	noticeLabel.Size = UDim2.fromOffset(math.min(width, 560), 32)
-	local tween = TweenService:Create(noticeLabel, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 3), { TextTransparency = 1, BackgroundTransparency = 1 })
+	notice.BackgroundTransparency = 0.06
+	notice.Visible = true
+	notice.Size = UDim2.fromOffset(math.clamp(#message * 8 + 48, 220, 560), 32)
+	local tween = TweenService:Create(noticeLabel, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 3), { TextTransparency = 1 })
 	noticeTween = tween
+	tween.Completed:Connect(function(state)
+		if state == Enum.PlaybackState.Completed then
+			notice.Visible = false
+		end
+	end)
 	tween:Play()
 end
 
-local function updateProfile()
-	local gems = player:GetAttribute("Gems")
-	local xp = player:GetAttribute("XP")
+local function updateStatus()
+	moneyLabel.Text = Style.money(player:GetAttribute("Gems"))
 	local level = player:GetAttribute("Level")
-	gemsLabel.Text = `💎 {if type(gems) == "number" then gems else 0}`
 	local lv = if type(level) == "number" then level else 1
-	levelLabel.Text = `Lv {lv}`
+	levelLabel.Text = `LV {lv}`
 	-- XP for level n starts at 100 * (n-1)^2 (DataService.levelFor).
 	local from, to = 100 * (lv - 1) ^ 2, 100 * lv ^ 2
+	local xp = player:GetAttribute("XP")
 	local value = if type(xp) == "number" then xp else 0
 	xpFill.Size = UDim2.fromScale(math.clamp((value - from) / (to - from), 0, 1), 1)
 end
@@ -377,23 +239,24 @@ local function showSummit(result: any)
 	end
 	summitToken += 1
 	local token = summitToken
-	summitTitle.Text = if result.newBest and result.best then "NEW BEST!" else "SUMMIT!"
-	summitRoute.Text = `{result.routeName}  <font color="#FFD640">{result.grade}</font>  ·  {result.meters} m`
-	summitTime.Text = formatTime(result.seconds)
+	summitTitle.Text = if result.newBest and result.best then "NEW BEST" else "SUMMIT"
+	summitRoute.Text = `{string.upper(tostring(result.routeName))}  <font color="#FF7A30">{result.grade}</font>  ·  {result.meters} M`
+	summitTime.Text = Style.time(result.seconds)
 	local lines = {}
 	if result.best then
-		table.insert(lines, `previous best {formatTime(result.best)}`)
+		table.insert(lines, `Previous best {Style.time(result.best)}`)
 	elseif result.firstClear then
-		table.insert(lines, "first ascent!")
+		table.insert(lines, "First ascent")
 	end
 	if result.rank then
-		table.insert(lines, `<font color="#FFD640">#{result.rank} on the leaderboard</font>`)
+		table.insert(lines, `<font color="#FF7A30">#{result.rank} on the leaderboard</font>`)
 	end
-	summitBest.Text = table.concat(lines, "  ·  ")
-	summitRewards.Text = `<font color="#78E6FF">+{result.gems} 💎</font>    <font color="#FFD640">+{result.xp} XP</font>`
+	summitBest.Text = table.concat(lines, "   ·   ")
+	summitMoney.Text = `+{Style.money(result.gems)}`
+	summitXp.Text = `+{result.xp} XP`
 	summitCard.Visible = true
-	summitCard.Size = UDim2.fromOffset(300, 240)
-	TweenService:Create(summitCard, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Size = UDim2.fromOffset(340, 270) }):Play()
+	summitCard.Position = UDim2.fromScale(0.5, 0.46)
+	TweenService:Create(summitCard, TweenInfo.new(0.3, Enum.EasingStyle.Quint), { Position = UDim2.fromScale(0.5, 0.42) }):Play()
 	task.delay(12, function()
 		if summitToken == token then
 			summitCard.Visible = false
@@ -407,12 +270,11 @@ local function onRouteEvent(kind: any, a: any, b: any)
 	elseif kind == "Summit" then
 		showSummit(a)
 	elseif kind == "Failed" and type(b) == "string" then
-		RouteHud.notice(`{b} — run over`, Color3.fromRGB(255, 170, 120))
+		RouteHud.notice(`{b}. Run over.`, C.Bad)
 	elseif kind == "Notice" and type(a) == "string" then
-		RouteHud.notice(a, GOLD)
+		RouteHud.notice(a, C.Text)
 	end
 end
-
 
 local function update()
 	local character = player.Character
@@ -423,47 +285,46 @@ local function update()
 	local started = player:GetAttribute("RunStart")
 	local routes = routesFolder()
 	local route = if type(routeId) == "string" and routes then routes:FindFirstChild(routeId) else nil
-	if route and type(started) == "number" and root then
+	if route and type(started) == "number" and root and ClientSettings.get("RunTimer") then
 		runCard.Visible = true
-		runTitle.Text = `{route:GetAttribute("RouteName")}  <font color="#FFD640">{route:GetAttribute("Grade")}</font>`
-		runTimer.Text = formatTime(math.max(0, Workspace:GetServerTimeNow() - started))
+		runRoute.Text = string.upper(tostring(route:GetAttribute("RouteName")))
+		runGrade.Text = tostring(route:GetAttribute("Grade"))
+		runTimer.Text = Style.time(math.max(0, Workspace:GetServerTimeNow() - started))
 		local baseY = tonumber(route:GetAttribute("BaseY")) or 0
 		local rise = tonumber(route:GetAttribute("HeightStuds")) or 1
 		local fraction = math.clamp((root.Position.Y - 3 - baseY) / rise, 0, 1)
 		runFill.Size = UDim2.fromScale(fraction, 1)
-		runHeight.Text = `{math.floor(Config.studsToMeters(fraction * rise))}/{route:GetAttribute("HeightMeters")} m`
+		runHeight.Text = `{math.floor(Config.studsToMeters(fraction * rise))} / {route:GetAttribute("HeightMeters")} M`
 	else
 		runCard.Visible = false
 	end
 
-	-- Rope badge.
+	-- Rope line, only while tied in.
 	local tied = character and character:GetAttribute("TiedIn")
 	if character and root and type(tied) == "string" then
 		local tiedRoute = routes and routes:FindFirstChild(tied)
-		local auto = tiedRoute and tiedRoute:GetAttribute("AutoBelay") == true
-		ropeBadge.Visible = true
-		ropeBadge.BackgroundColor3 = if auto then Color3.fromRGB(20, 70, 130) else Color3.fromRGB(110, 90, 10)
-		if character:GetAttribute("RopeCatch") == true then
-			ropeBadge.Text = "🪢 Caught — lowering you"
-		elseif auto then
-			ropeBadge.Text = `🪢 Auto-belay clipped in{if character:GetAttribute("Climbing") ~= true then "  ·  <b>tap to unclip</b>" else ""}`
-		else
-			ropeBadge.Text = `🪢 Tied in{if character:GetAttribute("Climbing") ~= true then "  ·  <b>tap to untie</b>" else ""}`
-		end
+		local auto = tiedRoute ~= nil and tiedRoute:GetAttribute("AutoBelay") == true
+		local mode = character:GetAttribute("RopeMode")
+		local what = if auto then "AUTO-BELAY" else "TIED IN"
+		local state = if mode == "Lowering" then "lowering you"
+			elseif mode ~= nil then "holding you"
+			elseif character:GetAttribute("Climbing") == true then "R to lower off"
+			else "tap to unclip"
+		ropeLine.Text = `<font color="#4096F0">ROPE</font>   {what}   <font color="#92959C">{state}</font>`
+		ropeLine.Position = UDim2.new(1, -12, 0, if runCard.Visible then 102 else 10)
+		ropeLine.Visible = true
 	else
-		ropeBadge.Visible = false
+		ropeLine.Visible = false
 	end
 
-	-- Chalk.
+	-- Chalk left on your hands, and the chalk button's cooldown.
 	local chalk = character and character:GetAttribute("Chalk")
-	if type(chalk) == "number" and chalk > 0 then
-		chalkLabel.Visible = true
-		chalkLabel.Text = `✋ Chalk {math.ceil(chalk / Config.Chalk.Max * 100)}%`
-		profileChip.Size = UDim2.fromOffset(190, 80)
-	elseif chalkLabel.Visible then
-		chalkLabel.Visible = false
-		profileChip.Size = UDim2.fromOffset(190, 58)
-	end
+	chalkLabel.Text = if type(chalk) == "number" and chalk > 0 then `CHALK  {math.ceil(chalk / Config.Chalk.Max * 100)}%` else "NO CHALK"
+	chalkLabel.TextColor3 = if type(chalk) == "number" and chalk > 25 then C.Muted else C.Faint
+	local hasBag = player:GetAttribute("Equip_ChalkBag") ~= nil
+	chalkButton.Visible = hasBag and character ~= nil
+	local left = math.max(0, chalkReadyAt - os.clock())
+	chalkCooldown.Size = UDim2.new(left / Config.Chalk.BagCooldown, 12, 1, 0)
 end
 
 function RouteHud.Init()
@@ -473,12 +334,11 @@ function RouteHud.Init()
 	screen.IgnoreGuiInset = false
 	screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screen.DisplayOrder = 5
-	buildProfile()
+	buildStatus()
 	buildRunCard()
-	buildRopeBadge()
 	buildNotice()
 	buildSummitCard()
-	buildMenu()
+	buildChalkButton()
 	screen.Parent = player:WaitForChild("PlayerGui")
 end
 
@@ -486,9 +346,9 @@ function RouteHud.Start()
 	requestRemote = Remotes.event("RouteRequest")
 	Remotes.event("RouteEvent").OnClientEvent:Connect(onRouteEvent)
 	for _, name in { "Gems", "XP", "Level" } do
-		player:GetAttributeChangedSignal(name):Connect(updateProfile)
+		player:GetAttributeChangedSignal(name):Connect(updateStatus)
 	end
-	updateProfile()
+	updateStatus()
 	local elapsed = 0
 	RunService.RenderStepped:Connect(function(dt)
 		elapsed += dt

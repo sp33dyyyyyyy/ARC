@@ -134,14 +134,14 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	pill.AnchorPoint = Vector2.new(1, 0)
 	pill.Position = UDim2.new(1, -12, 0, 14)
 	pill.Size = UDim2.fromOffset(84, 26)
-	pill.BackgroundColor3 = Color3.fromRGB(70, 200, 120)
+	pill.BackgroundColor3 = Color3.fromRGB(255, 122, 48)
 	pill.Font = Enum.Font.Sarpanch
 	pill.TextSize = 15
-	pill.TextColor3 = Color3.fromRGB(10, 30, 16)
-	pill.Text = "Fastest"
+	pill.TextColor3 = Color3.fromRGB(11, 12, 14)
+	pill.Text = "FASTEST"
 	pill.Parent = gui
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
+	corner.CornerRadius = UDim.new(0, 2)
 	corner.Parent = pill
 	local rows = Instance.new("Frame")
 	rows.Name = "Rows"
@@ -159,8 +159,8 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	empty.Size = UDim2.new(1, 0, 0, 30)
 	empty.Font = Enum.Font.GothamMedium
 	empty.TextSize = 18
-	empty.TextColor3 = Color3.fromRGB(150, 160, 180)
-	empty.Text = "No times yet - be the first!"
+	empty.TextColor3 = Color3.fromRGB(146, 149, 156)
+	empty.Text = "No times yet. Be the first."
 	empty.Parent = rows
 
 	sign.Parent = route

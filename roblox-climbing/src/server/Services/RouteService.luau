@@ -6,7 +6,7 @@
 --    "RunStart" (Workspace:GetServerTimeNow()) attributes, which the HUD's timer and
 --    progress bar read.
 --  * You top out by reaching the Summit volume, or by holding a Finish hold with a hand.
---    The server times the run, checks it is plausible, pays gems and XP (DataService),
+--    The server times the run, checks it is plausible, pays money (£) and XP (DataService),
 --    records the time (LeaderboardService) and sends the client a summit card.
 --  * The run fails if you die, fall onto the rope, or are back on the ground at the base.
 --  * After an outdoor summit a free soloist tops out onto the summit; roped climbers let go
@@ -30,6 +30,7 @@ local DataService = require(script.Parent.DataService)
 local HoldService = require(script.Parent.HoldService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local RopeService = require(script.Parent.RopeService)
+local ChalkService = require(script.Parent.ChalkService)
 
 local ROUTES = Config.Routes
 local FINISH_HOLD_SECONDS = 0.6
@@ -332,11 +333,14 @@ function RouteService.TeleportTo(player: Player, route: Instance): boolean
 end
 
 local function onRequest(player: Player, action: any, routeId: any)
+	-- Teleports (Retry, Travel) have a cooldown; the rest are cheap.
 	local now = os.clock()
-	if now - (lastRequest[player] or 0) < ROUTES.RetryCooldown then
-		return
+	if action == "Retry" or action == "Travel" then
+		if now - (lastRequest[player] or 0) < ROUTES.RetryCooldown then
+			return
+		end
+		lastRequest[player] = now
 	end
-	lastRequest[player] = now
 	local routes = routesFolder()
 	if routes == nil then
 		return
@@ -345,6 +349,8 @@ local function onRequest(player: Player, action: any, routeId: any)
 		RopeService.Untie(player)
 	elseif action == "Lower" then
 		RopeService.Lower(player)
+	elseif action == "Chalk" then
+		ChalkService.FromBag(player)
 	elseif action == "Retry" then
 		local route = lastRoute[player]
 		if route and route.Parent == routes then

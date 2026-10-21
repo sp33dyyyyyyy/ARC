@@ -8,6 +8,13 @@ local Config = {}
 Config.GameName = "Ascent"
 Config.Version = "0.7.0"
 
+-- Money: pounds. (Saved as whole numbers; the save data still calls it "gems".)
+Config.CURRENCY = "£"
+
+function Config.money(amount: number): string
+	return `£{math.floor(amount + 0.5)}`
+end
+
 Config.METERS_PER_STUD = 0.28
 
 function Config.studsToMeters(studs: number): number
@@ -135,7 +142,7 @@ Config.Routes = {
 	FailGroundSeconds = 1.2, -- off the wall and standing on the ground this long ends the run
 	ProgressTick = 0.2,
 	RetryCooldown = 2,
-	-- Rewards for a summit: gems = base + per metre climbed, double the first time.
+	-- Rewards for a summit, in £: base + per metre climbed, double the first time.
 	GemsBase = 5,
 	GemsPerMeter = 1.2,
 	FirstClearBonus = 2,
@@ -163,6 +170,7 @@ Config.Chalk = {
 	Max = 100,
 	DrainPerSecond = 1.4, -- while on the wall
 	DrainReduction = 0.25, -- full chalk drains stamina this much slower
+	BagCooldown = 8, -- seconds between chalking up from your own chalk bag (G)
 }
 
 Config.Debug = {

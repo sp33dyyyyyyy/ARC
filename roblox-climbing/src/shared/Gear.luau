@@ -33,7 +33,7 @@ export type Item = {
 	slot: Slot,
 	name: string,
 	description: string,
-	price: number, -- gems; 0 = owned from the start
+	price: number, -- pounds; 0 = owned from the start
 	order: number,
 	stats: Stats,
 	variants: { Variant }?, -- looks to pick from at the lockers (packs, helmets)

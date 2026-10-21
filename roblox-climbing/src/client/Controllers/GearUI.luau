@@ -18,11 +18,13 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Gear = require(Shared.Gear)
 local Remotes = require(Shared.Remotes)
 
-local NAVY = Color3.fromRGB(20, 22, 28)
-local CARD = Color3.fromRGB(36, 39, 48)
-local ORANGE = Color3.fromRGB(255, 122, 48)
-local GREEN = Color3.fromRGB(110, 235, 160)
-local GREY = Color3.fromRGB(150, 160, 180)
+local Style = require(script.Parent:WaitForChild("Style"))
+
+local NAVY = Style.Colors.Panel
+local CARD = Style.Colors.Raised
+local ORANGE = Style.Colors.Accent
+local GREEN = Style.Colors.Good
+local GREY = Style.Colors.Muted
 local CLOSE_DISTANCE = 16
 
 local GearUI = {}
@@ -46,16 +48,14 @@ local currentSlot: Gear.Slot = "Shoes"
 local openedAt: Vector3?
 
 local function corner(instance: GuiObject, radius: number)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = instance
+	Style.corner(instance, math.min(radius, 4)) -- sharp, not bubbly
 end
 
 local function text(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.Sarpanch
-	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Style.Fonts.Head
+	label.TextColor3 = Style.Colors.Text
 	label.TextSize = 16
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	for key, value in props do
@@ -69,11 +69,16 @@ local function button(parent: Instance, label: string, color: Color3): TextButto
 	local b = Instance.new("TextButton")
 	b.AutoButtonColor = true
 	b.BackgroundColor3 = color
-	b.Font = Enum.Font.Sarpanch
+	b.Font = Style.Fonts.Head
 	b.TextSize = 15
-	b.TextColor3 = Color3.fromRGB(14, 16, 22)
-	b.Text = label
-	corner(b, 8)
+	-- Dark text on the bright accent buttons, light text on the dark ones.
+	local bright = color.R * 0.3 + color.G * 0.59 + color.B * 0.11 > 0.45
+	b.TextColor3 = if bright then Style.Colors.Ink else Style.Colors.Text
+	b.Text = string.upper(label)
+	corner(b, 3)
+	if not bright then
+		Style.stroke(b)
+	end
 	b.Parent = parent
 	return b
 end
@@ -87,11 +92,14 @@ local function window(name: string, title: string, size: Vector2): Frame
 	frame.BackgroundColor3 = NAVY
 	frame.BackgroundTransparency = 0.03
 	frame.Visible = false
-	corner(frame, 16)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = ORANGE
-	stroke.Thickness = 1.5
-	stroke.Parent = frame
+	corner(frame, 4)
+	Style.stroke(frame)
+	local strip = Instance.new("Frame")
+	strip.BackgroundColor3 = ORANGE
+	strip.BorderSizePixel = 0
+	strip.Position = UDim2.fromOffset(0, 18)
+	strip.Size = UDim2.fromOffset(3, 28)
+	strip.Parent = frame
 	-- Shrinks to fit small (phone) screens.
 	local scale = Instance.new("UIScale")
 	scale.Parent = frame
@@ -106,8 +114,8 @@ local function window(name: string, title: string, size: Vector2): Frame
 	if workspace.CurrentCamera then
 		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	end
-	text(frame, { Position = UDim2.fromOffset(20, 14), Size = UDim2.new(1, -80, 0, 34), Font = Enum.Font.Michroma, TextSize = 28, TextColor3 = ORANGE, Text = title })
-	local close = button(frame, "✕", Color3.fromRGB(200, 206, 218))
+	text(frame, { Position = UDim2.fromOffset(20, 14), Size = UDim2.new(1, -80, 0, 34), Font = Style.Fonts.Display, TextSize = 22, Text = title })
+	local close = button(frame, "X", CARD)
 	close.AnchorPoint = Vector2.new(1, 0)
 	close.Position = UDim2.new(1, -14, 0, 14)
 	close.Size = UDim2.fromOffset(36, 36)
@@ -139,7 +147,7 @@ local function thumbnail(parent: Instance, assetId: number, position: UDim2, siz
 	local image = Instance.new("ImageLabel")
 	image.Position = position
 	image.Size = UDim2.fromOffset(size, size)
-	image.BackgroundColor3 = Color3.fromRGB(28, 30, 36)
+	image.BackgroundColor3 = Style.Colors.Ink
 	image.Image = `rbxthumb://type=Asset&id={assetId}&w=150&h=150`
 	image.ScaleType = Enum.ScaleType.Fit
 	corner(image, 8)
@@ -151,11 +159,11 @@ end
 -- Pro shop
 
 function GearUI.refreshShop()
-	shopGems.Text = `💎 {gems()}`
+	shopGems.Text = Style.money(gems())
 	for _, child in shopTabs:GetChildren() do
 		if child:IsA("TextButton") then
 			child.BackgroundColor3 = if child.Name == currentSlot then ORANGE else CARD
-			child.TextColor3 = if child.Name == currentSlot then Color3.fromRGB(14, 16, 22) else Color3.new(1, 1, 1)
+			child.TextColor3 = if child.Name == currentSlot then Style.Colors.Ink else Color3.new(1, 1, 1)
 		end
 	end
 	for _, child in shopList:GetChildren() do
@@ -180,11 +188,11 @@ function GearUI.refreshShop()
 			left = 80
 		end
 		text(card, { Position = UDim2.fromOffset(left, 8), Size = UDim2.new(1, -156 - left, 0, 22), TextSize = 18, Text = item.name })
-		text(card, { Position = UDim2.fromOffset(left, 30), Size = UDim2.new(1, -156 - left, 0, 18), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREY, TextTruncate = Enum.TextTruncate.AtEnd, Text = item.description })
-		text(card, { Position = UDim2.fromOffset(left, 50), Size = UDim2.new(1, -156 - left, 0, 18), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREEN, Text = Gear.describeStats(item) })
+		text(card, { Position = UDim2.fromOffset(left, 30), Size = UDim2.new(1, -156 - left, 0, 18), Font = Style.Fonts.Body, TextSize = 14, TextColor3 = GREY, TextTruncate = Enum.TextTruncate.AtEnd, Text = item.description })
+		text(card, { Position = UDim2.fromOffset(left, 50), Size = UDim2.new(1, -156 - left, 0, 18), Font = Style.Fonts.Body, TextSize = 14, TextColor3 = GREEN, Text = Gear.describeStats(item) })
 		local action: TextButton
 		if equipped == item.id then
-			action = button(card, "Equipped", Color3.fromRGB(80, 86, 100))
+			action = button(card, "Equipped", CARD)
 			action.AutoButtonColor = false
 			action.TextColor3 = Color3.new(1, 1, 1)
 		elseif owned[item.id] then
@@ -194,7 +202,7 @@ function GearUI.refreshShop()
 			end)
 		else
 			local affordable = gems() >= item.price
-			action = button(card, `Buy  💎 {item.price}`, if affordable then ORANGE else Color3.fromRGB(90, 70, 60))
+			action = button(card, `Buy  {Style.money(item.price)}`, if affordable then ORANGE else CARD)
 			action.Activated:Connect(function()
 				requestRemote:FireServer("Buy", item.id)
 			end)
@@ -207,7 +215,7 @@ end
 
 local function buildShop()
 	shopWindow = window("ProShop", "PRO SHOP", Vector2.new(560, 480))
-	shopGems = text(shopWindow, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -64, 0, 20), Size = UDim2.fromOffset(140, 26), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromRGB(120, 230, 255), TextSize = 20 })
+	shopGems = text(shopWindow, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -64, 0, 20), Size = UDim2.fromOffset(140, 26), TextXAlignment = Enum.TextXAlignment.Right, Font = Style.Fonts.Display, TextColor3 = Style.Colors.Text, TextSize = 18 })
 	shopTabs = Instance.new("Frame")
 	shopTabs.BackgroundTransparency = 1
 	shopTabs.Position = UDim2.fromOffset(16, 60)
@@ -239,7 +247,7 @@ local function buildShop()
 	layout.Padding = UDim.new(0, 8)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = shopList
-	shopMessage = text(shopWindow, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 20, 1, -12), Size = UDim2.new(1, -40, 0, 24), TextColor3 = GREY, Font = Enum.Font.GothamMedium, TextSize = 15, Text = "Earn gems by topping out routes. Better gear makes you last longer." })
+	shopMessage = text(shopWindow, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 20, 1, -12), Size = UDim2.new(1, -40, 0, 24), TextColor3 = GREY, Font = Style.Fonts.Body, TextSize = 15, Text = "Earn money by topping out routes. Better gear makes you last longer." })
 end
 
 ---------------------------------------------------------------------------------------
@@ -276,8 +284,8 @@ function GearUI.refreshLocker()
 	for _, item in Gear.inSlot("Pack") do
 		local mine = owned[item.id] == true
 		local worn = equippedPack.id == item.id
-		local pick = button(lockerPacks, if mine then item.name else `{item.name} (shop)`, if worn then ORANGE elseif mine then CARD else Color3.fromRGB(28, 30, 36))
-		pick.TextColor3 = if worn then Color3.fromRGB(14, 16, 22) else (if mine then Color3.new(1, 1, 1) else GREY)
+		local pick = button(lockerPacks, if mine then item.name else `{item.name} (shop)`, if worn then ORANGE elseif mine then CARD else Style.Colors.Ink)
+		pick.TextColor3 = if worn then Style.Colors.Ink else (if mine then Color3.new(1, 1, 1) else GREY)
 		pick.TextSize = 13
 		pick.Activated:Connect(function()
 			if mine then
@@ -310,7 +318,7 @@ function GearUI.refreshLocker()
 			end)
 		end
 	else
-		text(lockerHelmetLooks, { Size = UDim2.new(1, 0, 0, 40), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREY, TextWrapped = true, Text = "No helmet yet: they're at the pro shop." })
+		text(lockerHelmetLooks, { Size = UDim2.new(1, 0, 0, 40), Font = Style.Fonts.Body, TextSize = 14, TextColor3 = GREY, TextWrapped = true, Text = "No helmet yet: they're at the pro shop." })
 	end
 	-- The big picture: the pack you're wearing.
 	local look = Gear.variant(equippedPack, packIndex)
@@ -356,7 +364,7 @@ local function buildLocker()
 	lockerPackLooks = tileRow(lockerWindow, 64, "PACK COLOUR", 60)
 	lockerChalkLooks = tileRow(lockerWindow, 150, "CHALK BAG", 116)
 	lockerHelmetLooks = tileRow(lockerWindow, 294, "HELMET", 60)
-	text(lockerWindow, { Position = UDim2.fromOffset(270, 384), Size = UDim2.fromOffset(310, 60), TextColor3 = GREY, Font = Enum.Font.GothamMedium, TextSize = 14, TextWrapped = true, Text = "Looks are free. New packs, helmets, shoes and other gear are at the pro shop." })
+	text(lockerWindow, { Position = UDim2.fromOffset(270, 384), Size = UDim2.fromOffset(310, 60), TextColor3 = GREY, Font = Style.Fonts.Body, TextSize = 14, TextWrapped = true, Text = "Looks are free. New packs, helmets, shoes and other gear are at the pro shop." })
 end
 
 ---------------------------------------------------------------------------------------

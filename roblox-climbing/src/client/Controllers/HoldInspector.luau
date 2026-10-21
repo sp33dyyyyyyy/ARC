@@ -69,7 +69,7 @@ local function buildVisuals()
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.new(1, -16, 1, -8)
 	label.Position = UDim2.fromOffset(8, 4)
-	label.Font = Enum.Font.GothamMedium
+	label.Font = Enum.Font.Sarpanch
 	label.TextSize = 14
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextXAlignment = Enum.TextXAlignment.Left

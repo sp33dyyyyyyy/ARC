@@ -79,7 +79,7 @@ local Surfaces: { [string]: Surface } = {
 	LampHousing = { Material = Enum.Material.Metal, Color = Color3.fromRGB(30, 30, 33) },
 	-- Not Neon: neon lenses bloom into a blinding glare under Future lighting.
 	LampLens = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(255, 248, 232) },
-	SignBoard = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(20, 28, 48) },
+	SignBoard = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(19, 20, 23) },
 	DeckBoards = { Material = Enum.Material.WoodPlanks, Color = Color3.fromRGB(176, 150, 112), Variant = "DeckBoards" },
 }
 

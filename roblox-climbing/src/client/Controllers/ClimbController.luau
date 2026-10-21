@@ -39,6 +39,7 @@ local Tags = require(Shared:WaitForChild("Tags"))
 local ClimbAnimator = require(script.Parent:WaitForChild("ClimbAnimator"))
 local ClimbOverlay = require(script.Parent:WaitForChild("ClimbOverlay"))
 local RopeMotion = require(script.Parent:WaitForChild("RopeMotion"))
+local ClientSettings = require(script.Parent:WaitForChild("ClientSettings"))
 
 local CLIMB = Config.Climb
 local DYNO = CLIMB.Dyno
@@ -910,7 +911,7 @@ local function updateStamina()
 	local value = character:GetAttribute("Stamina")
 	local stamina = if type(value) == "number" then value else Config.Stamina.Max
 	local fraction = stamina / Config.Stamina.Max
-	ClimbOverlay.setStamina(if climbing or fraction < 0.995 then root else nil, fraction)
+	ClimbOverlay.setStamina(if climbing or fraction < 0.995 or ClientSettings.get("StaminaAlways") then root else nil, fraction)
 	if climbing and stamina < Config.Stamina.LowWarning and not warnedTired then
 		warnedTired = true
 		ClimbOverlay.toast("Getting tired! Rest with all four limbs on holds")

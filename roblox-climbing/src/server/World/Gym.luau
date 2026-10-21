@@ -806,7 +806,7 @@ local function buildShop(model: Model)
 	end
 	local cframe = counter(shop, "Counter", Vector3.new(48, 0, 11), 9, Vector3.new(-1, 0, 0))
 	local till = part({ name = "Till", size = Vector3.new(1.6, 1.1, 0.12), cframe = cframe * CFrame.new(2.5, 2.5, 0.2) * CFrame.Angles(math.rad(-15), 0, 0), surface = "Charcoal", parent = shop })
-	label(till, Enum.NormalId.Front, `<font color="#FF7A30">💎</font> GEAR`, WHITE, Enum.Font.Sarpanch, true)
+	label(till, Enum.NormalId.Front, `<font color="#FF7A30">£</font> GEAR`, WHITE, Enum.Font.Sarpanch, true)
 	npc("Pro shop", Vector3.new(51, 0, 11), Vector3.new(-1, 0, 0), shop, Color3.fromRGB(42, 44, 50), GEAR.shop)
 	local promptPart = part({ name = "ShopPrompt", size = Vector3.new(1, 1, 1), cframe = cframe * CFrame.new(0, 2.4, 0), surface = "Charcoal", parent = shop })
 	promptPart.Transparency = 1

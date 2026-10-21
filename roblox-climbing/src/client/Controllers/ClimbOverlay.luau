@@ -11,6 +11,9 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
+local ClientSettings = require(script.Parent:WaitForChild("ClientSettings"))
+local Style = require(script.Parent:WaitForChild("Style"))
+
 local ClimbOverlay = {}
 
 export type Marker = { position: Vector3, color: Color3, radius: number, transparency: number }
@@ -72,62 +75,71 @@ function ClimbOverlay.init()
 	heightPill.AnchorPoint = Vector2.new(0.5, 0)
 	heightPill.Position = UDim2.new(0.5, 0, 0, 8)
 	heightPill.Size = UDim2.fromOffset(120, 40)
-	heightPill.BackgroundColor3 = Color3.fromRGB(230, 244, 240)
-	heightPill.BackgroundTransparency = 0.1
+	heightPill.BackgroundColor3 = Style.Colors.Panel
+	heightPill.BackgroundTransparency = 0.06
 	heightPill.Visible = false
 	heightPill.Parent = screen
-	rounded(heightPill, UDim.new(0, 12))
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(63, 209, 201)
-	stroke.Thickness = 1.5
-	stroke.Parent = heightPill
+	Style.corner(heightPill, 3)
+	Style.stroke(heightPill)
 	local caption = Instance.new("TextLabel")
 	caption.BackgroundTransparency = 1
 	caption.Size = UDim2.new(1, 0, 0, 12)
-	caption.Position = UDim2.fromOffset(0, 3)
-	caption.Font = Enum.Font.GothamMedium
-	caption.TextSize = 10
-	caption.TextColor3 = Color3.fromRGB(90, 110, 120)
+	caption.Position = UDim2.fromOffset(0, 4)
+	caption.Font = Style.Fonts.Head
+	caption.TextSize = 11
+	caption.TextColor3 = Style.Colors.Muted
 	caption.Text = "HEIGHT"
 	caption.Parent = heightPill
 	heightLabel = Instance.new("TextLabel")
 	heightLabel.BackgroundTransparency = 1
-	heightLabel.Size = UDim2.new(1, 0, 1, -14)
-	heightLabel.Position = UDim2.fromOffset(0, 13)
-	heightLabel.Font = Enum.Font.Sarpanch
-	heightLabel.TextSize = 18
-	heightLabel.TextColor3 = Color3.fromRGB(20, 40, 50)
+	heightLabel.Size = UDim2.new(1, 0, 1, -16)
+	heightLabel.Position = UDim2.fromOffset(0, 15)
+	heightLabel.Font = Style.Fonts.Display
+	heightLabel.TextSize = 16
+	heightLabel.TextColor3 = Style.Colors.Text
 	heightLabel.Parent = heightPill
 
 	toastLabel = Instance.new("TextLabel")
 	toastLabel.Name = "Toast"
 	toastLabel.AnchorPoint = Vector2.new(0.5, 0)
 	toastLabel.Position = UDim2.new(0.5, 0, 0, 56)
-	toastLabel.Size = UDim2.fromOffset(260, 30)
-	toastLabel.BackgroundColor3 = Color3.fromRGB(16, 24, 42)
+	-- Sizes itself to the message (with padding), so long ones don't spill out.
+	toastLabel.Size = UDim2.fromOffset(0, 30)
+	toastLabel.AutomaticSize = Enum.AutomaticSize.X
+	local toastPadding = Instance.new("UIPadding")
+	toastPadding.PaddingLeft = UDim.new(0, 14)
+	toastPadding.PaddingRight = UDim.new(0, 14)
+	toastPadding.Parent = toastLabel
+	toastLabel.BackgroundColor3 = Style.Colors.Panel
 	toastLabel.BackgroundTransparency = 1
 	toastLabel.TextTransparency = 1
-	toastLabel.Font = Enum.Font.GothamMedium
+	toastLabel.Font = Style.Fonts.Head
 	toastLabel.TextSize = 15
-	toastLabel.TextColor3 = Color3.new(1, 1, 1)
+	toastLabel.TextColor3 = Style.Colors.Text
 	toastLabel.Parent = screen
-	rounded(toastLabel, UDim.new(0, 10))
+	Style.corner(toastLabel, 3)
 
 	-- How-to hint at the bottom of the screen.
 	hintLabel = Instance.new("TextLabel")
 	hintLabel.Name = "Hint"
 	hintLabel.AnchorPoint = Vector2.new(0.5, 1)
 	hintLabel.Position = UDim2.new(0.5, 0, 1, -96)
-	hintLabel.Size = UDim2.fromOffset(560, 34)
-	hintLabel.BackgroundColor3 = Color3.fromRGB(16, 24, 42)
-	hintLabel.BackgroundTransparency = 0.3
-	hintLabel.Font = Enum.Font.GothamMedium
-	hintLabel.TextSize = 15
-	hintLabel.TextColor3 = Color3.new(1, 1, 1)
+	hintLabel.Size = UDim2.fromOffset(0, 34)
+	hintLabel.AutomaticSize = Enum.AutomaticSize.X
+	local hintPadding = Instance.new("UIPadding")
+	hintPadding.PaddingLeft = UDim.new(0, 16)
+	hintPadding.PaddingRight = UDim.new(0, 16)
+	hintPadding.Parent = hintLabel
+	hintLabel.BackgroundColor3 = Style.Colors.Panel
+	hintLabel.BackgroundTransparency = 0.15
+	hintLabel.Font = Style.Fonts.Body
+	hintLabel.TextSize = 14
+	hintLabel.TextColor3 = Style.Colors.Text
 	hintLabel.RichText = true
 	hintLabel.Visible = false
 	hintLabel.Parent = screen
-	rounded(hintLabel, UDim.new(0, 10))
+	Style.corner(hintLabel, 3)
+	Style.stroke(hintLabel)
 
 	-- Stamina: a thin vertical bar beside the climber (blue -> orange -> red).
 	staminaGui = Instance.new("BillboardGui")
@@ -140,7 +152,7 @@ function ClimbOverlay.init()
 	staminaGui.Parent = folder
 	local track = Instance.new("Frame")
 	track.Size = UDim2.fromScale(1, 1)
-	track.BackgroundColor3 = Color3.fromRGB(16, 24, 42)
+	track.BackgroundColor3 = Style.Colors.Ink
 	track.BackgroundTransparency = 0.25
 	track.ClipsDescendants = true
 	track.Parent = staminaGui
@@ -178,7 +190,7 @@ function ClimbOverlay.init()
 	deathTitle.Parent = deathScreen
 	deathSubtitle = deathTitle:Clone()
 	deathSubtitle.Position = UDim2.fromScale(0.5, 0.53)
-	deathSubtitle.Font = Enum.Font.GothamMedium
+	deathSubtitle.Font = Style.Fonts.Head
 	deathSubtitle.TextSize = 20
 	deathSubtitle.TextColor3 = Color3.fromRGB(255, 200, 200)
 	deathSubtitle.Parent = deathScreen
@@ -330,7 +342,7 @@ end
 
 -- Bottom-of-screen hint (rich text). nil hides it.
 function ClimbOverlay.setHint(text: string?)
-	hintLabel.Visible = text ~= nil
+	hintLabel.Visible = text ~= nil and ClientSettings.get("Hints")
 	if text and hintLabel.Text ~= text then
 		hintLabel.Text = text
 	end

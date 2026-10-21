@@ -38,6 +38,8 @@ local function puff(character: Model)
 	end
 end
 
+local lastBag: { [Player]: number } = {}
+
 local function chalkUp(player: Player)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -49,7 +51,21 @@ local function chalkUp(player: Player)
 	task.delay(0.45, puff, character) -- as the hands come out of the bag
 end
 
+-- Chalk up from the chalk bag you're wearing (the HUD button / G), anywhere, even on the
+-- wall, every Config.Chalk.BagCooldown seconds.
+function ChalkService.FromBag(player: Player)
+	local now = os.clock()
+	if player:GetAttribute("Equip_ChalkBag") == nil or now - (lastBag[player] or -math.huge) < Config.Chalk.BagCooldown - 0.5 then
+		return
+	end
+	lastBag[player] = now
+	chalkUp(player)
+end
+
 function ChalkService.Start()
+	game:GetService("Players").PlayerRemoving:Connect(function(player)
+		lastBag[player] = nil
+	end)
 	local function watch(instance: Instance)
 		if instance:IsA("ProximityPrompt") and instance.Name == "ChalkUp" then
 			instance.Triggered:Connect(chalkUp)

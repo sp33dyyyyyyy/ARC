@@ -1,7 +1,7 @@
 --!strict
 -- ShopService (server): the pro shop and the lockers.
 --
---  * Buy gear with gems ("Buy"), equip what you own ("Equip"), and pick your pack and
+--  * Buy gear with money (£, "Buy"), equip what you own ("Equip"), and pick your pack and
 --    chalk-bag and helmet looks ("Colour"). Everything is checked here and saved by
 --    DataService.
 --  * Publishes on the Player, for the UI and the other services:
@@ -17,6 +17,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
 local Gear = require(Shared.Gear)
 local GearModels = require(Shared.GearModels)
 local RateLimiter = require(Shared.RateLimiter)
@@ -215,7 +216,7 @@ local function onRequest(player: Player, action: any, a: any, b: any)
 			return
 		end
 		if data.gems < item.price then
-			reply(player, false, `Not enough gems: {item.name} costs {item.price} 💎`)
+			reply(player, false, `Not enough money: {item.name} costs {Config.money(item.price)}`)
 			return
 		end
 		DataService.Update(player, function(d)
