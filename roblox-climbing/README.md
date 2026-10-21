@@ -45,6 +45,9 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/server/Services/RopeService.luau` | `ServerScriptService.Server.Services.RopeService` | ModuleScript |
 | `src/server/Services/ChalkService.luau` | `ServerScriptService.Server.Services.ChalkService` | ModuleScript |
 | `src/server/Services/ShopService.luau` | `ServerScriptService.Server.Services.ShopService` | ModuleScript |
+| `src/server/Services/PropService.luau` | `ServerScriptService.Server.Services.PropService` | ModuleScript |
+| `src/server/World/Props.luau` | `ServerScriptService.Server.World.Props` | ModuleScript |
+| `src/server/World/Npc.luau` | `ServerScriptService.Server.World.Npc` | ModuleScript |
 | `src/shared/Gear.luau` | `ReplicatedStorage.Shared.Gear` | ModuleScript |
 | `src/shared/GearModels.luau` | `ReplicatedStorage.Shared.GearModels` | ModuleScript |
 | `src/server/World/Gym.luau` | `ServerScriptService.Server.World.Gym` | ModuleScript |
@@ -61,6 +64,7 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/client/Controllers/ClimbAnimator.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbAnimator` | ModuleScript |
 | `src/client/Controllers/RouteHud.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.RouteHud` | ModuleScript |
 | `src/client/Controllers/GearUI.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.GearUI` | ModuleScript |
+| `src/client/Controllers/RopeMotion.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.RopeMotion` | ModuleScript |
 
 `Shared`, `Server`, `Services`, `World`, `Physics`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
 
@@ -308,7 +312,12 @@ Every outdoor route has a rope bag, a chalk bucket and a leaderboard sign at its
 
 **Routes.** Grab a route's low holds and the timer starts (top right, with a progress bar). Reach the top, or hold the finish jug, for a **summit card**: your time, previous best, gems and XP, and your leaderboard rank. The run ends if you fall, get caught by the rope, or end up back on the ground. Outdoors, free soloists climb over onto the summit. **Routes menu** (button bottom left, or **M**): every route with your best time, and **Go** to travel to its base.
 
-**Ropes: clip in to every wall.** Every roped wall must be clipped into before you can grab its holds. Outdoors, hold **Tie in** at the route's rope bag. Indoors, hold **Clip in** at the orange carabiner hanging from the auto-belay. Until you do, the badge (top right) says so and grabs are refused ("Clip in to the auto-belay first"). Let go or peel off and the rope catches you, then lowers you to the ground. Grab a hold while hanging to climb on. Auto-belays unclip you when you're back on the floor. Rope bags untie you when you walk away, or tap the badge. Bouldering problems have no rope: they're low, over padding.
+**Ropes (optional).** You can free solo anything; nothing nags you to rope up. To rope up, just **click** the rope bag at the base of an outdoor route, or the orange carabiner hanging from an indoor auto-belay (click again to unclip, or tap the rope badge). You'll see a clipping-in animation.
+- **Rope physics:** the rope is a real physics rope that sags with a little slack while you climb, because the belayer keeps it just loose. Fall or let go and you drop that slack, the rope stretches and bounces, and you swing on it.
+- **Rope animations:** after a catch you flail and grab the rope. Then you sit back in your harness, feet braced on the wall. Then you're lowered: leaning back, walking down the wall step by step, brake hand feeding rope.
+- **R** while roped: sit back on the rope and get lowered off (gamepad: X). Grab a hold any time to climb on.
+- Outdoors you also see the belayer's side of the rope running from the anchor down to the bag. Auto-belays unclip you when you're back on the floor; rope bags untie you when you walk away.
+- Climbing without a rope is free solo: fall from high up and it's fatal.
 
 **Gear (pro shop).** Use **Browse gear** at the shop counter. Spend gems on:
 | Slot | Items | Effect |
@@ -316,10 +325,15 @@ Every outdoor route has a rope bag, a chalk bucket and a leaderboard sign at its
 | Shoes | Rental, Trail Edge (60), Pro Downturn (250), Velvet Slipper (600) | up to 22% less stamina drain while a foot is on |
 | Chalk | Basic bag, Big Bucket (80), Liquid Chalk Pro (300) | chalk lasts longer and helps more |
 | Harness | Rental, Featherweight (120), Comp Harness (400) | dynos cost 15 → 12 → 9 stamina |
-| Bags | Day Pack, Crag Pack (50), Gym Duffel (90), Haul Bag (150) | looks |
+| Helmet | none, Roc (80), Aurora (150), Vapor (220) | survive falls 10% / 15% / 20% higher |
+| Bags | Climbing Pack, Crag Pack (50), Expedition (90), Big Wall (150), Bravo DL 30 (220) | looks |
 | Ropes | Yellow, Ocean Blue (30), Hot Pink (30), Stealth Black (60) | your rope's colour outdoors |
 
-Everything is in `src/shared/Gear.luau`. **Lockers:** use **Customise bag** at the bag station to pick your pack and the colours of your pack and chalk bag (free), with a turning 3D preview. Your pack and chalk bag show on your character for everyone.
+Everything is in `src/shared/Gear.luau`. Packs, helmets and chalk bags are **real climbing gear from the Roblox avatar catalog** (accessories load in any game), each in several colours, and the shop shelves display the real items. **Lockers:** use **Customise bag** at the bag station to pick your pack, its colour, your chalk bag (11 looks) and your helmet colour, all free, from pictures of the items. Your gear shows on your character for everyone, and the gym staff and the climbers at each crag camp wear it too.
+
+**Pre-made models.** The furniture, plants, trees, rocks, tents and campfires are free Creator Store models (listed in `src/server/World/Props.luau`; scouted with `tools/world/scout.py`). `PropService` loads them when the server starts, scales each to fit its spot and stands it exactly on the floor. **To use them, publish the place and turn on Game Settings → Security → Allow Loading Third Party Assets.** Without that, every spot keeps a simple built-in stand-in (Output says so), so the world is always complete.
+
+**Text.** Signs and screens use the sharp **Michroma** (titles) and **Sarpanch** (headings) fonts on canvases sized to each sign, so nothing is stretched.
 
 **Weight shift sticks.** While climbing, WASD moves your weight and it stays where you leave it, so you don't have to hold the keys. **X** puts it back in the middle (gamepad: Y).
 
@@ -335,7 +349,7 @@ All numbers live in `Config.Routes`, `Config.Rope` and `Config.Chalk`.
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 13 passed, 0 failed`** (Stage4Check checks the gym, the crags, the shop, clip-in rules and that all 20 routes are complete). Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 13 passed, 0 failed`** (Stage4Check checks the gym, the crags, the shop, the click-to-clip ropes and that all 20 routes are complete). With third-party assets allowed you'll also see `[PropService] N/N props use Creator Store models`. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").
@@ -347,9 +361,9 @@ Press **Play** and check:
 10. **Multiplayer view.** Use Test → Clients and Servers → 2 players. Each player sees the other's arms and legs on the holds.
 11. **Server authority.** Rejected requests show "Can't grab: …" and the limb snaps back.
 
-12. **Clip in, then a timed route.** Try to grab the tutorial wall: refused, "Clip in to the auto-belay first". Hold **Clip in** at the orange carabiner. Climb from the bottom: the timer appears top right. Hold the finish jug: summit card with time, gems and XP. Let go: the auto-belay catches you and lowers you, then unclips you.
-13. **Ropes outdoors.** Walk out the door to Wall A (or press M → Go). The badge says to tie in. Hold **Tie in** at the rope bag, climb a bit and press V: the rope catches you and lowers you.
-13b. **Shop and lockers.** At the pro shop counter, **Browse gear**: buy something once you have gems, and it's equipped straight away. At the lockers, **Customise bag**: change your pack and colours, and see them on your back.
+12. **Clip in, then a timed route.** Click the orange carabiner at the tutorial wall: your hands go to your harness and a blue rope runs to the auto-belay. Climb from the bottom: the timer appears top right, and the rope sags a little below you. Hold the finish jug: summit card. Press **R**: you sit back on the rope, then lean back and walk down the wall as it lowers you, then it unclips you.
+13. **Ropes outdoors.** At Wall A (or M → Go), click the rope bag, climb a bit and press V: you drop the slack, bounce on the rope, flail, settle into the harness and get lowered. Then try a climb without clicking the bag: no rope, no reminder.
+13b. **Shop and lockers.** At the pro shop counter, **Browse gear**: buy something once you have gems, and it's equipped straight away. At the lockers, **Customise bag**: change your pack, chalk bag and helmet looks, and see them on your back. Chalk up at a bucket for the chalk-dip animation.
 14. **Chalk.** Chalk up at a bucket: the chip top left shows Chalk 100% and it wears off as you climb.
 15. **Leaderboards.** After a summit your name appears on the route's sign and on the gym's leaderboard wall within a minute.
 16. **Big wall.** M → Go to The Long Way Up. Climb past the first ledge (you slide past it), let go just above it, and you land on it.

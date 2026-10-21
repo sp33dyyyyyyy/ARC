@@ -89,6 +89,7 @@ Config.Climb = {
 	Keys = {
 		LetGo = Enum.KeyCode.V,
 		CentreWeight = Enum.KeyCode.X, -- puts the sticky weight shift back in the middle
+		Lower = Enum.KeyCode.R, -- tied in: sit back on the rope and get lowered
 		Dyno = Enum.KeyCode.Space,
 	},
 
@@ -145,9 +146,13 @@ Config.Routes = {
 
 -- Ropes (RopeService): top-rope outdoors (tie in at the rope bag), auto-belay indoors.
 Config.Rope = {
-	CatchSlack = 0.8, -- studs of rope that pays out when you fall on it
+	Slack = 2.2, -- studs of slack the belayer keeps while you climb (you fall this far)
+	TakeInSpeed = 40, -- studs/s the belayer takes in or pays out to follow you
+	Stretch = 0.18, -- bounce when the rope comes tight (RopeConstraint.Restitution)
+	CaughtSeconds = 0.9, -- the jolt and flail right after a catch
 	HangSeconds = 1.2, -- dangle this long before being lowered
 	LowerSpeed = 7, -- studs per second
+	TakeSpeed = 12, -- how fast the belayer takes in when you ask to be lowered (R)
 	UntieDistance = 30, -- walking this far from the route's base unties you
 	Color = Color3.fromRGB(245, 205, 40),
 	AutoBelayColor = Color3.fromRGB(40, 150, 240),

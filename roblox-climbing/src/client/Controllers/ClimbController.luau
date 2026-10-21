@@ -38,6 +38,7 @@ local Tags = require(Shared:WaitForChild("Tags"))
 
 local ClimbAnimator = require(script.Parent:WaitForChild("ClimbAnimator"))
 local ClimbOverlay = require(script.Parent:WaitForChild("ClimbOverlay"))
+local RopeMotion = require(script.Parent:WaitForChild("RopeMotion"))
 
 local CLIMB = Config.Climb
 local DYNO = CLIMB.Dyno
@@ -45,6 +46,7 @@ local COLORS = CLIMB.Colors
 local ACTION_DYNO = "ClimbDyno"
 local ACTION_LET_GO = "ClimbLetGo"
 local ACTION_CENTRE = "ClimbCentre"
+local ACTION_LOWER = "ClimbLower"
 local MAX_RAY = 200
 
 local player = Players.LocalPlayer
@@ -278,6 +280,14 @@ local function bindWallActions()
 		return Enum.ContextActionResult.Sink
 	end, true, Enum.ContextActionPriority.High.Value, CLIMB.Keys.CentreWeight, Enum.KeyCode.ButtonY)
 	ContextActionService:SetTitle(ACTION_CENTRE, "Centre")
+
+	-- Tied in: sit back on the rope and get lowered.
+	ContextActionService:BindActionAtPriority(ACTION_LOWER, function(_, state)
+		if state == Enum.UserInputState.Begin and character and character:GetAttribute("TiedIn") ~= nil then
+			Remotes.event("RouteRequest"):FireServer("Lower")
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value, CLIMB.Keys.Lower, Enum.KeyCode.ButtonX)
 end
 
 local function enterClimb()
@@ -305,6 +315,7 @@ local function exitClimb()
 	ContextActionService:UnbindAction(ACTION_DYNO)
 	ContextActionService:UnbindAction(ACTION_LET_GO)
 	ContextActionService:UnbindAction(ACTION_CENTRE)
+	ContextActionService:UnbindAction(ACTION_LOWER)
 	weightShift = Vector2.zero
 	if humanoid and humanoid.Health > 0 then
 		humanoid.PlatformStand = false
@@ -324,12 +335,6 @@ local function requestPlace(limb: string, hold: BasePart): boolean
 	end
 	if not inReach(limb, hold) then
 		ClimbOverlay.toast("Out of reach - shift your weight (W A S D)")
-		return false
-	end
-	-- Roped walls must be clipped into first (the server enforces it too).
-	local route = HoldUtil.getRouteFolder(hold)
-	if route and (route:GetAttribute("Rope") == true or route:GetAttribute("AutoBelay") == true) and (character == nil or character:GetAttribute("TiedIn") ~= route.Name) then
-		ClimbOverlay.toast(if route:GetAttribute("AutoBelay") == true then "Clip in to the auto-belay first (orange carabiner)" else "Tie in at the rope bag first")
 		return false
 	end
 	local id = holdId(hold)
@@ -406,6 +411,9 @@ local function probe(point: Vector2, limb: string?): (Vector3?, BasePart?, boole
 	rayParams.FilterDescendantsInstances = if character then { character } else {}
 	local ray = camera:ViewportPointToRay(point.X, point.Y)
 	local result = Workspace:Raycast(ray.Origin, ray.Direction * MAX_RAY, rayParams)
+	if result and result.Instance:FindFirstChildOfClass("ClickDetector") then
+		return nil, nil, false -- clicking a carabiner or rope bag clips in; it isn't a grab
+	end
 
 	local worldPoint: Vector3? = nil
 	local hit: BasePart? = nil
@@ -794,13 +802,23 @@ end
 
 -- PreSimulation: pose every climber (runs after Roblox's animations, so the pose wins).
 local function animateAll(dt: number)
+	-- Climbing wins; otherwise the rope (being caught, hanging, lowered) or a gesture.
 	if character and not isDown(character) then
-		ClimbAnimator.animate(character, localIntent(), dt)
+		local intent = localIntent()
+		if intent == nil and root then
+			intent = RopeMotion.intent(character, groundBelow(root.Position))
+		end
+		ClimbAnimator.animate(character, intent, dt)
 	end
 	for _, other in Players:GetPlayers() do
 		local otherCharacter = other.Character
 		if other ~= player and otherCharacter and not isDown(otherCharacter) then
-			ClimbAnimator.animate(otherCharacter, otherIntent(otherCharacter), dt)
+			local intent = otherIntent(otherCharacter)
+			if intent == nil then
+				local otherRoot = otherCharacter:FindFirstChild("HumanoidRootPart")
+				intent = RopeMotion.intent(otherCharacter, if otherRoot and otherRoot:IsA("BasePart") then groundBelow(otherRoot.Position, otherCharacter) else nil)
+			end
+			ClimbAnimator.animate(otherCharacter, intent, dt)
 		end
 	end
 end
@@ -869,13 +887,14 @@ end
 
 local HINT_WALL = "<b>Click a hold</b> to grab it, or <b>drag a hand</b> onto one"
 local HINT_CLIMBING = "<b>Drag</b> hands/feet to holds  ·  <b>WASD</b> shift weight (stays)  ·  <b>X</b> centre  ·  <b>Space</b> dyno  ·  <b>V</b> let go"
+local HINT_ROPED = HINT_CLIMBING .. "  ·  <b>R</b> lower off"
 local HINT_DRAGGING = "Drop on a <font color=\"#5ce65c\">green</font> hold (hands) or <font color=\"#3fd1c9\">teal</font> hold (feet)"
 
 local function updateHint()
 	if drag and drag.moved then
 		ClimbOverlay.setHint(HINT_DRAGGING)
 	elseif climbing then
-		ClimbOverlay.setHint(HINT_CLIMBING)
+		ClimbOverlay.setHint(if character and character:GetAttribute("TiedIn") ~= nil then HINT_ROPED else HINT_CLIMBING)
 	elseif nearWall() then
 		ClimbOverlay.setHint(HINT_WALL)
 	else
@@ -968,6 +987,7 @@ local function step(dt: number)
 		updateBody(grips, dt)
 	end
 	updateLedges(root.Position)
+	RopeMotion.control(character, root, humanoid, climbing)
 	if dynoCharge then
 		dynoCharge = math.min(1, dynoCharge + dt / DYNO.ChargeTime)
 		local aim, hold = dynoAim()

@@ -193,19 +193,16 @@ function RouteKit.addRopeBag(route: Instance, position: Vector3)
 		})
 		ring.Material = Enum.Material.Fabric
 	end
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "TieIn"
-	prompt.ActionText = "Tie in"
-	prompt.ObjectText = "Rope"
-	prompt.HoldDuration = 1.5
-	prompt.MaxActivationDistance = 9
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = bag
+	-- Click the rope to tie in (click again to untie). No prompt: it's optional.
+	local click = Instance.new("ClickDetector")
+	click.Name = "TieIn"
+	click.MaxActivationDistance = 14
+	click.Parent = bag
 end
 
 -- An auto-belay: the orange unit bolted above the top of the wall, its webbing strap, and
--- the carabiner hanging at the base with the "Clip in" prompt (RopeService handles it).
--- Every roped wall must be clipped into before you can climb it.
+-- the carabiner hanging at the base: click it to clip in (RopeService handles it).
+-- Clipping in is optional; you can always free solo.
 function RouteKit.addAutoBelay(route: Instance, base: Vector3, top: Vector3, facing: Vector3)
 	local flat = Vector3.new(facing.X, 0, facing.Z).Unit
 	local unit = Instance.new("Model")
@@ -244,14 +241,11 @@ function RouteKit.addAutoBelay(route: Instance, base: Vector3, top: Vector3, fac
 	strap.FaceCamera = true
 	strap.Color = ColorSequence.new(Color3.fromRGB(70, 74, 82))
 	strap.Parent = housing
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "ClipIn"
-	prompt.ActionText = "Clip in"
-	prompt.ObjectText = "Auto-belay"
-	prompt.HoldDuration = 0.8
-	prompt.MaxActivationDistance = 8
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = clip
+	-- Click the carabiner to clip in (click again to unclip). No prompt: it's optional.
+	local click = Instance.new("ClickDetector")
+	click.Name = "ClipIn"
+	click.MaxActivationDistance = 14
+	click.Parent = clip
 	unit.Parent = route
 end
 

@@ -4,7 +4,7 @@
 --   * profile chip (top left): gems, level with an XP bar, chalk
 --   * run card (top right): route, grade, live timer and a progress bar while on a run
 --   * summit card: time, best, rewards, leaderboard rank, Retry / Close
---   * rope badge: "Tied in" / "Auto-belay", or "clip in to climb" near a roped wall
+--   * rope badge while tied in: "Tied in" / "Auto-belay" (tap to untie); no reminders
 --   * routes menu (button or M): every route with your best time and a "Go" button
 --   * short notices (failed runs, other players' big summits)
 
@@ -413,22 +413,6 @@ local function onRouteEvent(kind: any, a: any, b: any)
 	end
 end
 
-local function nearestRouteWithRope(position: Vector3): Instance?
-	local best, bestDistance = nil, 18
-	for _, route in sortedRoutes() do
-		if route:GetAttribute("Rope") ~= true and route:GetAttribute("AutoBelay") ~= true then
-			continue
-		end
-		local start = route:GetAttribute("StartPosition")
-		if typeof(start) == "Vector3" then
-			local distance = (start - position).Magnitude
-			if distance < bestDistance then
-				best, bestDistance = route, distance
-			end
-		end
-	end
-	return best
-end
 
 local function update()
 	local character = player.Character
@@ -466,11 +450,6 @@ local function update()
 		else
 			ropeBadge.Text = `🪢 Tied in{if character:GetAttribute("Climbing") ~= true then "  ·  <b>tap to untie</b>" else ""}`
 		end
-	elseif character and root and nearestRouteWithRope(root.Position) then
-		local near = nearestRouteWithRope(root.Position) :: Instance
-		ropeBadge.Visible = true
-		ropeBadge.BackgroundColor3 = Color3.fromRGB(120, 30, 30)
-		ropeBadge.Text = if near:GetAttribute("AutoBelay") == true then "⚠ Clip in to the auto-belay to climb" else "⚠ Tie in at the rope bag to climb"
 	else
 		ropeBadge.Visible = false
 	end

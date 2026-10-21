@@ -8,6 +8,8 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared").Config)
 
+local RopeService = require(script.Parent.RopeService)
+
 local ChalkService = {}
 
 -- A white puff around both hands.
@@ -43,7 +45,8 @@ local function chalkUp(player: Player)
 		return
 	end
 	character:SetAttribute("Chalk", Config.Chalk.Max)
-	puff(character)
+	RopeService.gesture(character, "Chalk")
+	task.delay(0.45, puff, character) -- as the hands come out of the bag
 end
 
 function ChalkService.Start()

@@ -16,7 +16,7 @@ local EVENTS = {
 	-- server -> client: ("Started", routeId) | ("Summit", result) | ("Failed", routeId, reason)
 	--                   | ("Notice", text)
 	"RouteEvent",
-	-- client -> server: ("Retry") | ("Untie")
+	-- client -> server: ("Retry") | ("Travel", routeId) | ("Untie") | ("Lower")
 	"RouteRequest",
 	-- client -> server: ("Buy", itemId) | ("Equip", itemId) | ("Colour", "Pack" | "ChalkBag", index)
 	"ShopRequest",

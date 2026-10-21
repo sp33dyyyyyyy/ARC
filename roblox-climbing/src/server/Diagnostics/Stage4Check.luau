@@ -84,7 +84,7 @@ function Stage4Check.Run(): boolean
 		end
 		local belay = route:FindFirstChild("AutoBelay")
 		if route:GetAttribute("AutoBelay") == true and (belay == nil or belay:FindFirstChild("ClipIn", true) == nil) then
-			table.insert(problems, `{name}: auto-belay route without a "Clip in" carabiner`)
+			table.insert(problems, `{name}: auto-belay route without a click-to-clip carabiner`)
 		end
 
 		local holds: { BasePart } = {}
@@ -148,18 +148,21 @@ function Stage4Check.Run(): boolean
 		"pro shop and lockers are in the gym",
 		gym ~= nil and gym:FindFirstChild("OpenShop", true) ~= nil and gym:FindFirstChild("OpenLocker", true) ~= nil
 	)
-	local placeGuard = require(Services.RopeService).placeGuard
-	local anyRoped: BasePart? = nil
+	-- Ropes are optional and work by clicking: rope bags and carabiners have ClickDetectors.
+	local clickable, total = 0, 0
 	for _, route in (if routes then routes:GetChildren() else {}) do
-		local holds = route:FindFirstChild("Holds")
-		local first = holds and holds:FindFirstChildWhichIsA("BasePart")
-		if route:GetAttribute("AutoBelay") == true and first then
-			anyRoped = first
-			break
+		local bag = route:FindFirstChild("RopeBag")
+		local belay = route:FindFirstChild("AutoBelay")
+		for _, thing in { bag, belay } do
+			if thing then
+				total += 1
+				if thing:FindFirstChildWhichIsA("ClickDetector", true) then
+					clickable += 1
+				end
+			end
 		end
 	end
-	local dummyPlayer = Instance.new("Folder") :: any
-	check("roped walls refuse climbers who aren't clipped in", anyRoped ~= nil and placeGuard(dummyPlayer, anyRoped :: BasePart) ~= nil)
+	check(`every rope bag and auto-belay clips in with a click ({clickable}/{total})`, total > 0 and clickable == total)
 	check("saving is " .. (if DataService.IsPersistent() then "on" else "in memory only (Studio API access off)"), true)
 
 	print(`[Stage4Check] {passed} passed, {failed} failed`)

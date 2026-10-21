@@ -214,6 +214,9 @@ local function summit(player: Player, run: Run)
 		rank = rank,
 	}
 	eventRemote:FireClient(player, "Summit", result)
+	if player.Character then
+		RopeService.gesture(player.Character, "Summit")
+	end
 
 	-- Topping out: free soloists climb over onto the summit; roped climbers let go to be
 	-- lowered; boulderers drop onto the mats.
@@ -222,7 +225,7 @@ local function summit(player: Player, run: Run)
 		if character:GetAttribute("TiedIn") == nil then
 			task.delay(0.5, topOut, player, route)
 		else
-			eventRemote:FireClient(player, "Notice", "Let go (V) and your belayer lowers you down")
+			eventRemote:FireClient(player, "Notice", "Press R (or let go) and your belayer lowers you down")
 		end
 	end
 	if meters >= 50 then
@@ -340,6 +343,8 @@ local function onRequest(player: Player, action: any, routeId: any)
 	end
 	if action == "Untie" then
 		RopeService.Untie(player)
+	elseif action == "Lower" then
+		RopeService.Lower(player)
 	elseif action == "Retry" then
 		local route = lastRoute[player]
 		if route and route.Parent == routes then
