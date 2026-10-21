@@ -6,6 +6,7 @@
 --   Stats     money, level, summits, metres climbed, best times
 --   Settings  hints, stamina bar, run timer (ClientSettings)
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -25,6 +26,8 @@ local F = Style.Fonts
 local PHONE_KEY = Enum.KeyCode.P
 local ROUTES_KEY = Enum.KeyCode.M
 local WIDTH, HEIGHT = 290, 560
+local MIN_HEIGHT = 440 -- on short screens the phone gets shorter (pages scroll) before it shrinks
+local homeFooter: TextLabel? = nil -- the home screen hint (hidden on a short phone)
 
 local Phone = {}
 
@@ -147,6 +150,7 @@ local function showPage(name: string)
 		refresh()
 	end
 end
+Phone.show = showPage
 
 local function buildHome()
 	local home = page("Home")
@@ -188,7 +192,9 @@ local function buildHome()
 			showPage(app)
 		end)
 	end
-	Style.label(home, { Position = UDim2.new(0, 20, 1, -40), Size = UDim2.new(1, -40, 0, 30), Font = F.Body, TextSize = 13, TextColor3 = C.Faint, TextWrapped = true, Text = "P puts the phone away.  M opens Routes." })
+	local footer = Style.label(home, { Position = UDim2.new(0, 20, 1, -40), Size = UDim2.new(1, -40, 0, 30), Font = F.Body, TextSize = 13, TextColor3 = C.Faint, TextWrapped = true, Text = "P puts the phone away.  M opens Routes." })
+	footer.Visible = body.Size.Y.Offset >= 520
+	homeFooter = footer
 end
 
 local CONTROLS: { { string } } = {
@@ -347,11 +353,11 @@ local function buildSettings()
 		row.AutoButtonColor = false
 		row.BackgroundColor3 = C.Raised
 		row.BorderSizePixel = 0
-		row.Size = UDim2.new(1, -8, 0, 54)
+		row.Size = UDim2.new(1, -8, 0, 64)
 		Style.corner(row, 3)
 		row.Parent = list
 		Style.label(row, { Position = UDim2.fromOffset(10, 7), Size = UDim2.new(1, -70, 0, 18), TextSize = 15, Text = string.upper(entry[2]) })
-		Style.label(row, { Position = UDim2.fromOffset(10, 27), Size = UDim2.new(1, -70, 0, 18), Font = F.Body, TextSize = 12, TextColor3 = C.Muted, Text = entry[3] })
+		Style.label(row, { Position = UDim2.fromOffset(10, 27), Size = UDim2.new(1, -70, 0, 32), Font = F.Body, TextSize = 12, TextColor3 = C.Muted, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, Text = entry[3] })
 		local switch = Instance.new("Frame")
 		switch.AnchorPoint = Vector2.new(1, 0.5)
 		switch.Position = UDim2.new(1, -10, 0.5, 0)
@@ -443,7 +449,15 @@ function Phone.Init()
 	local function fit()
 		local camera = Workspace.CurrentCamera
 		if camera then
-			scale.Scale = math.min(1, (camera.ViewportSize.Y - 90) / HEIGHT)
+			-- Fit above the phone button (the money strip hides while the phone is out).
+			local inset = GuiService:GetGuiInset()
+			local room = camera.ViewportSize.Y - inset.Y - 62 - 12
+			local height = math.clamp(room, MIN_HEIGHT, HEIGHT)
+			body.Size = UDim2.fromOffset(WIDTH, height)
+			if homeFooter then
+				homeFooter.Visible = height >= 520 -- on a short phone it would sit on the tiles
+			end
+			scale.Scale = math.min(1, room / height)
 		end
 	end
 	fit()

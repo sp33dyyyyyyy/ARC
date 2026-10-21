@@ -155,8 +155,8 @@ local function row(parent: Instance, rank: number, entry: Entry, textSize: numbe
 	local name = Instance.new("TextLabel")
 	name.BackgroundTransparency = 1
 	name.Position = UDim2.new(0, height * 2.4, 0, 0)
-	name.Size = UDim2.new(1, -height * 2.4 - 90, 1, 0)
-	name.Font = Enum.Font.GothamMedium
+	name.Size = UDim2.new(1, -height * 2.4 - 84, 1, 0)
+	name.Font = Enum.Font.BuilderSansMedium
 	name.TextSize = textSize
 	name.TextXAlignment = Enum.TextXAlignment.Left
 	name.TextTruncate = Enum.TextTruncate.AtEnd
@@ -167,7 +167,7 @@ local function row(parent: Instance, rank: number, entry: Entry, textSize: numbe
 	time.BackgroundTransparency = 1
 	time.AnchorPoint = Vector2.new(1, 0)
 	time.Position = UDim2.new(1, -8, 0, 0)
-	time.Size = UDim2.new(0, 84, 1, 0)
+	time.Size = UDim2.new(0, 74, 1, 0)
 	time.Font = Enum.Font.Sarpanch
 	time.TextSize = textSize
 	time.TextXAlignment = Enum.TextXAlignment.Right
@@ -198,7 +198,8 @@ local function drawSign(route: Instance, entries: { Entry })
 	local gui = board and board:FindFirstChild("Leaderboard")
 	local rows = gui and gui:FindFirstChild("Rows")
 	if rows then
-		drawRows(rows, entries, ROUTES.LeaderboardSize, 17, 26)
+		-- As many as fit on the route's board (8); the gym wall shows the full top 10.
+		drawRows(rows, entries, math.min(ROUTES.LeaderboardSize, 8), 17, 26)
 	end
 end
 
@@ -247,7 +248,7 @@ local function drawGymCell(grid: Instance, index: number, route: Instance, entri
 		empty.Name = "Empty"
 		empty.BackgroundTransparency = 1
 		empty.Size = UDim2.new(1, 0, 0, 28)
-		empty.Font = Enum.Font.GothamMedium
+		empty.Font = Enum.Font.BuilderSansMedium
 		empty.TextSize = 18
 		empty.TextColor3 = Color3.fromRGB(146, 149, 156)
 		empty.Text = "No times yet"

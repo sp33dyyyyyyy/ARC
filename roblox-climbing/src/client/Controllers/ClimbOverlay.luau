@@ -179,19 +179,23 @@ function ClimbOverlay.init()
 	deathScreen.ZIndex = 10
 	deathScreen.Parent = screen
 	deathTitle = Instance.new("TextLabel")
-	deathTitle.AnchorPoint = Vector2.new(0.5, 0.5)
-	deathTitle.Position = UDim2.fromScale(0.5, 0.45)
-	deathTitle.Size = UDim2.fromOffset(600, 60)
+	deathTitle.AnchorPoint = Vector2.new(0.5, 1)
+	deathTitle.Position = UDim2.new(0.5, 0, 0.5, 0)
+	deathTitle.Size = UDim2.new(1, -40, 0, 60)
 	deathTitle.BackgroundTransparency = 1
 	deathTitle.Font = Enum.Font.Michroma
 	deathTitle.TextSize = 46
 	deathTitle.TextColor3 = Color3.new(1, 1, 1)
 	deathTitle.ZIndex = 11
+	Style.fit(deathTitle, 20)
 	deathTitle.Parent = deathScreen
 	deathSubtitle = deathTitle:Clone()
-	deathSubtitle.Position = UDim2.fromScale(0.5, 0.53)
+	deathSubtitle.AnchorPoint = Vector2.new(0.5, 0)
+	deathSubtitle.Position = UDim2.new(0.5, 0, 0.5, 8)
+	deathSubtitle.Size = UDim2.new(1, -40, 0, 26)
 	deathSubtitle.Font = Style.Fonts.Head
 	deathSubtitle.TextSize = 20
+	Style.fit(deathSubtitle, 12)
 	deathSubtitle.TextColor3 = Color3.fromRGB(255, 200, 200)
 	deathSubtitle.Parent = deathScreen
 

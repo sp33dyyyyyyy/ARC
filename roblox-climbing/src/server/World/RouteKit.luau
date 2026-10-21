@@ -103,7 +103,7 @@ end
 -- Leaderboard board on two posts, facing `facing`. LeaderboardService fills in "Rows".
 function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, title: string)
 	local flat = Vector3.new(facing.X, 0, facing.Z).Unit
-	local width, height, bottom = 5, 6.5, 1.5
+	local width, height, bottom = 6, 6.5, 1.5
 	local cframe = frameAt(position + Vector3.yAxis * (bottom + height / 2), flat, Vector3.yAxis)
 	local sign = Instance.new("Model")
 	sign.Name = "Sign"
@@ -125,18 +125,21 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	titleLabel.Name = "Title"
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Position = UDim2.fromOffset(14, 10)
-	titleLabel.Size = UDim2.new(1, -110, 0, 34)
+	titleLabel.Size = UDim2.new(1, -28, 0, 30)
 	titleLabel.Font = Enum.Font.Michroma
-	titleLabel.TextScaled = true
+	titleLabel.TextScaled = true -- long route names shrink a little, never below 14 px
+	local titleLimit = Instance.new("UITextSizeConstraint")
+	titleLimit.MaxTextSize = 26
+	titleLimit.MinTextSize = 14
+	titleLimit.Parent = titleLabel
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.TextColor3 = Color3.new(1, 1, 1)
 	titleLabel.Text = title
 	titleLabel.Parent = gui
 	local pill = Instance.new("TextLabel")
 	pill.Name = "Tab"
-	pill.AnchorPoint = Vector2.new(1, 0)
-	pill.Position = UDim2.new(1, -12, 0, 14)
-	pill.Size = UDim2.fromOffset(84, 26)
+	pill.Position = UDim2.fromOffset(14, 46)
+	pill.Size = UDim2.fromOffset(84, 22)
 	pill.BackgroundColor3 = Color3.fromRGB(255, 122, 48)
 	pill.Font = Enum.Font.Sarpanch
 	pill.TextSize = 15
@@ -149,8 +152,8 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	local rows = Instance.new("Frame")
 	rows.Name = "Rows"
 	rows.BackgroundTransparency = 1
-	rows.Position = UDim2.fromOffset(10, 56)
-	rows.Size = UDim2.new(1, -20, 1, -66)
+	rows.Position = UDim2.fromOffset(10, 78)
+	rows.Size = UDim2.new(1, -20, 1, -88)
 	rows.Parent = gui
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 4)
@@ -160,7 +163,7 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	empty.Name = "Empty"
 	empty.BackgroundTransparency = 1
 	empty.Size = UDim2.new(1, 0, 0, 30)
-	empty.Font = Enum.Font.GothamMedium
+	empty.Font = Enum.Font.BuilderSansMedium
 	empty.TextSize = 18
 	empty.TextColor3 = Color3.fromRGB(146, 149, 156)
 	empty.Text = "No times yet. Be the first."

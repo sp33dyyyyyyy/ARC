@@ -37,6 +37,7 @@ local levelLabel: TextLabel
 local xpFill: Frame
 local chalkLabel: TextLabel
 local runCard: Frame
+local statusStrip: Frame
 local runRoute: TextLabel
 local runGrade: TextLabel
 local runTimer: TextLabel
@@ -67,9 +68,11 @@ end
 
 local function buildStatus()
 	local strip = Style.panel(screen, "Status", true)
+	statusStrip = strip
 	strip.Position = UDim2.fromOffset(12, 10)
-	strip.Size = UDim2.fromOffset(196, 64)
-	moneyLabel = Style.label(strip, { Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -90, 0, 30), Font = F.Display, TextSize = 22, Text = "£0" })
+	strip.Size = UDim2.fromOffset(236, 64)
+	moneyLabel = Style.label(strip, { Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -96, 0, 30), Font = F.Display, TextSize = 22, Text = "£0" })
+	Style.fit(moneyLabel, 12)
 	levelLabel = Style.label(strip, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 10), Size = UDim2.fromOffset(70, 22), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = C.Muted, TextSize = 15, Text = "LV 1" })
 	local bar, fill = Style.bar(strip, 3)
 	bar.Position = UDim2.new(0, 14, 0, 42)
@@ -282,6 +285,11 @@ local function onRouteEvent(kind: any, a: any, b: any)
 end
 
 local function update()
+	-- The phone shows your money itself, and on small screens it needs the room.
+	local gui = player:FindFirstChildOfClass("PlayerGui")
+	local phone = gui and gui:FindFirstChild("Phone")
+	local body = phone and phone:FindFirstChild("Body")
+	statusStrip.Visible = not (body ~= nil and body:IsA("GuiObject") and body.Visible)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 

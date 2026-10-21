@@ -10,6 +10,7 @@
 --       Water: drink.
 
 local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -222,7 +223,19 @@ local function refreshHotbar()
 			edge.Color = if placing == item.id then C.Accent else C.Line
 		end
 	end
-	hotbar.Visible = any
+	-- Out of the way while a window (shop, lockers, packing) is open.
+	local gui = player:FindFirstChildOfClass("PlayerGui")
+	local modal = window.Visible
+	if gui and not modal then
+		for _, holder in gui:GetChildren() do
+			for _, frame in holder:GetChildren() do
+				if frame:IsA("GuiObject") and frame.Visible and frame:GetAttribute("Modal") == true then
+					modal = true
+				end
+			end
+		end
+	end
+	hotbar.Visible = any and not modal
 end
 
 ---------------------------------------------------------------------------------------
@@ -261,8 +274,22 @@ local function buildWindow()
 	window = Style.panel(screen, "PackWindow", true)
 	window.AnchorPoint = Vector2.new(0.5, 0.5)
 	window.Position = UDim2.fromScale(0.5, 0.5)
-	window.Size = UDim2.fromOffset(520, 486)
+	window.Size = UDim2.fromOffset(520, 470)
 	window.Visible = false
+	-- Shrinks to fit small (phone) screens.
+	local scale = Instance.new("UIScale")
+	scale.Parent = window
+	local function fit()
+		local camera = Workspace.CurrentCamera
+		if camera then
+			local inset = GuiService:GetGuiInset()
+			scale.Scale = math.min(1, (camera.ViewportSize.X - 24) / 520, (camera.ViewportSize.Y - inset.Y - 24) / 470)
+		end
+	end
+	fit()
+	if Workspace.CurrentCamera then
+		Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
+	end
 	Style.label(window, { Position = UDim2.fromOffset(22, 14), Size = UDim2.new(1, -80, 0, 30), Font = F.Display, TextSize = 20, Text = "PACK YOUR BAG" })
 	Style.label(window, { Position = UDim2.fromOffset(22, 44), Size = UDim2.new(1, -44, 0, 18), Font = F.Body, TextSize = 14, TextColor3 = C.Muted, Text = "Take what you need for the crags. A heavier pack tires you a bit faster." })
 	local close = Style.button(window, "X", "ghost")

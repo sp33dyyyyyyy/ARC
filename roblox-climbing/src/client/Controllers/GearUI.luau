@@ -8,6 +8,7 @@
 --     helmet's colour, from catalog pictures of the real items.
 -- Both close with the X, Escape, or by walking away.
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,6 +27,7 @@ local ORANGE = Style.Colors.Accent
 local GREEN = Style.Colors.Good
 local GREY = Style.Colors.Muted
 local CLOSE_DISTANCE = 16
+local TILE, TILE_GAP = 46, 6 -- look tiles at the lockers: 6 to a row
 
 local GearUI = {}
 
@@ -42,6 +44,7 @@ local lockerPacks: Frame
 local lockerPackLooks: Frame
 local lockerChalkLooks: Frame
 local lockerHelmetLooks: Frame
+local lockerHelmetNote: TextLabel
 local preview: ImageLabel
 local previewName: TextLabel
 local currentSlot: Gear.Slot = "Shoes"
@@ -79,6 +82,10 @@ local function button(parent: Instance, label: string, color: Color3): TextButto
 	if not bright then
 		Style.stroke(b)
 	end
+	local inset = Instance.new("UIPadding")
+	inset.PaddingLeft = UDim.new(0, 6)
+	inset.PaddingRight = UDim.new(0, 6)
+	inset.Parent = b
 	b.Parent = parent
 	return b
 end
@@ -92,6 +99,7 @@ local function window(name: string, title: string, size: Vector2): Frame
 	frame.BackgroundColor3 = NAVY
 	frame.BackgroundTransparency = 0.03
 	frame.Visible = false
+	frame:SetAttribute("Modal", true) -- the hotbar hides while it's open (PackUI)
 	corner(frame, 4)
 	Style.stroke(frame)
 	local strip = Instance.new("Frame")
@@ -107,7 +115,8 @@ local function window(name: string, title: string, size: Vector2): Frame
 		local camera = workspace.CurrentCamera
 		if camera then
 			local viewport = camera.ViewportSize
-			scale.Scale = math.min(1, (viewport.X - 24) / size.X, (viewport.Y - 24) / size.Y)
+			local inset = GuiService:GetGuiInset()
+			scale.Scale = math.min(1, (viewport.X - 24) / size.X, (viewport.Y - inset.Y - 24) / size.Y)
 		end
 	end
 	fit()
@@ -210,6 +219,7 @@ function GearUI.refreshShop()
 		action.AnchorPoint = Vector2.new(1, 0.5)
 		action.Position = UDim2.new(1, -12, 0.5, 0)
 		action.Size = UDim2.fromOffset(140, 40)
+		Style.fit(action)
 	end
 end
 
@@ -217,6 +227,7 @@ local function buildShop()
 	shopWindow = window("ProShop", "PRO SHOP", Vector2.new(560, 480))
 	shopGems = text(shopWindow, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -64, 0, 20), Size = UDim2.fromOffset(140, 26), TextXAlignment = Enum.TextXAlignment.Right, Font = Style.Fonts.Display, TextColor3 = Style.Colors.Text, TextSize = 18 })
 	shopTabs = Instance.new("Frame")
+	shopTabs.Name = "Tabs"
 	shopTabs.BackgroundTransparency = 1
 	shopTabs.Position = UDim2.fromOffset(16, 60)
 	shopTabs.Size = UDim2.new(1, -32, 0, 36)
@@ -228,6 +239,7 @@ local function buildShop()
 	for _, slot in Gear.SLOTS do
 		local tab = button(shopTabs, Gear.SLOT_NAMES[slot], CARD)
 		tab.Name = slot
+		Style.fit(tab)
 		tab.Size = UDim2.new(1 / #Gear.SLOTS, -7, 1, 0)
 		tab.Activated:Connect(function()
 			currentSlot = slot :: Gear.Slot
@@ -256,7 +268,7 @@ end
 -- A tile showing look `variant` (its catalog picture), outlined when it's the one worn.
 local function lookTile(parent: Instance, variant: Gear.Variant, selected: boolean, onPick: () -> ())
 	local tile = Instance.new("ImageButton")
-	tile.Size = UDim2.fromOffset(52, 52)
+	tile.Size = UDim2.fromOffset(TILE, TILE)
 	tile.BackgroundColor3 = CARD
 	tile.Image = `rbxthumb://type=Asset&id={variant.asset}&w=150&h=150`
 	tile.ScaleType = Enum.ScaleType.Fit
@@ -284,9 +296,11 @@ function GearUI.refreshLocker()
 	for _, item in Gear.inSlot("Pack") do
 		local mine = owned[item.id] == true
 		local worn = equippedPack.id == item.id
-		local pick = button(lockerPacks, if mine then item.name else `{item.name} (shop)`, if worn then ORANGE elseif mine then CARD else Style.Colors.Ink)
+		local pick = button(lockerPacks, item.name, if worn then ORANGE elseif mine then CARD else Style.Colors.Ink)
+		pick.LayoutOrder = item.order
 		pick.TextColor3 = if worn then Style.Colors.Ink else (if mine then Color3.new(1, 1, 1) else GREY)
 		pick.TextSize = 13
+		Style.fit(pick)
 		pick.Activated:Connect(function()
 			if mine then
 				requestRemote:FireServer("Equip", item.id)
@@ -317,9 +331,8 @@ function GearUI.refreshLocker()
 				requestRemote:FireServer("Colour", "Helmet", index)
 			end)
 		end
-	else
-		text(lockerHelmetLooks, { Size = UDim2.new(1, 0, 0, 40), Font = Style.Fonts.Body, TextSize = 14, TextColor3 = GREY, TextWrapped = true, Text = "No helmet yet: they're at the pro shop." })
 	end
+	lockerHelmetNote.Visible = helmet.variants == nil
 	-- The big picture: the pack you're wearing.
 	local look = Gear.variant(equippedPack, packIndex)
 	preview.Image = if look then `rbxthumb://type=Asset&id={look.asset}&w=420&h=420` else ""
@@ -334,8 +347,8 @@ local function tileRow(parent: Instance, y: number, title: string, height: numbe
 	row.Size = UDim2.fromOffset(316, height)
 	row.Parent = parent
 	local grid = Instance.new("UIGridLayout")
-	grid.CellSize = UDim2.fromOffset(52, 52)
-	grid.CellPadding = UDim2.fromOffset(6, 6)
+	grid.CellSize = UDim2.fromOffset(TILE, TILE)
+	grid.CellPadding = UDim2.fromOffset(TILE_GAP, TILE_GAP)
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = row
 	return row
@@ -358,13 +371,15 @@ local function buildLocker()
 	lockerPacks.Size = UDim2.fromOffset(230, 110)
 	lockerPacks.Parent = lockerWindow
 	local packGrid = Instance.new("UIGridLayout")
+	packGrid.SortOrder = Enum.SortOrder.LayoutOrder
 	packGrid.CellSize = UDim2.new(0.5, -4, 0, 30)
 	packGrid.CellPadding = UDim2.fromOffset(6, 6)
 	packGrid.Parent = lockerPacks
-	lockerPackLooks = tileRow(lockerWindow, 64, "PACK COLOUR", 60)
-	lockerChalkLooks = tileRow(lockerWindow, 150, "CHALK BAG", 116)
-	lockerHelmetLooks = tileRow(lockerWindow, 294, "HELMET", 60)
-	text(lockerWindow, { Position = UDim2.fromOffset(270, 384), Size = UDim2.fromOffset(310, 60), TextColor3 = GREY, Font = Style.Fonts.Body, TextSize = 14, TextWrapped = true, Text = "Looks are free. New packs, helmets, shoes and other gear are at the pro shop." })
+	lockerPackLooks = tileRow(lockerWindow, 64, "PACK COLOUR", TILE)
+	lockerChalkLooks = tileRow(lockerWindow, 146, "CHALK BAG", TILE * 2 + TILE_GAP)
+	lockerHelmetLooks = tileRow(lockerWindow, 280, "HELMET", TILE)
+	lockerHelmetNote = text(lockerWindow, { Position = UDim2.fromOffset(270, 302), Size = UDim2.fromOffset(310, TILE), Font = Style.Fonts.Body, TextSize = 14, TextColor3 = GREY, TextWrapped = true, Text = "No helmet yet: they're at the pro shop." })
+	text(lockerWindow, { Position = UDim2.fromOffset(270, 372), Size = UDim2.fromOffset(310, 60), TextColor3 = GREY, Font = Style.Fonts.Body, TextSize = 14, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, Text = "Looks are free. Greyed-out packs, and new helmets, shoes and gear, are at the pro shop." })
 end
 
 ---------------------------------------------------------------------------------------

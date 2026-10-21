@@ -231,7 +231,67 @@ for _, d in lighting:GetChildren() do
 	end
 	table.insert(post, entry)
 end
+-- In-world signs (SurfaceGuis), for tools/ui/layout.py --surfaces.
+local GUI_PROPS = { "Name", "Visible", "Position", "Size", "AnchorPoint", "AutomaticSize", "ZIndex", "LayoutOrder", "BackgroundColor3", "BackgroundTransparency", "ClipsDescendants", "Text", "TextSize", "TextColor3", "TextTransparency", "TextWrapped", "TextScaled", "RichText", "TextXAlignment", "TextYAlignment", "TextTruncate", "LineHeight", "Image", "FillDirection", "Padding", "HorizontalAlignment", "VerticalAlignment", "SortOrder", "PaddingLeft", "PaddingRight", "PaddingTop", "PaddingBottom", "CellSize", "CellPadding", "CornerRadius", "Thickness", "Color", "Transparency", "MaxSize", "MinSize", "MaxTextSize", "MinTextSize", "Scale" }
+local function guiValue(v)
+	local t = typeof(v)
+	if t == "UDim2" then
+		return { v.X.Scale, v.X.Offset, v.Y.Scale, v.Y.Offset }
+	elseif t == "UDim" then
+		return { v.Scale, v.Offset }
+	elseif t == "Vector2" then
+		return { v.X, v.Y }
+	elseif t == "Color3" then
+		return { v.R, v.G, v.B }
+	elseif t == "EnumItem" then
+		return (tostring(v):gsub("^Enum%.%w+%.", ""))
+	end
+	return v
+end
+local function guiNode(instance)
+	local node = { class = instance.ClassName, children = {} }
+	for _, prop in GUI_PROPS do
+		local ok, value = pcall(function()
+			return instance[prop]
+		end)
+		if ok and value ~= nil and type(value) ~= "table" then
+			node[prop] = guiValue(value)
+		end
+	end
+	if instance:IsA("TextLabel") or instance:IsA("TextButton") then
+		local ok, f = pcall(function()
+			return instance.Font
+		end)
+		node.Font = (tostring(if ok and f then f else roblox.Enum.Font.Legacy):gsub("^Enum%.Font%.", ""))
+	end
+	for _, child in instance:GetChildren() do
+		table.insert(node.children, guiNode(child))
+	end
+	return node
+end
+local surfaces = {}
+for _, d in Workspace:GetDescendants() do
+	if d:IsA("SurfaceGui") then
+		local part = d.Adornee or d.Parent
+		if part and part:IsA("BasePart") then
+			local face = tostring(d.Face):gsub("^Enum%.NormalId%.", "")
+			local s = part.Size
+			local w, h = s.X, s.Y
+			if face == "Left" or face == "Right" then
+				w, h = s.Z, s.Y
+			elseif face == "Top" or face == "Bottom" then
+				w, h = s.X, s.Z
+			end
+			local pps = d.PixelsPerStud
+			local node = guiNode(d)
+			node.IgnoreGuiInset = true
+			table.insert(surfaces, { name = d:GetFullName(), canvas = { w * pps, h * pps }, gui = node })
+		end
+	end
+end
+
 fs.writeFile(outPath, serde.encode("json", {
+	surfaces = surfaces,
 	parts = parts,
 	slots = slots,
 	terrain = terrainFills,

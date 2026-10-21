@@ -466,6 +466,8 @@ local function buildLegend(frame: WallFrame, route: Instance)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
 		l.Size = UDim2.new(1, -18, 0, size + 8)
+		l.AutomaticSize = Enum.AutomaticSize.Y
+		l.TextWrapped = true
 		l.Font = Enum.Font.Sarpanch
 		l.TextSize = size
 		l.TextColor3 = color
@@ -476,7 +478,7 @@ local function buildLegend(frame: WallFrame, route: Instance)
 		l.Parent = gui
 	end
 
-	label(string.upper(WALL.RouteName), 0, 30, Color3.new(1, 1, 1))
+	label(string.upper(WALL.RouteName), 0, 26, Color3.new(1, 1, 1))
 	label(`{WALL.Grade} · {#Layout.Holds} holds · press H to inspect`, 1, 18, Color3.fromRGB(120, 220, 210))
 	for i, name in HoldTypes.Names do
 		local def = HoldTypes.get(name) :: HoldTypes.HoldTypeDef

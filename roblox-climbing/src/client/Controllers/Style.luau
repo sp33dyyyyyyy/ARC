@@ -86,6 +86,17 @@ function Style.label(parent: Instance, props: { [string]: any }): TextLabel
 	return label
 end
 
+-- Never lets a single line of text run out of its box: it keeps its TextSize when it fits
+-- and shrinks (down to 9 px) only when it doesn't. For buttons and fixed-width labels.
+function Style.fit(object: GuiObject, minSize: number?)
+	local text = object :: any
+	local limit = object:FindFirstChildOfClass("UITextSizeConstraint") or Instance.new("UITextSizeConstraint")
+	limit.MaxTextSize = text.TextSize
+	limit.MinTextSize = minSize or 9
+	limit.Parent = object
+	text.TextScaled = true
+end
+
 export type ButtonKind = "primary" | "ghost" | "off"
 
 -- A button: "primary" (orange), "ghost" (outlined) or "off" (greyed out).
@@ -113,6 +124,21 @@ function Style.button(parent: Instance, text: string, kind: ButtonKind?): TextBu
 		button.TextColor3 = C.Faint
 		button.BackgroundColor3 = base
 	end
+	local inset = Instance.new("UIPadding")
+	inset.PaddingLeft = UDim.new(0, 6)
+	inset.PaddingRight = UDim.new(0, 6)
+	inset.Parent = button
+	-- Fit after the caller sets TextSize: it's re-applied whenever TextSize changes.
+	Style.fit(button)
+	button:GetPropertyChangedSignal("TextSize"):Connect(function()
+		if not button.TextScaled then
+			return
+		end
+		local limit = button:FindFirstChildOfClass("UITextSizeConstraint")
+		if limit then
+			limit.MaxTextSize = button.TextSize
+		end
+	end)
 	button.MouseEnter:Connect(function()
 		button.BackgroundColor3 = hover
 	end)

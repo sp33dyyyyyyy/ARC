@@ -729,7 +729,7 @@ local function buildKilter(model: Model)
 		query = true,
 		parent = room,
 	})
-	label(screen, Enum.NormalId.Front, `<font color="#FFFFFF"><b>KILTER</b></font>\nFirst Light  <font color="#5CE65C">V2</font>\n<font color="#3CD2F0">Board 40°</font>`, WHITE, Enum.Font.GothamMedium, true)
+	label(screen, Enum.NormalId.Front, `<font color="#FFFFFF"><b>KILTER</b></font>\nFirst Light  <font color="#5CE65C">V2</font>\n<font color="#3CD2F0">Board 40°</font>`, WHITE, Enum.Font.BuilderSansMedium, true)
 	room.Parent = model
 end
 
