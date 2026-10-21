@@ -10,6 +10,7 @@ local FOLDER_NAME = "Remotes"
 
 local EVENTS = {
 	-- client -> server: ("Place", limb, holdId) | ("Release", limb) | ("LetGo") | ("Dyno")
+	--                   | ("Mantle", standPosition)
 	"ClimbRequest",
 	-- server -> client: (limb, reason) when a request was refused
 	"ClimbRejected",

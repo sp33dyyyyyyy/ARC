@@ -73,6 +73,8 @@ Config.Climb = {
 	WatchdogExtra = 4, -- body further than Reach + this from a held hold...
 	WatchdogSeconds = 1, -- ...for this long is forced off the wall
 	GroundCrouch = 0.4, -- near the floor the body may crouch this much below standing height
+	MantleReach = 8, -- climbing up onto a ledge: furthest the spot can be from the body
+	MantleSeconds = 1.6, -- how long climbing up takes
 	-- Arms and legs go in this collision group, which doesn't collide with the world, so IK
 	-- can press hands and feet onto holds without the wall shoving the body around.
 	LimbCollisionGroup = "ClimberLimbs",
@@ -97,6 +99,7 @@ Config.Climb = {
 		LetGo = Enum.KeyCode.V,
 		CentreWeight = Enum.KeyCode.X, -- puts the sticky weight shift back in the middle
 		Lower = Enum.KeyCode.R, -- tied in: sit back on the rope and get lowered
+		Mantle = Enum.KeyCode.F, -- climb up onto a ledge or the top
 		Dyno = Enum.KeyCode.Space,
 	},
 

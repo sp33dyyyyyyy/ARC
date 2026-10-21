@@ -97,7 +97,7 @@ end
 
 local function onLeftWall(player: Player, reason: string)
 	local state = stateFor(player)
-	if state == nil or reason == "Died" or reason == "Teleport" then
+	if state == nil or reason == "Died" or reason == "Teleport" or reason == "Mantle" then
 		return
 	end
 	local character = state.character

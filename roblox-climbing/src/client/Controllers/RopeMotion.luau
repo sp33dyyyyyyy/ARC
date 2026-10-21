@@ -16,6 +16,8 @@
 --   Chalk   a dip into the chalk bag behind each hip, then a clap
 --   Clip    both hands to the harness, clipping the carabiner
 --   Summit  both arms up, fist-pumping
+--   Mantle  climbing up over an edge: hands on the lip in front, then pushing down
+--   Press   a hand out to press the finish button
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -107,6 +109,19 @@ local GESTURES: { [string]: { duration: number, keys: { Key } } } = {
 		duration = 0.9,
 		keys = {
 			{ from = 0.05, to = 0.85, hands = { LeftHand = Vector3.new(-0.12, -0.75, -0.75), RightHand = Vector3.new(0.18, -0.7, -0.75) } },
+		},
+	},
+	Mantle = {
+		duration = 1.4,
+		keys = {
+			{ from = 0, to = 0.6, hands = { LeftHand = Vector3.new(-0.75, 0.9, -1.2), RightHand = Vector3.new(0.75, 0.9, -1.2) } },
+			{ from = 0.6, to = 1.3, hands = { LeftHand = Vector3.new(-0.75, -0.4, -1.0), RightHand = Vector3.new(0.75, -0.4, -1.0) } },
+		},
+	},
+	Press = {
+		duration = 0.7,
+		keys = {
+			{ from = 0.05, to = 0.6, hands = { RightHand = Vector3.new(0.35, 0.1, -1.6) } },
 		},
 	},
 	Summit = {

@@ -48,11 +48,16 @@ local ACTION_DYNO = "ClimbDyno"
 local ACTION_LET_GO = "ClimbLetGo"
 local ACTION_CENTRE = "ClimbCentre"
 local ACTION_LOWER = "ClimbLower"
+local ACTION_MANTLE = "ClimbMantle"
 local MAX_RAY = 200
 
 local player = Players.LocalPlayer
 
 type Pending = { holdId: string?, at: number }
+-- Climbing up over an edge: the body follows `points` (reached at `times`), hands on `edge`.
+type Mantle = { at: number, points: { Vector3 }, times: { number }, normal: Vector3, edge: Vector3, right: Vector3 }
+-- A ledge in reach of the top hand: where the hands go and where you'd stand.
+type Ledge = { edge: Vector3, stand: Vector3, normal: Vector3 }
 type Drag = {
 	limb: string,
 	input: InputObject?, -- the touch that started it (nil for mouse)
@@ -94,6 +99,10 @@ local flightUntil: number? = nil
 local flightHold: BasePart? = nil -- the hold a dyno is aimed at
 local wallNormal = Vector3.zAxis
 local warnedTired = false
+local mantle: Mantle? = nil
+local ledge: Ledge? = nil -- the ledge you could climb up onto now (F)
+local ledgeCheckedAt = 0
+local ledgeParams = RaycastParams.new()
 
 ---------------------------------------------------------------------------------------
 -- Holds
@@ -252,6 +261,8 @@ end
 
 local letGo: () -> ()
 local launchDyno: () -> ()
+local beginMantle: () -> ()
+local mantleIntent: () -> ClimbAnimator.Intent?
 
 local function bindWallActions()
 	ContextActionService:BindActionAtPriority(ACTION_DYNO, function(_, state)
@@ -289,6 +300,16 @@ local function bindWallActions()
 		end
 		return Enum.ContextActionResult.Sink
 	end, false, Enum.ContextActionPriority.High.Value, CLIMB.Keys.Lower, Enum.KeyCode.ButtonX)
+
+	ContextActionService:BindActionAtPriority(ACTION_MANTLE, function(_, state)
+		if state == Enum.UserInputState.Begin then
+			if ledge == nil then
+				return Enum.ContextActionResult.Pass
+			end
+			beginMantle()
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value, CLIMB.Keys.Mantle, Enum.KeyCode.DPadUp)
 end
 
 local function enterClimb()
@@ -317,8 +338,12 @@ local function exitClimb()
 	ContextActionService:UnbindAction(ACTION_LET_GO)
 	ContextActionService:UnbindAction(ACTION_CENTRE)
 	ContextActionService:UnbindAction(ACTION_LOWER)
+	ContextActionService:UnbindAction(ACTION_MANTLE)
 	weightShift = Vector2.zero
-	if humanoid and humanoid.Health > 0 then
+	ledge = nil
+	if mantle then
+		setAligns(true) -- climbing up: the aligns carry the body over the edge
+	elseif humanoid and humanoid.Health > 0 then
 		humanoid.PlatformStand = false
 		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 	end
@@ -805,7 +830,7 @@ end
 local function animateAll(dt: number)
 	-- Climbing wins; otherwise the rope (being caught, hanging, lowered) or a gesture.
 	if character and not isDown(character) then
-		local intent = localIntent()
+		local intent = mantleIntent() or localIntent()
 		if intent == nil and root then
 			intent = RopeMotion.intent(character, groundBelow(root.Position))
 		end
@@ -889,13 +914,15 @@ end
 local HINT_WALL = "<b>Click a hold</b> to grab it, or <b>drag a hand</b> onto one"
 local HINT_CLIMBING = "<b>Drag</b> hands/feet to holds  ·  <b>WASD</b> shift weight (stays)  ·  <b>X</b> centre  ·  <b>Space</b> dyno  ·  <b>V</b> let go"
 local HINT_ROPED = HINT_CLIMBING .. "  ·  <b>R</b> lower off"
+local HINT_LEDGE = "<b>F</b> climb up"
 local HINT_DRAGGING = "Drop on a <font color=\"#5ce65c\">green</font> hold (hands) or <font color=\"#3fd1c9\">teal</font> hold (feet)"
 
 local function updateHint()
 	if drag and drag.moved then
 		ClimbOverlay.setHint(HINT_DRAGGING)
 	elseif climbing then
-		ClimbOverlay.setHint(if character and character:GetAttribute("TiedIn") ~= nil then HINT_ROPED else HINT_CLIMBING)
+		local hint = if character and character:GetAttribute("TiedIn") ~= nil then HINT_ROPED else HINT_CLIMBING
+		ClimbOverlay.setHint(if ledge then HINT_LEDGE .. "  ·  " .. hint else hint)
 	elseif nearWall() then
 		ClimbOverlay.setHint(HINT_WALL)
 	else
@@ -926,7 +953,7 @@ end
 -- of it, so letting go above a ledge lands you on it.
 local ledgesOff: { [BasePart]: boolean } = {}
 local function updateLedges(position: Vector3)
-	if climbing then
+	if climbing or mantle then
 		for _, ledge in CollectionService:GetTagged(Tags.Ledge) do
 			if ledge:IsA("BasePart") and not ledgesOff[ledge] then
 				ledgesOff[ledge] = true
@@ -949,6 +976,181 @@ local function updateLedges(position: Vector3)
 	end
 end
 
+---------------------------------------------------------------------------------------
+-- Climbing up over an edge (F): any flat top in reach of your highest hand, with room to
+-- stand. The server checks the spot and lets go of the holds; this client carries the body
+-- up over the edge (hands on the lip, a knee up, stand) and hands back to walking.
+
+local LEDGE_CHECK_EVERY = 0.12
+local HAND_DEPTH = 0.9 -- how far in from the face the hands go on the lip
+local STAND_DEPTH = 2.6 -- how far in from the face you stand up
+
+-- Ray against things you could stand on: holds, see-through volumes, buttons and
+-- non-solid props are skipped (ledges this client turned off while climbing count).
+local function castSolid(origin: Vector3, direction: Vector3): RaycastResult?
+	local skip: { Instance } = if character then { character } else {}
+	for _ = 1, 8 do
+		ledgeParams.FilterDescendantsInstances = skip
+		local hit = Workspace:Raycast(origin, direction, ledgeParams)
+		if hit == nil then
+			return nil
+		end
+		local part = hit.Instance
+		local ignore = part:IsA("BasePart")
+			and not part:IsA("Terrain")
+			and (holdId(part) ~= nil or part.Transparency >= 0.95 or part:FindFirstChildOfClass("ClickDetector") ~= nil or (not part.CanCollide and not ledgesOff[part]))
+		if not ignore then
+			return hit
+		end
+		table.insert(skip, part)
+	end
+	return nil
+end
+
+local function flatTop(at: Vector3, minY: number, maxY: number): Vector3?
+	local hit = castSolid(Vector3.new(at.X, maxY + 0.5, at.Z), Vector3.yAxis * -(maxY - minY + 0.5))
+	if hit == nil or hit.Normal.Y < 0.7 then
+		return nil
+	end
+	return hit.Position
+end
+
+local function findLedge(): Ledge?
+	if root == nil or humanoid == nil then
+		return nil
+	end
+	local top: Vector3? = nil
+	for _, limb in { "LeftHand", "RightHand" } do
+		local hold = heldHold(limb)
+		if hold then
+			local p = gripPosition(hold)
+			if top == nil or p.Y > top.Y then
+				top = p
+			end
+		end
+	end
+	if top == nil then
+		return nil
+	end
+	local inward = Vector3.new(-wallNormal.X, 0, -wallNormal.Z)
+	if inward.Magnitude < 0.3 then
+		return nil -- an overhang roof: nothing to climb onto
+	end
+	inward = inward.Unit
+	local minY, maxY = top.Y - 2, top.Y + 3
+	local edge = flatTop(top + inward * HAND_DEPTH, minY, maxY)
+	local stand = flatTop(top + inward * STAND_DEPTH, minY, maxY)
+	if edge == nil or stand == nil or math.abs(stand.Y - edge.Y) > 1.2 then
+		return nil
+	end
+	-- Room to stand up, and nothing between the edge and the spot.
+	local height = LimbRig.standingHeight(humanoid, root) * 2
+	if castSolid(stand + Vector3.yAxis * 0.2, Vector3.yAxis * height) ~= nil then
+		return nil
+	end
+	if castSolid(edge + Vector3.yAxis * 1.2, (stand - edge) * Vector3.new(1, 0, 1)) ~= nil then
+		return nil
+	end
+	if (stand - root.Position).Magnitude > CLIMB.MantleReach - 0.5 then
+		return nil
+	end
+	return { edge = edge, stand = stand, normal = -inward }
+end
+
+local function endMantle(completed: boolean)
+	mantle = nil
+	setAligns(false)
+	if humanoid and humanoid.Health > 0 then
+		humanoid.PlatformStand = false
+		humanoid:ChangeState(if completed then Enum.HumanoidStateType.Running else Enum.HumanoidStateType.Freefall)
+	end
+end
+
+function beginMantle()
+	local target = ledge
+	if target == nil or root == nil or humanoid == nil or mantle ~= nil then
+		return
+	end
+	local up = Vector3.yAxis
+	local n = target.normal
+	local standing = LimbRig.standingHeight(humanoid, root)
+	local seconds = CLIMB.MantleSeconds
+	mantle = {
+		at = os.clock(),
+		-- Pull up (chest to the lip), knee over (body over the edge), stand up.
+		points = { root.Position, target.edge + n * 1.0 + up * 0.4, target.edge - n * 0.6 + up * (standing * 0.95), target.stand + up * standing },
+		times = { 0, seconds * 0.32, seconds * 0.64, seconds },
+		normal = n,
+		edge = target.edge,
+		right = n:Cross(up).Unit,
+	}
+	for _, limb in Config.LimbOrder do
+		pending[limb] = { holdId = nil, at = os.clock() }
+	end
+	requestEvent:FireServer("Mantle", target.stand)
+	exitClimb()
+end
+
+local function smooth(t: number): number
+	return t * t * (3 - 2 * t)
+end
+
+local function updateMantle()
+	local current = mantle
+	if current == nil or alignPosition == nil or alignOrientation == nil then
+		return
+	end
+	local t = os.clock() - current.at
+	local points, times = current.points, current.times
+	if t >= times[#times] then
+		alignPosition.Position = points[#points]
+		endMantle(true)
+		return
+	end
+	local position = points[1]
+	for i = 2, #times do
+		if t <= times[i] then
+			local a = (t - times[i - 1]) / (times[i] - times[i - 1])
+			position = points[i - 1]:Lerp(points[i], smooth(math.clamp(a, 0, 1)))
+			break
+		end
+	end
+	alignPosition.Position = position
+	-- Lean in over the edge while pushing up, then straighten.
+	local lean = if t < times[3] then math.sin(math.min(1, t / times[3]) * math.pi) * 0.5 else 0
+	local facing = (-current.normal + Vector3.yAxis * -lean).Unit
+	alignOrientation.CFrame = CFrame.lookAt(position, position + facing)
+end
+
+-- The pose while climbing up: hands on the lip, then a foot up onto it.
+function mantleIntent(): ClimbAnimator.Intent?
+	local current = mantle
+	if current == nil then
+		return nil
+	end
+	local t = os.clock() - current.at
+	local times = current.times
+	if t > times[3] + 0.15 then
+		return nil
+	end
+	local lip = current.edge + Vector3.yAxis * 0.1
+	local targets: { [string]: Vector3? } = {
+		LeftHand = lip - current.right * 0.75,
+		RightHand = lip + current.right * 0.75,
+	}
+	if t > times[2] * 0.8 then
+		targets.RightFoot = lip + current.right * 0.35 - current.normal * 0.3
+	end
+	return {
+		climbing = true,
+		normal = current.normal,
+		targets = targets,
+		look = current.edge - current.normal * 4 + Vector3.yAxis * 1.5,
+		charge = 0,
+		fatigue = if character then fatigueOf(character) else 0,
+	}
+end
+
 local function step(dt: number)
 	if character == nil or root == nil or humanoid == nil or humanoid.Health <= 0 then
 		return
@@ -963,6 +1165,17 @@ local function step(dt: number)
 				ClimbOverlay.toast("Server didn't answer - see Output")
 			end
 		end
+	end
+
+	if mantle then
+		updateMantle()
+		updateLedges(root.Position)
+		if mantle and os.clock() - mantle.at > CLIMB.MantleSeconds + 1 then
+			endMantle(false) -- safety net
+		end
+		ClimbOverlay.setHint(nil)
+		updateStamina()
+		return
 	end
 
 	local grips = attachedGrips()
@@ -986,6 +1199,12 @@ local function step(dt: number)
 
 	if climbing and flightUntil == nil and #grips > 0 then
 		updateBody(grips, dt)
+		if now - ledgeCheckedAt > LEDGE_CHECK_EVERY then
+			ledgeCheckedAt = now
+			ledge = if drag == nil and dynoCharge == nil then findLedge() else nil
+		end
+	else
+		ledge = nil
 	end
 	updateLedges(root.Position)
 	RopeMotion.control(character, root, humanoid, climbing)
@@ -1171,6 +1390,7 @@ function ClimbController.Init()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	groundParams.FilterType = Enum.RaycastFilterType.Exclude
 	groundParams.RespectCanCollide = true
+	ledgeParams.FilterType = Enum.RaycastFilterType.Exclude
 
 	local ok, playerModule = pcall(function()
 		return require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule") :: ModuleScript) :: any
@@ -1190,6 +1410,15 @@ function ClimbController.Start()
 	end
 
 	Remotes.event("ClimbRejected").OnClientEvent:Connect(function(limb: string, reason: string)
+		if limb == "" then
+			-- Climbing up was refused: back onto the holds the server still has you on.
+			if mantle then
+				mantle = nil
+				table.clear(pending) -- step() sees the holds again and puts you back on
+			end
+			ClimbOverlay.toast(`Can't climb up: {reason}`)
+			return
+		end
 		pending[limb] = nil
 		ClimbOverlay.toast(`Can't grab: {reason}`)
 	end)

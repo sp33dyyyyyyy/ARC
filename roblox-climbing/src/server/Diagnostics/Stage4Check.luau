@@ -76,6 +76,11 @@ function Stage4Check.Run(): boolean
 		if route:FindFirstChild("StartPad") == nil or route:FindFirstChild("Summit") == nil then
 			table.insert(problems, `{name}: missing StartPad/Summit`)
 		end
+		local finish = route:FindFirstChild("FinishButton")
+		local button = finish and finish:FindFirstChild("Button")
+		if button == nil or button:FindFirstChild("Finish") == nil then
+			table.insert(problems, `{name}: no finish button`)
+		end
 		if route:GetAttribute("Leaderboard") == true and route:FindFirstChild("Sign") == nil then
 			table.insert(problems, `{name}: leaderboard route without a sign`)
 		end

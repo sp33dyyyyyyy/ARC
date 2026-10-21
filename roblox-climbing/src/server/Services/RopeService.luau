@@ -281,7 +281,7 @@ end
 
 local function onLeftWall(player: Player, reason: string)
 	local tie = ties[player]
-	if tie == nil or reason == "Died" or reason == "Teleport" or reason == "Take" then
+	if tie == nil or reason == "Died" or reason == "Teleport" or reason == "Take" or reason == "Mantle" then
 		return
 	end
 	if reason == "Dyno" then
@@ -318,9 +318,10 @@ local function tick(dt: number)
 		local onGround = not climbing and grounded(character)
 
 		if tie.mode == "climb" then
-			if climbing then
-				tie.climbed = true
-				-- The belayer follows you: keep a little slack in the rope.
+			if climbing or onGround then
+				tie.climbed = tie.climbed or climbing
+				-- The belayer follows you (climbing, or walking about on the top after
+				-- climbing up onto it): keep a little slack in the rope.
 				tie.rope.WinchSpeed = ROPE.TakeInSpeed
 				tie.rope.WinchTarget = ropeDistance(tie) + ROPE.Slack
 			end

@@ -564,6 +564,8 @@ function TestWall.Build(): Folder
 	RouteKit.addSign(route, frame.origin - frame.right * (Layout.Width / 2 + 4.6) + frame.flatNormal * 1.5, frame.flatNormal, string.upper(WALL.RouteName))
 	RouteKit.addChalkBucket(route, frame.origin - frame.right * (Layout.Width / 2 + 3) + frame.flatNormal * 5)
 	RouteKit.addAutoBelay(route, frame.origin + Vector3.yAxis * MAT_THICKNESS, facePoint(frame, 0, Layout.Height, 0), frame.flatNormal)
+	-- Finish: click the button at the top, beside the finish jug.
+	RouteKit.addFinishButton(route, frameAt(facePoint(frame, 2.2, Layout.Height - 0.7, 0), frame.normal, frame.up), "wall")
 
 	-- Parent last so everything replicates and is tagged in one go.
 	route.Parent = routes

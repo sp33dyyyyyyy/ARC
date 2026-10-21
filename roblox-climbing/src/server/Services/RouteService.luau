@@ -5,12 +5,12 @@
 --    Config.Routes.StartBand of BaseY). The player gets "RunRoute" (route id) and
 --    "RunStart" (Workspace:GetServerTimeNow()) attributes, which the HUD's timer and
 --    progress bar read.
---  * You top out by reaching the Summit volume, or by holding a Finish hold with a hand.
---    The server times the run, checks it is plausible, pays money (£) and XP (DataService),
+--  * You top out by clicking the route's finish button (RouteKit.addFinishButton): on top of
+--    the rock outside (climb up over the edge with F, walk over, press it), on the wall at
+--    the top of indoor routes. The server times the run, checks it is plausible, pays money (£) and XP (DataService),
 --    records the time (LeaderboardService) and sends the client a summit card.
 --  * The run fails if you die, fall onto the rope, or are back on the ground at the base.
---  * After an outdoor summit a free soloist tops out onto the summit; roped climbers let go
---    to be lowered.
+--  * After a summit roped climbers let go (or press R) to be lowered.
 --  * Clients can ask to "Retry" (back to the start of their last route) or "Travel" to
 --    the base of any route.
 
@@ -27,13 +27,12 @@ local Remotes = require(Shared.Remotes)
 
 local ClimbService = require(script.Parent.ClimbService)
 local DataService = require(script.Parent.DataService)
-local HoldService = require(script.Parent.HoldService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local RopeService = require(script.Parent.RopeService)
 local ChalkService = require(script.Parent.ChalkService)
 
 local ROUTES = Config.Routes
-local FINISH_HOLD_SECONDS = 0.6
+local FINISH_REACH = 12 -- studs from the body to the finish button when you click it
 
 type Run = {
 	route: Instance,
@@ -41,7 +40,6 @@ type Run = {
 	started: number, -- os.clock()
 	holds: { [string]: boolean }, -- distinct holds used, a sanity check
 	groundFor: number,
-	finishFor: number,
 }
 
 export type Result = {
@@ -108,7 +106,6 @@ local function start(player: Player, route: Instance, character: Model)
 		started = os.clock(),
 		holds = {},
 		groundFor = 0,
-		finishFor = 0,
 	}
 	lastRoute[player] = route
 	player:SetAttribute("RunRoute", route.Name)
@@ -149,19 +146,6 @@ local function rewardsFor(meters: number, firstClear: boolean, newBest: boolean)
 	return gems, xp
 end
 RouteService.rewardsFor = rewardsFor
-
--- Climbs a free soloist over the top onto the summit, behind the Summit volume.
-local function topOut(player: Player, route: Instance)
-	local character = player.Character
-	local summitPart = route:FindFirstChild("Summit")
-	if character == nil or summitPart == nil or not summitPart:IsA("BasePart") then
-		return
-	end
-	local inland = -summitPart.CFrame.LookVector
-	local position = summitPart.Position + inland * 5 + Vector3.yAxis
-	ClimbService.ForceOff(player, "Teleport")
-	character:PivotTo(CFrame.lookAt(position, position - inland))
-end
 
 local function summit(player: Player, run: Run)
 	local route = run.route
@@ -219,15 +203,12 @@ local function summit(player: Player, run: Run)
 		RopeService.gesture(player.Character, "Summit")
 	end
 
-	-- Topping out: free soloists climb over onto the summit; roped climbers let go to be
-	-- lowered; boulderers drop onto the mats.
+	-- Getting down again.
 	local character = player.Character
-	if character and route:GetAttribute("Indoor") ~= true then
-		if character:GetAttribute("TiedIn") == nil then
-			task.delay(0.5, topOut, player, route)
-		else
-			eventRemote:FireClient(player, "Notice", "Press R (or let go) and your belayer lowers you down")
-		end
+	if character and character:GetAttribute("TiedIn") ~= nil and character:GetAttribute("Climbing") == true then
+		eventRemote:FireClient(player, "Notice", "Press R (or let go) and your belayer lowers you down")
+	elseif route:GetAttribute("Indoor") ~= true then
+		eventRemote:FireClient(player, "Notice", "Retry, or M on your phone to travel back down")
 	end
 	if meters >= 50 then
 		local text = `{player.DisplayName} topped {result.routeName} in {LeaderboardService.formatTime(seconds * 1000)}!`
@@ -239,22 +220,32 @@ local function summit(player: Player, run: Run)
 	end
 end
 
--- Is `point` inside `part` (an axis-aligned box in the part's own frame)?
-local function inside(part: BasePart, point: Vector3): boolean
-	local relative = part.CFrame:PointToObjectSpace(point)
-	local half = part.Size / 2
-	return math.abs(relative.X) <= half.X and math.abs(relative.Y) <= half.Y and math.abs(relative.Z) <= half.Z
-end
-
-local function holdingFinish(character: Model): boolean
-	for _, limb in { "LeftHand", "RightHand" } do
-		local id = character:GetAttribute("Climb_" .. limb)
-		local hold = if type(id) == "string" then HoldService.GetHold(id) else nil
-		if hold and hold:GetAttribute("Role") == "Finish" then
-			return true
-		end
+-- The finish button (RouteKit.addFinishButton) was clicked: top out if this player is on
+-- a run of that route and close enough to have reached it.
+local function onFinishClicked(button: BasePart, player: Player)
+	local route: Instance? = button.Parent
+	while route and route:GetAttribute("RouteName") == nil do
+		route = route.Parent
 	end
-	return false
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if route == nil or character == nil or root == nil or not root:IsA("BasePart") then
+		return
+	end
+	if (root.Position - button.Position).Magnitude > FINISH_REACH then
+		return
+	end
+	RopeService.gesture(character, "Press")
+	local run = runs[player]
+	if run and run.route == route then
+		task.delay(0.35, function()
+			if runs[player] == run then
+				summit(player, run)
+			end
+		end)
+	elseif run == nil then
+		eventRemote:FireClient(player, "Notice", "Start from the bottom to time a run")
+	end
 end
 
 local function tick(dt: number)
@@ -273,21 +264,6 @@ local function tick(dt: number)
 		if character:GetAttribute("Ragdolled") == true then
 			RouteService.Fail(player, "You fell")
 			continue
-		end
-
-		local summitPart = run.route:FindFirstChild("Summit")
-		if summitPart and summitPart:IsA("BasePart") and inside(summitPart, root.Position) then
-			summit(player, run)
-			continue
-		end
-		if character:GetAttribute("Climbing") == true and holdingFinish(character) then
-			run.finishFor += dt
-			if run.finishFor >= FINISH_HOLD_SECONDS then
-				summit(player, run)
-				continue
-			end
-		else
-			run.finishFor = 0
 		end
 
 		-- Back on the ground at the base (ledges up the wall don't count).
@@ -378,6 +354,23 @@ end
 
 function RouteService.Start()
 	ClimbService.OnPlaced(onPlaced)
+	local function watch(instance: Instance)
+		if instance:IsA("ClickDetector") and instance.Name == "Finish" then
+			local button = instance.Parent
+			if button and button:IsA("BasePart") then
+				instance.MouseClick:Connect(function(player)
+					onFinishClicked(button, player)
+				end)
+			end
+		end
+	end
+	local routes = routesFolder()
+	if routes then
+		for _, d in routes:GetDescendants() do
+			watch(d)
+		end
+		routes.DescendantAdded:Connect(watch)
+	end
 	Players.PlayerRemoving:Connect(function(player)
 		runs[player] = nil
 		lastRoute[player] = nil

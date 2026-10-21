@@ -2,7 +2,7 @@
 
 A skill-based rock climbing game for Roblox: four limbs placed one at a time, stamina, ropes, routes and leaderboards. It is built one stage at a time (see the design doc's Build Order).
 
-**Current build: limb-by-limb climbing with sticky weight shift, stamina, ragdoll falls and death, plus the world: a modern climbing gym (rope walls with auto-belays, bouldering, Kilter board, pro shop, lockers, café), three outdoor crags up to a ~280 m big wall, timed routes with summit cards, mandatory clip-in on every roped wall, gear that changes how you climb, chalk, gems and levels, saving and leaderboards.**
+**Current build: limb-by-limb climbing with sticky weight shift, stamina, ragdoll falls and death, plus the world: a modern climbing gym (rope walls with auto-belays, bouldering, Kilter board, pro shop, lockers, café), three outdoor crags up to a ~280 m big wall, timed routes with summit cards, mandatory clip-in on every roped wall, gear that changes how you climb, chalk (with a one-tap chalk-up), money (£) and levels, an in-game phone, climbing up over any ledge, summit buttons, saving and leaderboards.**
 
 The name lives in `src/shared/Config.luau` (`Config.GameName`); every sign and the logo use it.
 
@@ -310,7 +310,19 @@ Everything is built by the server on Play if it's missing (`Gym`, `Outdoors`, `C
 | The Colossus | ~280 m (El Cap scale): slabs, a 35° roof, 9 ledges | The Long Way Up (6a), Skyline Direct (7a) |
 Every outdoor route has a rope bag, a chalk bucket and a leaderboard sign at its base. Holds are generated (`RouteGenerator`) so no move is longer than an arm's reach, even past ledges. Ledges let you pass through while you climb, and catch you if you let go above one, so they're places to rest and recover stamina.
 
-**Routes.** Grab a route's low holds and the timer starts (top right, with a progress bar). Reach the top, or hold the finish jug, for a **summit card**: your time, previous best, gems and XP, and your leaderboard rank. The run ends if you fall, get caught by the rope, or end up back on the ground. Outdoors, free soloists climb over onto the summit. **Routes menu** (button bottom left, or **M**): every route with your best time, and **Go** to travel to its base.
+**Routes.** Grab a route's low holds and the timer starts (top right; turn it off in the phone's Settings). The run ends if you fall, get caught by the rope, or end up back on the ground.
+- **Finishing outdoors:** climb to the top, press **F** to climb up over the edge (hands on the lip, a knee up, stand up), walk to the orange **summit button** on its stone plinth (look for the flag) and click it.
+- **Finishing indoors:** click the round orange button on the wall beside the top hold.
+- Either way you get the **summit card**: your time, previous best, money and XP, and your leaderboard rank. A button pressed without a run going tells you to start from the bottom.
+
+**Climbing up onto ledges.** Anywhere you climb, when your top hand is at a flat top with room to stand (a crag top, a big-wall ledge, the top of a bouldering monolith), the hint shows **F climb up** (gamepad: D-pad up). The server checks the spot and lets go of your holds, and you climb up and stand. Thin walls with no top to stand on just don't offer it.
+
+**Phone.** Press **P** (or the PHONE button bottom left). Apps:
+- **Controls:** every key.
+- **Routes** (**M** opens it directly): every route with your best time, and **Go** to travel to its base.
+- **Stats:** money, level, summits, metres climbed, best times.
+- **Settings:** climbing hints, always show stamina, run timer.
+Esc closes it.
 
 **Ropes (optional).** You can free solo anything; nothing nags you to rope up. To rope up, just **click** the rope bag at the base of an outdoor route, or the orange carabiner hanging from an indoor auto-belay (click again to unclip, or tap the rope badge). You'll see a clipping-in animation.
 - **Rope physics:** the rope is a real physics rope that sags with a little slack while you climb, because the belayer keeps it just loose. Fall or let go and you drop that slack, the rope stretches and bounces, and you swing on it.
@@ -319,7 +331,7 @@ Every outdoor route has a rope bag, a chalk bucket and a leaderboard sign at its
 - Outdoors you also see the belayer's side of the rope running from the anchor down to the bag. Auto-belays unclip you when you're back on the floor; rope bags untie you when you walk away.
 - Climbing without a rope is free solo: fall from high up and it's fatal.
 
-**Gear (pro shop).** Use **Browse gear** at the shop counter. Spend gems on:
+**Gear (pro shop).** Use **Browse gear** at the shop counter. Spend money (£) on:
 | Slot | Items | Effect |
 |---|---|---|
 | Shoes | Rental, Trail Edge (60), Pro Downturn (250), Velvet Slipper (600) | up to 22% less stamina drain while a foot is on |
@@ -337,9 +349,13 @@ Everything is in `src/shared/Gear.luau`. Packs, helmets and chalk bags are **rea
 
 **Weight shift sticks.** While climbing, WASD moves your weight and it stays where you leave it, so you don't have to hold the keys. **X** puts it back in the middle (gamepad: Y).
 
-**Chalk.** Use any chalk bucket (**Chalk up**). Full chalk makes your stamina drain 25% slower and wears off as you climb (`Config.Chalk`).
+**Chalk.** Use any chalk bucket (**Chalk up**), or, since everyone carries a chalk bag, press **G** or the **CHALK** button bottom right to chalk up from your bag, even mid-climb (8 s cooldown). Full chalk makes your stamina drain 25% slower and wears off as you climb (`Config.Chalk`).
 
-**Gems and levels.** Summits pay gems (more for higher routes, double on your first ascent) and XP. Level and gems show top left. Everything saves (`DataService`: one session-locked DataStore entry per player, autosaved). In Studio, saving needs **Game Settings → Security → Enable Studio Access to API Services**. Without it, progress and the leaderboards are kept in memory for the session (Output says so).
+**Money and levels.** Summits pay money in pounds (more for higher routes, double on your first ascent) and XP. Money, level and chalk show in the strip at the top left. (The save field is still called `gems`, so old saves carry over.)
+
+**Look.** All the screens share one flat, dark style (`src/client/Controllers/Style.luau`): near-black panels with hairline borders, one orange accent, Michroma/Sarpanch/Builder Sans/Roboto Mono fonts, and no emoji.
+
+**Trees and props outside.** Every outdoor tree, rock and bush is a Creator Store model with backup models if one won't load. Placement keeps a footprint for each one, the crag faces, the route bases and the camps, so nothing overlaps (the world audit checks it: `propclash: 0`). Everything saves (`DataService`: one session-locked DataStore entry per player, autosaved). In Studio, saving needs **Game Settings → Security → Enable Studio Access to API Services**. Without it, progress and the leaderboards are kept in memory for the session (Output says so).
 
 **Leaderboards.** Fastest times per route: on each route's sign and on the gym's leaderboard wall, refreshed every minute (OrderedDataStores).
 
@@ -349,7 +365,7 @@ All numbers live in `Config.Routes`, `Config.Rope` and `Config.Chalk`.
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 13 passed, 0 failed`** (Stage4Check checks the gym, the crags, the shop, the click-to-clip ropes and that all 20 routes are complete). With third-party assets allowed you'll also see `[PropService] N/N props use Creator Store models`. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 13 passed, 0 failed`** (Stage4Check checks the gym, the crags, the shop, the click-to-clip ropes and that all 20 routes are complete, each with a finish button). With third-party assets allowed you'll also see `[PropService] N/N props use Creator Store models`. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").
@@ -361,10 +377,12 @@ Press **Play** and check:
 10. **Multiplayer view.** Use Test → Clients and Servers → 2 players. Each player sees the other's arms and legs on the holds.
 11. **Server authority.** Rejected requests show "Can't grab: …" and the limb snaps back.
 
-12. **Clip in, then a timed route.** Click the orange carabiner at the tutorial wall: your hands go to your harness and a blue rope runs to the auto-belay. Climb from the bottom: the timer appears top right, and the rope sags a little below you. Hold the finish jug: summit card. Press **R**: you sit back on the rope, then lean back and walk down the wall as it lowers you, then it unclips you.
+12. **Clip in, then a timed route.** Click the orange carabiner at the tutorial wall: your hands go to your harness and a blue rope runs to the auto-belay. Climb from the bottom: the timer appears top right, and the rope sags a little below you. Click the orange button on the wall by the top hold: summit card. Press **R**: you sit back on the rope, then lean back and walk down the wall as it lowers you, then it unclips you.
 13. **Ropes outdoors.** At Wall A (or M → Go), click the rope bag, climb a bit and press V: you drop the slack, bounce on the rope, flail, settle into the harness and get lowered. Then try a climb without clicking the bag: no rope, no reminder.
-13b. **Shop and lockers.** At the pro shop counter, **Browse gear**: buy something once you have gems, and it's equipped straight away. At the lockers, **Customise bag**: change your pack, chalk bag and helmet looks, and see them on your back. Chalk up at a bucket for the chalk-dip animation.
-14. **Chalk.** Chalk up at a bucket: the chip top left shows Chalk 100% and it wears off as you climb.
+13b. **Shop and lockers.** At the pro shop counter, **Browse gear**: buy something once you have the money, and it's equipped straight away. At the lockers, **Customise bag**: change your pack, chalk bag and helmet looks, and see them on your back. Chalk up at a bucket for the chalk-dip animation.
+14. **Chalk.** Chalk up at a bucket, or press **G** mid-climb: your hand dips into the bag, the strip top left shows chalk 100%, and it wears off as you climb.
+14b. **Top out.** Climb Mossy Steps at Wall A to the top. **F climb up** appears; press F and you climb over the edge and stand. Walk to the flag and click the button: summit card. On a bouldering monolith, F at the top puts you on top of it.
+14c. **Phone.** P opens it. Check Controls, Routes (Go travels), Stats and Settings (turn the run timer off and on).
 15. **Leaderboards.** After a summit your name appears on the route's sign and on the gym's leaderboard wall within a minute.
 16. **Big wall.** M → Go to The Long Way Up. Climb past the first ledge (you slide past it), let go just above it, and you land on it.
 

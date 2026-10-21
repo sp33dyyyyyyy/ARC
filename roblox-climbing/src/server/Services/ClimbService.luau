@@ -10,7 +10,8 @@
 --    refuses one.
 --  * Watchdog: a body that stays impossibly far from its holds is taken off the wall.
 --  * Tells other services when someone leaves the wall and why (OnLeftWall: "Release",
---    "LetGo", "Dyno", "Exhausted", "Watchdog", "HoldGone", "Died", "Teleport"), when a limb
+--    "LetGo", "Dyno", "Exhausted", "Watchdog", "HoldGone", "Died", "Teleport", "Mantle",
+--    "Take"), when a limb
 --    goes on a hold (OnPlaced), and lets them force a climber off (ForceOff, e.g.
 --    StaminaService when grip runs out).
 --
@@ -21,6 +22,7 @@ local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ClimbMath = require(Shared.ClimbMath)
@@ -49,6 +51,9 @@ type Rig = {
 }
 
 local rigs: { [Player]: Rig } = {}
+local mantleCount = 0
+local mantleParams = RaycastParams.new()
+mantleParams.FilterType = Enum.RaycastFilterType.Exclude
 local limiter = RateLimiter.new(CLIMB.RequestsPerSecond, CLIMB.RequestBurst)
 local rejectedEvent: RemoteEvent
 local leftWallListeners: { (Player, string) -> () } = {}
@@ -227,6 +232,25 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 		end
 	elseif action == "LetGo" then
 		releaseAll(rig, "LetGo")
+	elseif action == "Mantle" then
+		-- Climbing up onto a ledge or the top: `limb` carries the spot to stand on.
+		local target = limb
+		if typeof(target) ~= "Vector3" or rig.character:GetAttribute("Climbing") ~= true then
+			return
+		end
+		if (target - rig.root.Position).Magnitude > CLIMB.MantleReach or target.Y < rig.root.Position.Y - 1 then
+			rejectedEvent:FireClient(player, "", "too far to climb up")
+			return
+		end
+		mantleParams.FilterDescendantsInstances = { rig.character }
+		local floor = Workspace:Raycast(target + Vector3.yAxis * 1.5, Vector3.yAxis * -5, mantleParams)
+		if floor == nil or floor.Normal.Y < 0.7 then
+			rejectedEvent:FireClient(player, "", "nowhere to stand")
+			return
+		end
+		mantleCount += 1
+		rig.character:SetAttribute("Gesture", `Mantle@{mantleCount}`)
+		releaseAll(rig, "Mantle")
 	elseif action == "Dyno" then
 		if rig.character:GetAttribute("Climbing") == true then
 			for _, listener in dynoListeners do

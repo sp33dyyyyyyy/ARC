@@ -249,6 +249,40 @@ function RouteKit.addAutoBelay(route: Instance, base: Vector3, top: Vector3, fac
 	unit.Parent = route
 end
 
+-- The button that finishes a route (RouteService times the run when it's clicked).
+--   "top"   outdoors: a stone plinth with a big button, standing on top of the rock;
+--           you climb up onto the top (F) and walk over to press it
+--   "wall"  indoors: a round button mounted on the wall at the top of the route
+function RouteKit.addFinishButton(route: Instance, base: CFrame, kind: "top" | "wall")
+	local model = Instance.new("Model")
+	model.Name = "FinishButton"
+	local button: BasePart
+	if kind == "top" then
+		local plinth = part({ name = "Plinth", size = Vector3.new(1.8, 2.6, 1.8), cframe = base * CFrame.new(0, 1.3, 0), surface = "RockFace", collide = true, query = true, parent = model })
+		plinth.Color = Color3.fromRGB(120, 118, 112)
+		part({ name = "Cap", size = Vector3.new(2.2, 0.3, 2.2), cframe = base * CFrame.new(0, 2.75, 0), surface = "Steel", collide = true, query = true, parent = model })
+		button = part({ name = "Button", size = Vector3.new(0.35, 1.3, 1.3), cframe = base * CFrame.new(0, 3.05, 0) * BuildUtil.AXIS_Y, surface = "Accent", shape = Enum.PartType.Cylinder, collide = true, query = true, parent = model })
+		-- A small flag on the plinth so it can be seen from the edge.
+		BuildUtil.pipe("FlagPole", (base * CFrame.new(0.8, 2.9, 0.8)).Position, (base * CFrame.new(0.8, 6.5, 0.8)).Position, 0.12, "Steel", model)
+		part({ name = "Flag", size = Vector3.new(1.6, 1, 0.05), cframe = base * CFrame.new(1.6, 6, 0.8), surface = "Accent", parent = model })
+	else
+		local plate = part({ name = "Plate", size = Vector3.new(0.1, 1.6, 1.6), cframe = base * CFrame.new(0, 0, -0.05) * BuildUtil.AXIS_Z, surface = "BlackSteel", shape = Enum.PartType.Cylinder, collide = true, query = true, parent = model })
+		plate.CastShadow = false
+		button = part({ name = "Button", size = Vector3.new(0.35, 1.1, 1.1), cframe = base * CFrame.new(0, 0, -0.25) * BuildUtil.AXIS_Z, surface = "Accent", shape = Enum.PartType.Cylinder, collide = true, query = true, parent = model })
+		local glow = Instance.new("PointLight")
+		glow.Color = Color3.fromRGB(255, 140, 60)
+		glow.Range = 4
+		glow.Brightness = 0.6
+		glow.Shadows = false
+		glow.Parent = button
+	end
+	local click = Instance.new("ClickDetector")
+	click.Name = "Finish"
+	click.MaxActivationDistance = 14
+	click.Parent = button
+	model.Parent = route
+end
+
 -- A chalk bucket with a "Chalk up" prompt (ChalkService handles it).
 function RouteKit.addChalkBucket(parent: Instance, position: Vector3)
 	local bucket = part({
@@ -353,6 +387,15 @@ function RouteKit.buildRoute(spec: RouteSpec): Folder
 	end
 	if spec.autoBelay then
 		RouteKit.addAutoBelay(route, Vector3.new(base.X, baseY, base.Z), top, flat)
+	end
+	-- Finish: outdoors a summit button on the top, indoors a button at the top of the wall
+	-- (beside the finish hold, not on it).
+	if spec.style == "rock" then
+		local spot = Face.point(face, topX, face.height, 0) - flat * 6
+		RouteKit.addFinishButton(route, CFrame.lookAt(spot, spot + flat), "top")
+	else
+		local sideways = if topX > spec.lineX then -1.6 else 1.6
+		RouteKit.addFinishButton(route, Face.frame(face, topX + sideways, face.height - 0.7), "wall")
 	end
 	if spec.chalk then
 		RouteKit.addChalkBucket(route, ground + face.right * (-side * 5.5) + flat * 1)
