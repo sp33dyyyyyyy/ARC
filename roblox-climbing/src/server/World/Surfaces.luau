@@ -43,7 +43,7 @@ local Surfaces: { [string]: Surface } = {
 	GymWall = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(240, 241, 243) },
 	NavyPanel = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(26, 36, 70) },
 	Ceiling = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(18, 18, 22) },
-	GymFloor = { Material = Enum.Material.Concrete, Color = Color3.fromRGB(118, 120, 124), Variant = "PolishedConcrete", Reflectance = 0.04 },
+	GymFloor = { Material = Enum.Material.Concrete, Color = Color3.fromRGB(160, 160, 158), Variant = "PolishedConcrete", Reflectance = 0.03 },
 	RubberFloor = { Material = Enum.Material.Rubber, Color = Color3.fromRGB(38, 40, 46) },
 	LightWood = { Material = Enum.Material.Wood, Color = Color3.fromRGB(214, 184, 140), Variant = "BirchPlywood" },
 	Glass = { Material = Enum.Material.Glass, Color = Color3.fromRGB(190, 220, 235), Transparency = 0.6 },
@@ -51,6 +51,23 @@ local Surfaces: { [string]: Surface } = {
 	Bark = { Material = Enum.Material.Wood, Color = Color3.fromRGB(88, 62, 44) },
 	PineNeedles = { Material = Enum.Material.Grass, Color = Color3.fromRGB(44, 82, 52) },
 	Cardboard = { Material = Enum.Material.Cardboard, Color = Color3.fromRGB(186, 150, 104) },
+
+	-- Modern gym (Ascent): white, charcoal, white oak and one orange accent.
+	Charcoal = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(42, 44, 50) },
+	SoftWhite = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(232, 233, 235) },
+	WhiteOak = { Material = Enum.Material.Wood, Color = Color3.fromRGB(196, 166, 126), Variant = "WhiteOak" },
+	OakFloor = { Material = Enum.Material.WoodPlanks, Color = Color3.fromRGB(178, 146, 108), Variant = "OakFloor" },
+	Accent = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(255, 122, 48) },
+	BlackSteel = { Material = Enum.Material.Metal, Color = Color3.fromRGB(34, 35, 38), Variant = "PaintedSteel" },
+	Diffuser = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(250, 248, 242) },
+	ClearGlass = { Material = Enum.Material.Glass, Color = Color3.fromRGB(205, 225, 232), Transparency = 0.72, Reflectance = 0.08 },
+	Mirror = { Material = Enum.Material.Glass, Color = Color3.fromRGB(220, 226, 230), Transparency = 0.2, Reflectance = 0.6 },
+	Upholstery = { Material = Enum.Material.Fabric, Color = Color3.fromRGB(70, 82, 96) },
+	Leaves = { Material = Enum.Material.Grass, Color = Color3.fromRGB(58, 112, 64) },
+	Planter = { Material = Enum.Material.Concrete, Color = Color3.fromRGB(190, 186, 180) },
+	LockerPaint = { Material = Enum.Material.Metal, Color = Color3.fromRGB(62, 72, 88) },
+	PaddedMat = { Material = Enum.Material.Fabric, Color = Color3.fromRGB(48, 52, 62), Variant = "MatVinyl" },
+	RubberTile = { Material = Enum.Material.Rubber, Color = Color3.fromRGB(58, 60, 66) },
 
 	-- Floor and crash mats.
 	MatVinyl = { Material = Enum.Material.Leather, Color = Color3.fromRGB(40, 46, 64), Variant = "MatVinyl" },
@@ -60,7 +77,8 @@ local Surfaces: { [string]: Surface } = {
 	-- Structure, rigging and signs.
 	Steel = { Material = Enum.Material.Metal, Color = Color3.fromRGB(96, 100, 106), Variant = "PaintedSteel" },
 	LampHousing = { Material = Enum.Material.Metal, Color = Color3.fromRGB(30, 30, 33) },
-	LampLens = { Material = Enum.Material.Neon, Color = Color3.fromRGB(255, 244, 226) },
+	-- Not Neon: neon lenses bloom into a blinding glare under Future lighting.
+	LampLens = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(255, 248, 232) },
 	SignBoard = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(20, 28, 48) },
 	DeckBoards = { Material = Enum.Material.WoodPlanks, Color = Color3.fromRGB(176, 150, 112), Variant = "DeckBoards" },
 }

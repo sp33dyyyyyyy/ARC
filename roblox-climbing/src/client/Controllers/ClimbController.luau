@@ -44,6 +44,7 @@ local DYNO = CLIMB.Dyno
 local COLORS = CLIMB.Colors
 local ACTION_DYNO = "ClimbDyno"
 local ACTION_LET_GO = "ClimbLetGo"
+local ACTION_CENTRE = "ClimbCentre"
 local MAX_RAY = 200
 
 local player = Players.LocalPlayer
@@ -63,6 +64,7 @@ local ClimbController = {}
 local requestEvent: RemoteEvent
 local controls: any = nil -- PlayerModule ControlModule (WASD / thumbstick / gamepad)
 local rayParams = RaycastParams.new()
+local weightShift = Vector2.zero -- -1..1 right/up, kept between frames (sticky)
 local groundParams = RaycastParams.new()
 
 -- Character
@@ -268,6 +270,14 @@ local function bindWallActions()
 		return Enum.ContextActionResult.Sink
 	end, true, Enum.ContextActionPriority.High.Value, CLIMB.Keys.LetGo, Enum.KeyCode.ButtonB)
 	ContextActionService:SetTitle(ACTION_LET_GO, "Let go")
+
+	ContextActionService:BindActionAtPriority(ACTION_CENTRE, function(_, state)
+		if state == Enum.UserInputState.Begin then
+			weightShift = Vector2.zero
+		end
+		return Enum.ContextActionResult.Sink
+	end, true, Enum.ContextActionPriority.High.Value, CLIMB.Keys.CentreWeight, Enum.KeyCode.ButtonY)
+	ContextActionService:SetTitle(ACTION_CENTRE, "Centre")
 end
 
 local function enterClimb()
@@ -275,6 +285,7 @@ local function enterClimb()
 		return
 	end
 	climbing = true
+	weightShift = Vector2.zero
 	humanoid.PlatformStand = true -- the humanoid stops walking/balancing; constraints hold the body
 	setAligns(true)
 	bindWallActions()
@@ -293,6 +304,8 @@ local function exitClimb()
 	setAligns(false)
 	ContextActionService:UnbindAction(ACTION_DYNO)
 	ContextActionService:UnbindAction(ACTION_LET_GO)
+	ContextActionService:UnbindAction(ACTION_CENTRE)
+	weightShift = Vector2.zero
 	if humanoid and humanoid.Health > 0 then
 		humanoid.PlatformStand = false
 		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
@@ -311,6 +324,12 @@ local function requestPlace(limb: string, hold: BasePart): boolean
 	end
 	if not inReach(limb, hold) then
 		ClimbOverlay.toast("Out of reach - shift your weight (W A S D)")
+		return false
+	end
+	-- Roped walls must be clipped into first (the server enforces it too).
+	local route = HoldUtil.getRouteFolder(hold)
+	if route and (route:GetAttribute("Rope") == true or route:GetAttribute("AutoBelay") == true) and (character == nil or character:GetAttribute("TiedIn") ~= route.Name) then
+		ClimbOverlay.toast(if route:GetAttribute("AutoBelay") == true then "Clip in to the auto-belay first (orange carabiner)" else "Tie in at the rope bag first")
 		return false
 	end
 	local id = holdId(hold)
@@ -681,6 +700,15 @@ local function lookUpFrom(targets: { [string]: Vector3? }, normal: Vector3): Vec
 	return if best then best + up * 1.5 else nil
 end
 
+-- Height of the floor under `position` (collidable parts only, so holds are ignored).
+-- `who` is left out of the ray (default: this player's character).
+local function groundBelow(position: Vector3, who: Model?): number?
+	local skip = who or character
+	groundParams.FilterDescendantsInstances = if skip then { skip } else {}
+	local result = Workspace:Raycast(position + Vector3.yAxis, Vector3.yAxis * -12, groundParams)
+	return if result then result.Position.Y else nil
+end
+
 -- What this player's body should be doing this frame (nil = not climbing or reaching).
 local function localIntent(): ClimbAnimator.Intent?
 	local isClimbing: boolean = climbing
@@ -727,6 +755,7 @@ local function localIntent(): ClimbAnimator.Intent?
 		look = look,
 		charge = dynoCharge or 0,
 		fatigue = if character then fatigueOf(character) else 0,
+		floorY = if root then groundBelow(root.Position) else nil,
 	}
 	return intent
 end
@@ -751,6 +780,7 @@ local function otherIntent(otherCharacter: Model): ClimbAnimator.Intent?
 		return nil
 	end
 	local normal = facing.Unit
+	local otherRoot = otherCharacter:FindFirstChild("HumanoidRootPart")
 	return {
 		climbing = true,
 		normal = normal,
@@ -758,6 +788,7 @@ local function otherIntent(otherCharacter: Model): ClimbAnimator.Intent?
 		look = lookUpFrom(targets, normal),
 		charge = 0,
 		fatigue = fatigueOf(otherCharacter),
+		floorY = if otherRoot and otherRoot:IsA("BasePart") then groundBelow(otherRoot.Position, otherCharacter) else nil,
 	}
 end
 
@@ -774,14 +805,7 @@ local function animateAll(dt: number)
 	end
 end
 
--- Height of the floor under `position` (collidable parts only, so holds are ignored).
-local function groundBelow(position: Vector3): number?
-	groundParams.FilterDescendantsInstances = if character then { character } else {}
-	local result = Workspace:Raycast(position + Vector3.yAxis, Vector3.yAxis * -12, groundParams)
-	return if result then result.Position.Y else nil
-end
-
-local function updateBody(grips: { ClimbMath.Grip })
+local function updateBody(grips: { ClimbMath.Grip }, dt: number)
 	if alignPosition == nil or alignOrientation == nil then
 		return
 	end
@@ -797,14 +821,19 @@ local function updateBody(grips: { ClimbMath.Grip })
 		wallNormal = sum.Unit
 	end
 
-	local shift = Vector2.zero
+	-- Weight shift sticks: WASD moves it and it stays where you leave it (X re-centres).
 	if controls then
 		local move: Vector3 = controls:GetMoveVector()
-		shift = Vector2.new(move.X, -move.Z)
-		if shift.Magnitude > 1 then
-			shift = shift.Unit
+		local push = Vector2.new(move.X, -move.Z)
+		if push.Magnitude > 1 then
+			push = push.Unit
+		end
+		weightShift += push * (CLIMB.ShiftSpeed * dt)
+		if weightShift.Magnitude > 1 then
+			weightShift = weightShift.Unit
 		end
 	end
+	local shift = weightShift
 	if dynoCharge then
 		-- Coil: sink down into the holds while the dyno charges.
 		shift = Vector2.new(shift.X, math.max(-1, shift.Y - dynoCharge * 0.7))
@@ -839,7 +868,7 @@ local function updateHeight()
 end
 
 local HINT_WALL = "<b>Click a hold</b> to grab it, or <b>drag a hand</b> onto one"
-local HINT_CLIMBING = "<b>Drag</b> hands/feet to holds  ·  <b>WASD</b> shift  ·  <b>Space</b> dyno  ·  <b>V</b> let go"
+local HINT_CLIMBING = "<b>Drag</b> hands/feet to holds  ·  <b>WASD</b> shift weight (stays)  ·  <b>X</b> centre  ·  <b>Space</b> dyno  ·  <b>V</b> let go"
 local HINT_DRAGGING = "Drop on a <font color=\"#5ce65c\">green</font> hold (hands) or <font color=\"#3fd1c9\">teal</font> hold (feet)"
 
 local function updateHint()
@@ -936,7 +965,7 @@ local function step(dt: number)
 	end
 
 	if climbing and flightUntil == nil and #grips > 0 then
-		updateBody(grips)
+		updateBody(grips, dt)
 	end
 	updateLedges(root.Position)
 	if dynoCharge then

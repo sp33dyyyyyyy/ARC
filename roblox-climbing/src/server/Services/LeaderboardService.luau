@@ -261,7 +261,7 @@ local function drawGymCell(grid: Instance, index: number, route: Instance, entri
 	end
 	local rows = (cell :: Instance):FindFirstChild("Rows")
 	if rows then
-		drawRows(rows, entries, 5, 18, 30)
+		drawRows(rows, entries, 4, 16, 28)
 	end
 end
 

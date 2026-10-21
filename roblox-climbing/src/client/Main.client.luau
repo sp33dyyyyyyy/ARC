@@ -11,6 +11,7 @@ local CONTROLLER_ORDER = {
 	"HoldInspector",
 	"ClimbController",
 	"RouteHud",
+	"GearUI",
 }
 
 print(`[{Config.GameName}] client v{Config.Version}`)

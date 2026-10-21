@@ -77,6 +77,11 @@ function StaminaService.Spend(player: Player, amount: number)
 	end
 end
 
+local function gearNumber(player: Player, name: string, default: number): number
+	local value = player:GetAttribute(name)
+	return if type(value) == "number" then value else default
+end
+
 local function tick(dt: number)
 	local now = os.clock()
 	for _, player in Players:GetPlayers() do
@@ -97,11 +102,23 @@ local function tick(dt: number)
 		end
 		local restingFor = if state.restSince then now - state.restSince else 0
 		local rate = StaminaMath.rate(grips, restingFor, STAMINA)
+		-- Gear (ShopService publishes it on the player): shoes help whenever a foot is on.
+		if rate < 0 then
+			local hasFoot = false
+			for _, grip in grips do
+				if grip.kind == "Foot" then
+					hasFoot = true
+				end
+			end
+			if hasFoot then
+				rate *= gearNumber(player, "GearFootDrain", 1)
+			end
+		end
 		local chalk = character:GetAttribute("Chalk")
 		if type(chalk) == "number" and chalk > 0 then
-			rate = StaminaMath.withChalk(rate, chalk / CHALK.Max, CHALK.DrainReduction)
+			rate = StaminaMath.withChalk(rate, chalk / CHALK.Max, gearNumber(player, "GearChalkReduction", CHALK.DrainReduction))
 			if #grips > 0 then
-				local left = math.max(0, chalk - CHALK.DrainPerSecond * dt)
+				local left = math.max(0, chalk - gearNumber(player, "GearChalkRate", CHALK.DrainPerSecond) * dt)
 				character:SetAttribute("Chalk", if left > 0 then math.floor(left * 10 + 0.5) / 10 else nil)
 			end
 		end
@@ -119,7 +136,7 @@ end
 
 function StaminaService.Start()
 	ClimbService.OnDyno(function(player)
-		StaminaService.Spend(player, STAMINA.DynoCost)
+		StaminaService.Spend(player, gearNumber(player, "GearDynoCost", STAMINA.DynoCost))
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		states[player] = nil

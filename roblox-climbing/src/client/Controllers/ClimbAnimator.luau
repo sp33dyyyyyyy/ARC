@@ -32,6 +32,7 @@ export type Intent = {
 	look: Vector3?, -- where the head looks
 	charge: number, -- dyno charge 0..1 (coils the body)
 	fatigue: number?, -- 0 = fresh, 1 = about to fall off (shaky hands, heavy breathing)
+	floorY: number?, -- the floor under the climber: free hands and feet never sink into it
 }
 
 type Reach = { from: Vector3, to: Vector3, t: number, duration: number }
@@ -56,6 +57,7 @@ local MAX_HEAD_TURN = math.rad(50)
 local SPRING_STIFFNESS = 40
 local SPRING_DAMPING = 6.5
 local SHAKE_AMOUNT = 0.08 -- studs of hand tremor at full fatigue
+local FLOOR_CLEARANCE = 0.25 -- free hands/feet stay this far above the floor
 
 local ClimbAnimator = {}
 
@@ -161,6 +163,12 @@ local function limbAim(state: State, chain: LimbRig.Chain, intent: Intent, dt: n
 		local direction = offset.Unit
 		spring.position = start + direction * length
 		spring.velocity -= direction * math.max(0, spring.velocity:Dot(direction))
+	end
+	-- Low on the wall a dangling foot rests on the floor instead of going through it.
+	local floorY = intent.floorY
+	if floorY and spring.position.Y < floorY + FLOOR_CLEARANCE then
+		spring.position = Vector3.new(spring.position.X, floorY + FLOOR_CLEARANCE, spring.position.Z)
+		spring.velocity = Vector3.new(spring.velocity.X * 0.5, math.max(0, spring.velocity.Y), spring.velocity.Z * 0.5)
 	end
 	return spring.position
 end

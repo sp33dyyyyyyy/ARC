@@ -19,6 +19,7 @@ local SERVICE_ORDER = {
 	"RopeService",
 	"RouteService",
 	"ChalkService",
+	"ShopService",
 }
 
 print(`[{Config.GameName}] server v{Config.Version}`)

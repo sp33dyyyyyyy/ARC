@@ -169,20 +169,20 @@ local function buildTrees(parent: Instance)
 			collide = true,
 			parent = tree,
 		})
-		-- Stacked, shrinking needle tiers.
-		for tier = 0, 3 do
-			local radius = (5.2 - tier * 1.15) * scale
-			local y = trunkHeight + tier * 3.2 * scale
-			local needles = part({
+		-- Rounded, overlapping needle tiers that taper to a point: a smooth fir silhouette.
+		local green = Color3.fromRGB(40 + math.floor(rand() * 16), 76 + math.floor(rand() * 20), 48)
+		for tier = 0, 4 do
+			local radius = (5.4 - tier * 1.0) * scale
+			local y = trunkHeight * 0.8 + tier * 2.6 * scale
+			part({
 				name = "Needles",
-				size = Vector3.new(3.4 * scale, radius * 2, radius * 2),
-				cframe = CFrame.new(base + Vector3.yAxis * y) * BuildUtil.AXIS_Y * CFrame.Angles(math.rad(rand() * 40), 0, 0),
+				size = Vector3.new(radius * 2, (3.6 - tier * 0.3) * scale, radius * 2),
+				cframe = CFrame.new(base + Vector3.yAxis * y) * CFrame.Angles(0, rand() * math.pi, 0),
 				surface = "PineNeedles",
-				color = Color3.fromRGB(40 + math.floor(rand() * 16), 76 + math.floor(rand() * 20), 48),
-				shape = Enum.PartType.Cylinder,
+				color = green:Lerp(Color3.fromRGB(70, 110, 64), tier * 0.08),
+				ellipsoid = true,
 				parent = tree,
 			})
-			needles.CastShadow = true
 		end
 		tree.Parent = forest
 	end
@@ -205,28 +205,38 @@ local function buildMountains(parent: Instance)
 		local depth = 420 + rand() * 240
 		local yaw = CFrame.Angles(0, math.atan2(-spot[1], -spot[2]) + (rand() - 0.5) * 0.6, 0)
 		local rockColour = Color3.fromRGB(96, 100, 112):Lerp(Color3.fromRGB(130, 132, 140), rand())
-		-- A ridge: two wedges back to back, and a snow cap on top.
-		for side = 0, 1 do
-			local flip = if side == 0 then CFrame.identity else CFrame.Angles(0, math.pi, 0)
-			local ridge = part({
+		-- A massif: a main peak and two shoulders, smooth rounded domes sunk into the
+		-- ground, each with a snow cap on its top.
+		local peaks = {
+			{ x = 0, scale = 1 },
+			{ x = -width * 0.42, scale = 0.62 + rand() * 0.15 },
+			{ x = width * 0.4, scale = 0.55 + rand() * 0.2 },
+		}
+		for p, peak in peaks do
+			local h = height * peak.scale * 0.85 -- the dome's half-height (its top above the base)
+			local wPeak = width * peak.scale
+			local dPeak = depth * peak.scale * 1.1
+			local frame = CFrame.new(center) * yaw * CFrame.new(peak.x, 0, (p - 2) * 40)
+			local dome = part({
 				name = `Mountain{i}`,
-				size = Vector3.new(width, height, depth / 2),
-				cframe = CFrame.new(center) * yaw * flip * CFrame.new(0, height / 2, -depth / 4),
+				size = Vector3.new(wPeak, h * 2, dPeak),
+				cframe = frame,
 				surface = "RockFace",
 				color = rockColour,
-				wedge = true,
+				ellipsoid = true,
 				parent = range,
 			})
-			ridge.CastShadow = false
-			local capHeight = height * 0.32
-			local capDepth = depth / 2 * 0.32
+			dome.CastShadow = false
+			-- Snow: a flatter dome riding over the top, as wide as the mountain at its centre.
+			local capCentre = 0.74
+			local capWidth = math.sqrt(1 - capCentre * capCentre)
 			local cap = part({
 				name = "Snow",
-				size = Vector3.new(width * 0.98, capHeight, capDepth + 0.6),
-				cframe = CFrame.new(center) * yaw * flip * CFrame.new(0, height - capHeight / 2 + 0.3, -capDepth / 2 - 0.3),
+				size = Vector3.new(wPeak * capWidth, h * 0.6, dPeak * capWidth),
+				cframe = frame * CFrame.new(0, h * capCentre, 0),
 				surface = "Chalk",
 				color = Color3.fromRGB(238, 242, 248),
-				wedge = true,
+				ellipsoid = true,
 				parent = range,
 			})
 			cap.Material = Enum.Material.Snow
@@ -283,8 +293,8 @@ local function buildSummitDressing(parent: Instance)
 	})
 	local glow = Instance.new("PointLight")
 	glow.Color = Color3.fromRGB(150, 110, 255)
-	glow.Range = 60
-	glow.Brightness = 3
+	glow.Range = 40
+	glow.Brightness = 1
 	glow.Parent = flag
 	-- Drifting mist banks around the top.
 	local rand = scatter(9090)

@@ -80,32 +80,75 @@ function RockWall.build(def: WallDef): Model
 	local size = def.block or 12
 	local depth = 10
 
-	-- Faceted face: a grid of rock blocks along every segment, each nudged and tilted a
-	-- little so the face catches the light like real granite.
-	local columns = math.max(1, math.ceil(def.width / size))
+	-- The face: flush rows of rock slabs in a staggered (brick) pattern, so there are no
+	-- steps or tilted edges to catch on, with gentle colour banding like rock strata. Rows
+	-- run the full width; the vertical joints are offset every other row.
+	local columns = math.max(1, math.ceil(def.width / (size * 1.5)))
 	local cell = def.width / columns
 	for si, segment in face.segments do
 		local rows = math.max(1, math.ceil(segment.length / size))
 		local rowHeight = segment.length / rows
 		for row = 0, rows - 1 do
-			for column = 0, columns - 1 do
-				local x = -def.width / 2 + (column + 0.5) * cell
-				local s = segment.startS + (row + 0.5) * rowHeight
-				local r1, r2, r3 = hash(si, row, column), hash(column, si, row), hash(row, column, si)
-				local inset = r1 * 0.3
-				local tilt = CFrame.Angles(math.rad((r2 - 0.5) * 4), math.rad((r3 - 0.5) * 4), math.rad((r1 - 0.5) * 6))
+			local s = segment.startS + (row + 0.5) * rowHeight
+			local offset = if row % 2 == 1 then cell / 2 else 0
+			local band = hash(si, row, 0.5)
+			local edges = { -def.width / 2 }
+			local x = -def.width / 2 + offset
+			while x + cell < def.width / 2 - 0.01 do
+				x += cell
+				table.insert(edges, x)
+			end
+			table.insert(edges, def.width / 2)
+			for column = 1, #edges - 1 do
+				local left, right = edges[column], edges[column + 1]
+				if right - left < 0.05 then
+					continue
+				end
+				local shade = hash(si, row, column) * 0.06 + band * 0.08
 				local block = part({
 					name = "RockFace",
-					size = Vector3.new(cell + 0.8, rowHeight + 0.8, depth),
-					cframe = frameAt(Face.point(face, x, s, -depth / 2 - inset), segment.normal, segment.up) * tilt,
+					size = Vector3.new(right - left, rowHeight, depth),
+					cframe = frameAt(Face.point(face, (left + right) / 2, s, -depth / 2), segment.normal, segment.up),
 					surface = "RockFace",
-					color = tint:Lerp(Color3.new(r2, r2, r2), 0.08),
+					color = tint:Lerp(Color3.fromRGB(150, 146, 138), shade),
 					collide = true,
 					query = true,
 					parent = rock,
 				})
 				CollectionService:AddTag(block, Tags.Climbable)
 			end
+		end
+	end
+	-- Where two segments meet at an angle, a rounded rock bulge covers the crease.
+	for si = 2, #face.segments do
+		local segment = face.segments[si]
+		local crease = Face.point(face, 0, segment.startS, -1.2)
+		local bulge = part({
+			name = "Crease",
+			size = Vector3.new(def.width, 2.4, 2.4),
+			cframe = CFrame.fromMatrix(crease, face.right, Vector3.yAxis),
+			surface = "RockFace",
+			color = tint,
+			shape = Enum.PartType.Cylinder,
+			collide = true,
+			query = true,
+			parent = rock,
+		})
+		CollectionService:AddTag(bulge, Tags.Climbable)
+	end
+	-- Smooth terrain rock around the sides, so the wall's outline is a natural rounded crag
+	-- instead of a box (it stays behind the face, clear of every route).
+	local terrain = Workspace.Terrain
+	local rise = Face.rise(face)
+	for _, side in { -1, 1 } do
+		local y = 0
+		while y < rise do
+			local r1, r2 = hash(side, y, 3), hash(y, side, 7)
+			local radius = math.clamp(rise * 0.12, 6, 18) * (0.75 + r1 * 0.6)
+			local s = math.clamp(y, 0, face.height)
+			local edge = Face.point(face, side * (def.width / 2 + radius * (0.3 + r2 * 0.35)), s, -radius * (0.5 + r2 * 0.2))
+			terrain:FillBall(edge, radius, Enum.Material.Rock)
+			y += radius * (0.6 + r2 * 0.3)
 		end
 	end
 

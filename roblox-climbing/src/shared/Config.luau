@@ -5,8 +5,8 @@
 
 local Config = {}
 
-Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.6.0-maps"
+Config.GameName = "Ascent"
+Config.Version = "0.7.0"
 
 Config.METERS_PER_STUD = 0.28
 
@@ -44,6 +44,7 @@ Config.Climb = {
 	StandAboveFeet = 2.3, -- feet only: stand this far above them (legs slightly bent)
 	HandBias = 0.45, -- hands + feet: body sits this fraction of the way from feet to hands
 	ShiftRange = Vector2.new(1.5, 1.5), -- WASD weight shift, right/left and up/down
+	ShiftSpeed = 2.2, -- how fast holding WASD moves the (sticky) shift, full range per second
 	ReachSlack = 0.95, -- body keeps every attached limb within Reach * this
 
 	-- Body constraints (AlignPosition / AlignOrientation on the HumanoidRootPart).
@@ -87,6 +88,7 @@ Config.Climb = {
 
 	Keys = {
 		LetGo = Enum.KeyCode.V,
+		CentreWeight = Enum.KeyCode.X, -- puts the sticky weight shift back in the middle
 		Dyno = Enum.KeyCode.Space,
 	},
 

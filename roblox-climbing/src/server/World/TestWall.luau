@@ -408,9 +408,9 @@ local function buildLightRig(frame: WallFrame, route: Instance)
 
 		local light = Instance.new("SpotLight")
 		light.Face = Enum.NormalId.Front
-		light.Angle = 75
-		light.Range = 40
-		light.Brightness = 2
+		light.Angle = 90
+		light.Range = 30
+		light.Brightness = 0.7
 		light.Color = Color3.fromRGB(255, 244, 226)
 		light.Shadows = true
 		light.Parent = housing
@@ -544,7 +544,7 @@ function TestWall.Build(): Folder
 	route:SetAttribute("Indoor", true)
 	route:SetAttribute("BaseY", frame.origin.Y) -- floor level; the height counter measures from here
 	route:SetAttribute("Order", 1)
-	route:SetAttribute("AutoBelay", true) -- letting go lowers you gently (RopeService)
+	route:SetAttribute("AutoBelay", true) -- clip in at the carabiner; letting go lowers you gently (RopeService)
 	route:SetAttribute("Rope", false)
 	route:SetAttribute("Leaderboard", true)
 	route:SetAttribute("StartPosition", frame.origin + frame.flatNormal * 4 + Vector3.yAxis * (MAT_THICKNESS + 3))
@@ -561,6 +561,7 @@ function TestWall.Build(): Folder
 	buildLegend(frame, route)
 	RouteKit.addSign(route, frame.origin - frame.right * (Layout.Width / 2 + 3.5) + frame.flatNormal * 1.5, frame.flatNormal, string.upper(WALL.RouteName))
 	RouteKit.addChalkBucket(route, frame.origin - frame.right * (Layout.Width / 2 + 1.5) + frame.flatNormal * 3)
+	RouteKit.addAutoBelay(route, frame.origin + Vector3.yAxis * MAT_THICKNESS, facePoint(frame, 0, Layout.Height, 0), frame.flatNormal)
 
 	-- Parent last so everything replicates and is tagged in one go.
 	route.Parent = routes

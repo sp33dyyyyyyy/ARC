@@ -4,8 +4,10 @@
 --  * Outdoors: hold the "Tie in" prompt on a route's rope bag to tie in to the anchor at
 --    its top (RouteKit TopAnchor). Untie with the prompt again, or by walking away.
 --    Not tied in = free solo: a fall from high up is fatal.
---  * Indoors: walls with AutoBelay clip you in as soon as you start climbing them, and
---    unclip you back on the ground.
+--  * Indoors: walls with AutoBelay have an auto-belay: hold "Clip in" at its carabiner. It
+--    unclips you once you're back on the floor after a climb.
+--  * Every roped wall must be clipped into: grabbing a hold on a route with a rope bag or
+--    an auto-belay is refused until you're tied in to that route (ClimbService guard).
 --  * While you climb, a rope (a Beam) runs from your harness up to the anchor. Fall or let
 --    go and a real RopeConstraint catches you after a little slack, you dangle for a
 --    moment, then the belayer lowers you to the ground. Grab a hold while hanging to climb
@@ -37,6 +39,7 @@ type Tie = {
 	mode: Mode,
 	since: number,
 	groundFor: number,
+	climbed: boolean, -- has been on the wall since tying in
 	tieAttachment: Attachment,
 	beam: Beam,
 	rope: RopeConstraint,
@@ -116,7 +119,8 @@ function RopeService.TieIn(player: Player, route: Instance, auto: boolean): bool
 	tieAttachment.Position = Vector3.new(0, -0.6, -0.4) -- harness, at the front of the hips
 	tieAttachment.Parent = root
 
-	local color = if auto then ROPE.AutoBelayColor else ROPE.Color
+	local gearColor = player:GetAttribute("GearRopeColor")
+	local color = if auto then ROPE.AutoBelayColor elseif typeof(gearColor) == "Color3" then gearColor else ROPE.Color
 	local beam = Instance.new("Beam")
 	beam.Name = "ClimbRope"
 	beam.Attachment0 = anchor
@@ -149,6 +153,7 @@ function RopeService.TieIn(player: Player, route: Instance, auto: boolean): bool
 		mode = "climb",
 		since = os.clock(),
 		groundFor = 0,
+		climbed = false,
 		tieAttachment = tieAttachment,
 		beam = beam,
 		rope = rope,
@@ -218,11 +223,21 @@ local function onPlaced(player: Player, _limb: string, hold: BasePart)
 		end
 		return
 	end
-	local route = HoldUtil.getRouteFolder(hold)
-	if route and route:GetAttribute("AutoBelay") == true then
-		RopeService.TieIn(player, route, true)
-	end
 end
+
+-- Roped routes can only be climbed tied in to them.
+local function placeGuard(player: Player, hold: BasePart): string?
+	local route = HoldUtil.getRouteFolder(hold)
+	if route == nil or (route:GetAttribute("Rope") ~= true and route:GetAttribute("AutoBelay") ~= true) then
+		return nil
+	end
+	local tie = ties[player]
+	if tie and tie.route == route then
+		return nil
+	end
+	return if route:GetAttribute("AutoBelay") == true then "clip in to the auto-belay first" else "tie in at the rope bag first"
+end
+RopeService.placeGuard = placeGuard
 
 local function tick(dt: number)
 	local now = os.clock()
@@ -249,12 +264,16 @@ local function tick(dt: number)
 		end
 
 		if tie.mode == "climb" then
-			-- Auto-belays unclip you once you're back on the floor; walking away unties you.
+			-- Auto-belays unclip you once you're back on the floor after a climb; walking
+			-- away unties you.
+			if character:GetAttribute("Climbing") == true then
+				tie.climbed = true
+			end
 			tie.groundFor = if onGround then tie.groundFor + dt else 0
 			local start = tie.route:GetAttribute("StartPosition")
 			local root = tie.tieAttachment.Parent :: BasePart
 			local far = typeof(start) == "Vector3" and (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(start.X, 0, start.Z)).Magnitude > ROPE.UntieDistance
-			if (tie.auto and tie.groundFor > 1.5) or (onGround and far) then
+			if (tie.auto and tie.climbed and tie.groundFor > 1.5) or (onGround and far) then
 				RopeService.Untie(player)
 			end
 		end
@@ -262,16 +281,24 @@ local function tick(dt: number)
 end
 
 local function onPrompt(prompt: ProximityPrompt, player: Player)
-	local bag = prompt.Parent
-	local route = bag and bag.Parent
-	if route == nil or route:GetAttribute("RouteName") == nil then
+	-- The route is the nearest ancestor with a RouteName (bag -> route, carabiner ->
+	-- AutoBelay -> route).
+	local route: Instance? = prompt.Parent
+	while route and route:GetAttribute("RouteName") == nil do
+		route = route.Parent
+	end
+	if route == nil then
 		return
+	end
+	local character = player.Character
+	if character and character:GetAttribute("Climbing") == true then
+		return -- no untying mid-climb
 	end
 	local tie = ties[player]
 	if tie and tie.route == route then
 		RopeService.Untie(player)
 	else
-		RopeService.TieIn(player, route, false)
+		RopeService.TieIn(player, route, prompt.Name == "ClipIn")
 	end
 end
 
@@ -282,9 +309,10 @@ end
 function RopeService.Start()
 	ClimbService.OnLeftWall(onLeftWall)
 	ClimbService.OnPlaced(onPlaced)
+	ClimbService.AddPlaceGuard(placeGuard)
 
 	local function watch(instance: Instance)
-		if instance:IsA("ProximityPrompt") and instance.Name == "TieIn" then
+		if instance:IsA("ProximityPrompt") and (instance.Name == "TieIn" or instance.Name == "ClipIn") then
 			instance.Triggered:Connect(function(player)
 				onPrompt(instance, player)
 			end)

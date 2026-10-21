@@ -25,6 +25,10 @@ export type Data = {
 	totalClimbed: number, -- studs climbed on routes you finished
 	bestTimes: { [string]: number }, -- seconds, per route id
 	clears: { [string]: number }, -- summits per route id
+	owned: { [string]: boolean }, -- gear bought at the pro shop (Gear item ids)
+	equipped: { [string]: string }, -- Gear slot -> item id
+	packColor: number, -- index into Gear.COLORS
+	chalkColor: number,
 }
 
 type Profile = { data: Data, key: string, dirty: boolean, loaded: boolean }
@@ -37,7 +41,7 @@ local memoryOnly = false
 local loadedListeners: { (Player, Data) -> () } = {}
 
 local function defaults(): Data
-	return { gems = 0, xp = 0, summits = 0, totalClimbed = 0, bestTimes = {}, clears = {} }
+	return { gems = 0, xp = 0, summits = 0, totalClimbed = 0, bestTimes = {}, clears = {}, owned = {}, equipped = {}, packColor = 1, chalkColor = 1 }
 end
 
 -- Fills in anything an older save is missing.

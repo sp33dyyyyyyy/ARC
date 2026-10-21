@@ -54,6 +54,7 @@ local rejectedEvent: RemoteEvent
 local leftWallListeners: { (Player, string) -> () } = {}
 local dynoListeners: { (Player) -> () } = {}
 local placedListeners: { (Player, string, BasePart) -> () } = {}
+local placeGuards: { (Player, BasePart) -> string? } = {}
 
 function ClimbService.attributeName(limb: string): string
 	return ATTRIBUTE_PREFIX .. limb
@@ -103,6 +104,12 @@ end
 -- `listener(player, limb, hold)` runs every time the server puts a limb on a hold.
 function ClimbService.OnPlaced(listener: (Player, string, BasePart) -> ())
 	table.insert(placedListeners, listener)
+end
+
+-- `guard(player, hold)` can refuse a grab by returning a reason (RopeService: "clip in
+-- first"). Every guard must allow it.
+function ClimbService.AddPlaceGuard(guard: (Player, BasePart) -> string?)
+	table.insert(placeGuards, guard)
 end
 
 -- `listener(player)` runs when a climber launches a dyno.
@@ -200,6 +207,15 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 		end
 		local extra = if os.clock() < rig.dynoUntil then DYNO.ServerExtraTolerance else 0
 		local result = ClimbService.CheckPlace(rig.root.Position, limb, holdId, extra)
+		if result.ok and result.hold then
+			for _, guard in placeGuards do
+				local refused = guard(player, result.hold)
+				if refused then
+					result = { ok = false, reason = refused }
+					break
+				end
+			end
+		end
 		if result.ok then
 			setLimb(rig, limb :: string, result.hold)
 		else

@@ -9,6 +9,7 @@
 --   Summit      invisible volume at the top (RouteSummit)
 --   Sign        leaderboard board at the base (LeaderboardService writes on it)
 --   RopeBag     "Tie in" prompt at the base, for walls you rope up on (RopeService)
+--   AutoBelay   unit at the top and a "Clip in" carabiner at the base (indoor rope walls)
 --   ChalkBucket "Chalk up" prompt at the base (ChalkService)
 -- The helpers are also used on their own by TestWall and the gym.
 
@@ -202,6 +203,58 @@ function RouteKit.addRopeBag(route: Instance, position: Vector3)
 	prompt.Parent = bag
 end
 
+-- An auto-belay: the orange unit bolted above the top of the wall, its webbing strap, and
+-- the carabiner hanging at the base with the "Clip in" prompt (RopeService handles it).
+-- Every roped wall must be clipped into before you can climb it.
+function RouteKit.addAutoBelay(route: Instance, base: Vector3, top: Vector3, facing: Vector3)
+	local flat = Vector3.new(facing.X, 0, facing.Z).Unit
+	local unit = Instance.new("Model")
+	unit.Name = "AutoBelay"
+	local housing = part({
+		name = "Unit",
+		size = Vector3.new(1.6, 1.8, 1.1),
+		cframe = frameAt(top + Vector3.yAxis * 0.9 + flat * 0.6, flat, Vector3.yAxis),
+		surface = "Accent",
+		parent = unit,
+	})
+	part({ name = "Drum", size = Vector3.new(0.5, 1.2, 1.2), cframe = housing.CFrame * CFrame.new(0, 0, -0.55) * BuildUtil.AXIS_Z, surface = "BlackSteel", shape = Enum.PartType.Cylinder, parent = unit })
+	local clipPosition = base + Vector3.yAxis * 3.2 + flat * 0.4
+	local clip = part({
+		name = "Carabiner",
+		size = Vector3.new(0.12, 0.7, 0.4),
+		cframe = frameAt(clipPosition, flat, Vector3.yAxis),
+		surface = "Accent",
+		collide = false,
+		query = true,
+		parent = unit,
+	})
+	-- The strap hangs from the unit down to the carabiner at the base.
+	local a0 = Instance.new("Attachment")
+	a0.Parent = housing
+	a0.Position = Vector3.new(0, -0.9, -0.6)
+	local a1 = Instance.new("Attachment")
+	a1.Parent = clip
+	a1.Position = Vector3.new(0, 0.35, 0)
+	local strap = Instance.new("Beam")
+	strap.Name = "Strap"
+	strap.Attachment0 = a0
+	strap.Attachment1 = a1
+	strap.Width0 = 0.18
+	strap.Width1 = 0.18
+	strap.FaceCamera = true
+	strap.Color = ColorSequence.new(Color3.fromRGB(70, 74, 82))
+	strap.Parent = housing
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "ClipIn"
+	prompt.ActionText = "Clip in"
+	prompt.ObjectText = "Auto-belay"
+	prompt.HoldDuration = 0.8
+	prompt.MaxActivationDistance = 8
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = clip
+	unit.Parent = route
+end
+
 -- A chalk bucket with a "Chalk up" prompt (ChalkService handles it).
 function RouteKit.addChalkBucket(parent: Instance, position: Vector3)
 	local bucket = part({
@@ -303,6 +356,9 @@ function RouteKit.buildRoute(spec: RouteSpec): Folder
 	end
 	if spec.rope then
 		RouteKit.addRopeBag(route, ground + face.right * (-side * 3) + flat * 0.5)
+	end
+	if spec.autoBelay then
+		RouteKit.addAutoBelay(route, Vector3.new(base.X, baseY, base.Z), top, flat)
 	end
 	if spec.chalk then
 		RouteKit.addChalkBucket(route, ground + face.right * (-side * 5.5) + flat * 1)
