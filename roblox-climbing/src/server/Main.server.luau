@@ -1,6 +1,6 @@
 --!strict
 -- Server entry point. The only Script on the server; everything else is a ModuleScript.
--- Order: build missing world pieces -> Init every service -> Start every service.
+-- Order: rig check -> lighting + missing world pieces -> Init every service -> Start every service.
 -- Later stages add their services to SERVICE_ORDER (ClimbService, StaminaService, ...).
 
 local Players = game:GetService("Players")
@@ -16,7 +16,41 @@ local SERVICE_ORDER = {
 
 print(`[{Config.GameName}] server v{Config.Version}`)
 
-require(Server.World.TestWall).Ensure()
+-- Limb IK (Stage 2) needs R15. StarterPlayer.GameSettingsAvatar is set to R15 by the
+-- Rojo project, but a published game's Avatar settings can override it. Hooked up first,
+-- and run for players already in game, so nobody who joins while the world builds is missed.
+local function checkRig(player: Player, character: Model)
+	local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
+	if humanoid and humanoid.RigType ~= Enum.HumanoidRigType.R15 then
+		warn(`[{Config.GameName}] {player.Name} spawned as {humanoid.RigType.Name}; set Game Settings > Avatar > Avatar Type to R15`)
+	end
+end
+local function watchPlayer(player: Player)
+	player.CharacterAdded:Connect(function(character)
+		checkRig(player, character)
+	end)
+	if player.Character then
+		task.spawn(checkRig, player, player.Character)
+	end
+end
+Players.PlayerAdded:Connect(watchPlayer)
+for _, player in Players:GetPlayers() do
+	watchPlayer(player)
+end
+
+-- Build missing world pieces. A failure here is reported but doesn't stop the services.
+local function buildStep(name: string, run: () -> ())
+	local ok, err = pcall(run :: () -> any)
+	if not ok then
+		warn(`[{Config.GameName}] {name} failed: {err}`)
+	end
+end
+buildStep("Environment.Apply", function()
+	require(Server.World.Environment).Apply()
+end)
+buildStep("TestWall.Ensure", function()
+	require(Server.World.TestWall).Ensure()
+end)
 
 type Service = { Init: (() -> ())?, Start: (() -> ())? }
 local services: { Service } = {}
@@ -35,17 +69,6 @@ for _, service in services do
 		task.spawn(service.Start)
 	end
 end
-
--- Limb IK (Stage 2) needs R15. StarterPlayer.GameSettingsAvatar is set to R15 by the
--- Rojo project, but a published game's Avatar settings can override it.
-Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function(character)
-		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-		if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-			warn(`[{Config.GameName}] {player.Name} spawned as {humanoid.RigType.Name}; set Game Settings > Avatar > Avatar Type to R15`)
-		end
-	end)
-end)
 
 if Config.Debug.RunSelfChecksInStudio and RunService:IsStudio() then
 	task.defer(function()

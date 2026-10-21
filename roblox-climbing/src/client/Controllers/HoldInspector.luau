@@ -26,6 +26,7 @@ local highlight: Highlight
 local billboard: BillboardGui
 local label: TextLabel
 local current: BasePart? = nil
+local attributeConnection: RBXScriptConnection? = nil
 local rayParams = RaycastParams.new()
 
 local function buildVisuals()
@@ -87,19 +88,32 @@ local function describe(info: HoldUtil.HoldInfo): string
 		.. `<font color="#9aa4b8">{string.format("%.2f", height)} m up</font>`
 end
 
-local function show(part: BasePart?)
-	if part == current then
-		return
-	end
-	current = part
-	local info = if part then HoldUtil.read(part) else nil
-	if part and info then
-		highlight.Adornee = part
-		billboard.Adornee = part
+local function refresh()
+	local info = if current then HoldUtil.read(current) else nil
+	if info then
 		label.Text = describe(info)
 	end
 	highlight.Enabled = info ~= nil
 	billboard.Enabled = info ~= nil
+end
+
+local function show(part: BasePart?)
+	if part == current then
+		return
+	end
+	if attributeConnection then
+		attributeConnection:Disconnect()
+		attributeConnection = nil
+	end
+	current = part
+	-- The type definitions don't mark Adornee as optional, but nil clears it.
+	highlight.Adornee = part :: any
+	billboard.Adornee = part :: any
+	if part then
+		-- Keep the tooltip in sync if the hold is edited while it is being inspected.
+		attributeConnection = part.AttributeChanged:Connect(refresh)
+	end
+	refresh()
 end
 
 -- `point` is in viewport space (mouse) or, with `isScreenSpace`, screen space below the

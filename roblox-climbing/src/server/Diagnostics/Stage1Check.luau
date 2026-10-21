@@ -151,8 +151,9 @@ function Stage1Check.Run(): boolean
 	-- HoldService spatial query: standing on the start pad you can reach the start jugs.
 	local pad = taggedUnder(route, Tags.RouteStart)[1]
 	if pad and pad:IsA("BasePart") then
-		local rootHeight = Vector3.yAxis * 3
-		local near = HoldService.GetHoldsNear(pad.Position + rootHeight, 8, "Hand")
+		-- A standing climber's HumanoidRootPart is about 3 studs above the mat.
+		local root = pad.Position - Vector3.yAxis * (pad.Size.Y / 2 - 3)
+		local near = HoldService.GetHoldsNear(root, 8, "Hand")
 		local reachesStart = false
 		for _, info in near do
 			if info.Role == "Start" then

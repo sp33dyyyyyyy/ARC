@@ -6,7 +6,7 @@
 local Config = {}
 
 Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.1.0-stage1"
+Config.Version = "0.1.1-stage1"
 
 Config.METERS_PER_STUD = 0.28
 
