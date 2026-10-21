@@ -101,12 +101,52 @@ function ClimbService.CheckPlace(rootPosition: Vector3, limb: any, holdId: any, 
 	return { ok = true, hold = hold }
 end
 
+-- The rig for the player's current character, made on first use. Never waits, and doesn't
+-- care whether the character is in Workspace yet: Roblox fires CharacterAdded before
+-- parenting the character, which is what silently broke climbing in v0.2/v0.3.
+local function rigFor(player: Player): Rig?
+	local character = player.Character
+	if character == nil then
+		return nil
+	end
+	local existing = rigs[player]
+	if existing and existing.character == character then
+		return existing
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if humanoid == nil or root == nil or not root:IsA("BasePart") then
+		return nil
+	end
+	if PhysicsService:IsCollisionGroupRegistered(CLIMB.LimbCollisionGroup) then
+		for _, name in LimbRig.LIMB_PART_NAMES do
+			local part = character:FindFirstChild(name)
+			if part and part:IsA("BasePart") then
+				part.CollisionGroup = CLIMB.LimbCollisionGroup
+			end
+		end
+	end
+	local rig: Rig = { character = character, humanoid = humanoid, root = root, farFor = 0, dynoUntil = 0 }
+	rigs[player] = rig
+	humanoid.Died:Connect(function()
+		if rigs[player] == rig then
+			releaseAll(rig)
+		end
+	end)
+	return rig
+end
+
 local function onRequest(player: Player, action: any, limb: any, holdId: any)
 	if not limiter:allow(player) then
 		return
 	end
-	local rig = rigs[player]
-	if rig == nil or rig.humanoid.Health <= 0 or type(action) ~= "string" then
+	if type(action) ~= "string" then
+		return
+	end
+	local rig = rigFor(player)
+	if rig == nil or rig.humanoid.Health <= 0 then
+		-- Always answer, so the client never waits on a request that went nowhere.
+		rejectedEvent:FireClient(player, if type(limb) == "string" then limb else "", "your character isn't ready")
 		return
 	end
 
@@ -131,35 +171,20 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 end
 
 local function onCharacter(player: Player, character: Model)
-	rigs[player] = nil
-	local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
-	local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
-	if humanoid == nil or root == nil or character.Parent == nil then
-		return
+	-- Set the rig up as soon as the body parts exist (requests also make it on demand).
+	character:WaitForChild("Humanoid", 10)
+	character:WaitForChild("HumanoidRootPart", 10)
+	if player.Character == character then
+		rigFor(player)
 	end
-	if PhysicsService:IsCollisionGroupRegistered(CLIMB.LimbCollisionGroup) then
-		for _, name in LimbRig.LIMB_PART_NAMES do
-			local part = character:FindFirstChild(name)
-			if part and part:IsA("BasePart") then
-				part.CollisionGroup = CLIMB.LimbCollisionGroup
-			end
-		end
-	end
-	local rig: Rig = { character = character, humanoid = humanoid, root = root, farFor = 0, dynoUntil = 0 }
-	rigs[player] = rig
-	humanoid.Died:Connect(function()
-		if rigs[player] == rig then
-			releaseAll(rig)
-		end
-	end)
 end
 
 -- Takes players off the wall if their body is implausibly far from what they hold
 -- (teleport exploits, physics glitches), or if a hold they were on disappears.
 local function watchdog(dt: number)
 	for player, rig in rigs do
-		if rig.character.Parent == nil then
-			rigs[player] = nil
+		if player.Character ~= rig.character or player.Parent == nil then
+			rigs[player] = nil -- respawned or left
 			continue
 		end
 		local far = false

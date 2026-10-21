@@ -49,10 +49,10 @@ function Stage2Check.Run(): boolean
 	end
 	check("remote events exist", #missing == 0, "missing " .. table.concat(missing, ", "))
 
-	-- Limb rigs on R15 and R6 test dummies: all four shoulder/hip joints are found, and the
-	-- aim maths turns each limb (which hangs along -Y) to point at a target.
+	-- Limb rigs on R15 and R6 test dummies: all four limbs are found (with either kind of
+	-- joint Roblox uses), and the IK puts each hand/foot exactly on a reachable target.
 	for _, rigType in { Enum.HumanoidRigType.R15, Enum.HumanoidRigType.R6 } do
-		local name = `limb rig ({rigType.Name}): 4 joints found and aim points the limb at a target`
+		local name = `limb rig ({rigType.Name}): 4 limbs found and IK lands each hand/foot on its target`
 		local ok, dummy = pcall(function()
 			return Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), rigType)
 		end)
@@ -60,21 +60,26 @@ function Stage2Check.Run(): boolean
 			check(name, false, `could not create a test dummy: {dummy}`)
 			continue
 		end
-		local limbs, missingJoints = LimbRig.find(dummy)
-		local problems = table.clone(missingJoints)
-		for limbName, limb in limbs do
-			local jointFrame = (limb.joint.Part0 :: BasePart).CFrame * limb.joint.C0
-			local target = jointFrame.Position + Vector3.new(0.7, 2, -1.5)
-			local transform = LimbRig.aimTransform(limb, target)
-			-- With that Transform the limb's down axis must point at the target.
-			local limbFrame = jointFrame * transform * limb.joint.C1:Inverse()
-			local pointing = limbFrame:VectorToWorldSpace(Vector3.new(0, -1, 0))
-			local wanted = (target - jointFrame.Position).Unit
-			if pointing:Dot(wanted) < 0.999 then
-				table.insert(problems, `{limbName} points {pointing:Dot(wanted)} off`)
+		local rig = LimbRig.find(dummy)
+		local problems = table.clone(rig.missing)
+		for limbName, chain in rig.chains do
+			local start = LimbRig.frame(chain.upper).Position
+			local length = chain.upperLength + chain.lowerLength
+			-- Two bones can reach anywhere inside their span; one bone only at its length.
+			local distance = if chain.lower then length * 0.7 else length
+			local target = start + Vector3.new(0.4, 1, -0.6).Unit * distance
+			local upperT, lowerT = LimbRig.solve(chain, target, Vector3.new(0, -1, 1))
+			local miss = (LimbRig.forward(chain, upperT, lowerT) - target).Magnitude
+			if miss > 0.05 then
+				table.insert(problems, `{limbName} misses by {string.format("%.2f", miss)}`)
 			end
 		end
-		check(name, #problems == 0, table.concat(problems, "; "))
+		local kind = "?"
+		for _, chain in rig.chains do
+			kind = chain.upper.instance.ClassName
+			break
+		end
+		check(`{name} [{kind}]`, #problems == 0, table.concat(problems, "; "))
 		dummy:Destroy()
 	end
 

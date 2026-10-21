@@ -37,6 +37,7 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/client/Controllers/HoldInspector.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.HoldInspector` | ModuleScript |
 | `src/client/Controllers/ClimbController.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbController` | ModuleScript |
 | `src/client/Controllers/ClimbOverlay.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbOverlay` | ModuleScript |
+| `src/client/Controllers/ClimbAnimator.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbAnimator` | ModuleScript |
 
 `Shared`, `Server`, `Services`, `World`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
 
@@ -177,11 +178,11 @@ python3 tests/run.py          # or: LUAU=/path/to/luau python3 tests/run.py
 ```
 
 - `tests/unit.luau` (15 tests) covers hold types, the wall layout and the rate limiter.
-- `tests/climbing.luau` (13 tests) runs the **real** `Config`, `ClimbMath` and wall-layout code with stand-ins for Roblox's `Vector3`/`Vector2` (`tests/mocks.luau`). It covers:
+- `tests/climbing.luau` (16 tests) runs the **real** `Config`, `ClimbMath` and wall-layout code with stand-ins for Roblox's `Vector3`/`Vector2` (`tests/mocks.luau`). It covers:
   - the body solver: resting poses, weight shift, never leaving a limb behind;
   - the floor clamp;
   - the dyno, including a 240 Hz physics integration check that the jump lands where it's aimed under Roblox gravity;
-  - limb posing, with real R6 shoulder offsets;
+  - two-bone IK: hands land exactly on targets, elbows bend towards the pole, the arm straightens towards out-of-reach targets, and R6 single-bone limbs with real shoulder offsets;
   - a search over every limb/hold/shift combination proving the test wall can be climbed from the mat to the finish.
 
 Expected: `ALL TESTS PASSED`.
@@ -210,8 +211,20 @@ The height above the floor shows in a pill at the top centre while you climb.
 **How it works**
 
 - `ClimbService` (server) is the authority. It stores what each limb holds as character attributes (`Climb_LeftHand = "TestWall_05"`). It validates every request: rate limit, argument types, hold exists, right limb type, and within reach of the body plus a small latency allowance. It refuses everything else.
-- **Arms and legs** (`Shared/LimbRig.luau`): every frame, after animations, each client points every climber's shoulders and hips at the holds they're on, using `Motor6D.Transform`. It works on **R6 and R15**, needs nothing created by the server, and a missing limb just isn't posed. Climbing never shuts off. Everyone sees everyone's limbs on the holds because each client reads the climbers' attributes. (v0.2 used IKControls built by the server; if the server didn't build them, climbing switched off. That was the "LeftHand is missing its part or IKControl" error.)
-- Startup is loud on purpose. Each server service starts on its own, so a failure prints `SERVER ERROR in <Service>` and the rest still runs. The client prints `[ClimbController] ready: R15 rig, 4/4 limbs` when climbing is set up. If the server ever stops answering grabs, you get a "Server didn't answer" message on screen.
+- **Animation** (`Client/Controllers/ClimbAnimator.luau`, `Shared/LimbRig.luau`): procedural, with no animation uploads. Every frame, after Roblox's own animations, every climber on screen is posed:
+  - hands and feet go onto their holds with **two-bone IK**, so elbows bend down and out and knees go out to the side;
+  - a limb moving to a new hold **reaches** for it: it lifts off the wall and arcs across;
+  - free limbs hang and swing;
+  - the torso leans into the wall, breathes, twists towards a reaching hand, and coils back while a dyno charges;
+  - the head looks where you're reaching or aiming.
+
+  Everything eases in and out, and control goes back to the normal walk animations when you let go. It works on **R6 and R15**, and with both kinds of joints Roblox uses: classic `Motor6D`, and the newer `AnimationConstraint` avatar joints. Other players see your climbing pose because each client poses climbers from their attributes.
+- Startup is loud on purpose. Each server service starts on its own, so a failure prints `SERVER ERROR in <Service>` and the rest still runs. The client prints `[ClimbController] ready: R15 rig (AnimationConstraint joints), 4/4 limbs, 4 with elbows/knees` when climbing is set up. The server answers every grab, even ones it refuses, and a "Server didn't answer" message appears on screen if it ever doesn't.
+- On-screen hints: "Click a hold to grab it…" near the wall, and the climbing controls while you climb.
+
+**Fixed in v0.4** (both from your Output log):
+- `couldn't find … 0/4 limbs`: Roblox's new avatars use `AnimationConstraint` joints instead of `Motor6D`. LimbRig now supports both.
+- `the server didn't answer a grab`: Roblox fires `CharacterAdded` before the character is in Workspace. The server treated that as "gone" and never registered you, so it ignored every grab. That's also what broke v0.2's IKControls. The server now sets you up on demand and always replies.
 - `ClimbController` (client) predicts each request so it feels instant, and rolls back if the server refuses. It holds the body with an `AlignPosition` + `AlignOrientation` at the spot `ClimbMath.solveBody` picks. That spot is between your hands and feet (or hanging below your hands), 1.1 studs off the wall, shifted by WASD, and never further than each limb can reach.
 - Anti-cheat: if your body stays further than reach + 4 studs from what you hold for a second, the server takes you off the wall. For 2 seconds after a dyno, the server allows 4 extra studs of reach for the catch, because its copy of your position lags behind you in flight.
 - **Arms and legs don't collide with the world** (collision group `ClimberLimbs`). IK can press hands and feet onto holds without the wall shoving the body around. The torso and head still collide.
@@ -227,7 +240,7 @@ The offline tests run the real solver over every limb, hold and WASD shift, and 
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 14 passed, 0 failed`**. Stage2Check tests the remotes, limb posing on both an R15 and an R6 test dummy, the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: …` from the client.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 14 passed, 0 failed`**. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").

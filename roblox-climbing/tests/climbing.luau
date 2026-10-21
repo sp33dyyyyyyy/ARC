@@ -168,27 +168,70 @@ end)
 
 -- Limb posing -----------------------------------------------------------------
 
-test("LimbRig.aimTransform points an R6-style arm at any target", function()
-	-- A torso turned 35 degrees, with Roblox's real R6 Right Shoulder offsets.
-	local torso = { CFrame = CFrame.new(3, 4, -2) * CFrame.fromAxisAngle(Vector3.yAxis, math.rad(35)) }
-	local joint = {
-		Part0 = torso,
-		C0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
-		C1 = CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
-	}
-	local limb = { name = "RightHand", joint = joint, endPart = torso, tipOffset = Vector3.zero } :: any
-	local jointFrame = torso.CFrame * joint.C0
-	for _, offset in {
-		Vector3.new(0, 3, -1), -- up and forward (reaching for a hold)
-		Vector3.new(2, -1, 0.5),
-		Vector3.new(-0.3, -2, 0), -- roughly where it hangs
-		Vector3.new(0.01, 2, 0), -- almost straight up (opposite of hanging)
-	} do
-		local target = jointFrame.Position + offset
-		local limbFrame = jointFrame * LimbRig.aimTransform(limb, target) * joint.C1:Inverse()
-		local pointing = limbFrame:VectorToWorldSpace(Vector3.new(0, -1, 0))
-		local dot = pointing:Dot((target - jointFrame.Position).Unit)
-		expect(dot > 0.9999, `aim at offset {offset}: off by {dot}`)
+-- A fake joint, as LimbRig sees one (Motor6D-style offsets).
+local function motor(part0CFrame: any, c0: any, c1: any): any
+	return { isMotor = true, instance = { C0 = c0, C1 = c1 }, part0 = { CFrame = part0CFrame }, part1 = {} }
+end
+
+-- An R15-like arm: shoulder on a torso turned 35 degrees, 1.2-stud upper arm, 1.1-stud forearm
+-- (rest pose hanging straight down, like Roblox's).
+local torsoCFrame = CFrame.new(3, 4, -2) * CFrame.fromAxisAngle(Vector3.yAxis, math.rad(35))
+local shoulder = motor(torsoCFrame, CFrame.new(1.5, 0.5, 0), CFrame.new(0, 0.4, 0))
+local elbow = motor(CFrame.identity, CFrame.new(0, -0.8, 0), CFrame.new(0, 0.3, 0))
+local twoBone = {
+	name = "RightHand",
+	upper = shoulder,
+	lower = elbow,
+	tipLocal = Vector3.new(0, -0.8, 0),
+	upperLength = 1.2,
+	lowerLength = 1.1,
+	upperAxis = Vector3.new(0, -1.2, 0),
+	lowerAxis = Vector3.new(0, -1.1, 0),
+} :: any
+
+test("two-bone IK puts the hand exactly on reachable targets", function()
+	local start = LimbRig.frame(shoulder).Position
+	for _, offset in { Vector3.new(0.5, 1.5, -1), Vector3.new(1.2, -0.6, -0.4), Vector3.new(-0.3, 0.2, -1.6), Vector3.new(0, -2.2, 0) } do
+		local target = start + offset
+		local upperT, lowerT = LimbRig.solve(twoBone, target, Vector3.new(0, -1, 1))
+		local tip = LimbRig.forward(twoBone, upperT, lowerT)
+		expect((tip - target).Magnitude < 1e-3, `offset {offset}: hand at {tip}, wanted {target}`)
+	end
+end)
+
+test("two-bone IK bends the elbow towards the pole", function()
+	local start = LimbRig.frame(shoulder).Position
+	local target = start + Vector3.new(0, 1.2, -1.2)
+	for _, pole in { Vector3.new(0, -1, 0), Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0) } do
+		local bend = LimbRig.bendPoint(start, target, 1.2, 1.1, pole)
+		-- The elbow sits off the shoulder-hand line, on the pole's side.
+		local direction = (target - start).Unit
+		local offLine = (bend - start) - direction * (bend - start):Dot(direction)
+		expect(offLine:Dot(pole) > 0.1, `pole {pole}: elbow {bend} is on the wrong side`)
+	end
+end)
+
+test("two-bone IK straightens the arm towards a target out of reach", function()
+	local start = LimbRig.frame(shoulder).Position
+	local target = start + Vector3.new(0, 6, -2)
+	local upperT, lowerT = LimbRig.solve(twoBone, target, Vector3.new(0, -1, 1))
+	local tip = LimbRig.forward(twoBone, upperT, lowerT)
+	local reach = (tip - start).Magnitude
+	expect(math.abs(reach - 2.3) < 0.01, `arm length {reach}, expected about 2.3 (straight)`)
+	expect((tip - start).Unit:Dot((target - start).Unit) > 0.999, "the straight arm should point at the target")
+end)
+
+test("one-bone limb (R6) points at its target, with Roblox's real R6 shoulder offsets", function()
+	local r6Shoulder = motor(torsoCFrame, CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0), CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0))
+	local tipLocal = Vector3.new(0, -0.75, 0)
+	local axis = tipLocal - Vector3.new(-0.5, 0.5, 0)
+	local chain = { name = "RightHand", upper = r6Shoulder, lower = nil, tipLocal = tipLocal, upperLength = axis.Magnitude, lowerLength = 0, upperAxis = axis, lowerAxis = Vector3.zero } :: any
+	local start = LimbRig.frame(r6Shoulder).Position
+	for _, direction in { Vector3.new(0, 1, -1), Vector3.new(1, -1, 0.5), Vector3.new(0.01, 1, 0) } do
+		local target = start + direction.Unit * axis.Magnitude
+		local upperT = LimbRig.solve(chain, target, Vector3.new(0, -1, 0))
+		local tip = LimbRig.forward(chain, upperT, nil)
+		expect((tip - target).Magnitude < 1e-3, `direction {direction}: tip {tip}, wanted {target}`)
 	end
 end)
 

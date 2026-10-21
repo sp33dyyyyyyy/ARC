@@ -26,6 +26,7 @@ local dynoStroke: UIStroke
 local heightPill: Frame
 local heightLabel: TextLabel
 local toastLabel: TextLabel
+local hintLabel: TextLabel
 local toastTween: Tween?
 
 local function sphere(name: string): SphereHandleAdornment
@@ -106,6 +107,22 @@ function ClimbOverlay.init()
 	toastLabel.TextColor3 = Color3.new(1, 1, 1)
 	toastLabel.Parent = screen
 	rounded(toastLabel, UDim.new(0, 10))
+
+	-- How-to hint at the bottom of the screen.
+	hintLabel = Instance.new("TextLabel")
+	hintLabel.Name = "Hint"
+	hintLabel.AnchorPoint = Vector2.new(0.5, 1)
+	hintLabel.Position = UDim2.new(0.5, 0, 1, -96)
+	hintLabel.Size = UDim2.fromOffset(560, 34)
+	hintLabel.BackgroundColor3 = Color3.fromRGB(16, 24, 42)
+	hintLabel.BackgroundTransparency = 0.3
+	hintLabel.Font = Enum.Font.GothamMedium
+	hintLabel.TextSize = 15
+	hintLabel.TextColor3 = Color3.new(1, 1, 1)
+	hintLabel.RichText = true
+	hintLabel.Visible = false
+	hintLabel.Parent = screen
+	rounded(hintLabel, UDim.new(0, 10))
 
 	dragDot = sphere("DragDot")
 	aimDot = sphere("AimDot")
@@ -218,6 +235,14 @@ function ClimbOverlay.setHeight(meters: number?)
 	heightPill.Visible = meters ~= nil
 	if meters then
 		heightLabel.Text = string.format("%.2f m", meters)
+	end
+end
+
+-- Bottom-of-screen hint (rich text). nil hides it.
+function ClimbOverlay.setHint(text: string?)
+	hintLabel.Visible = text ~= nil
+	if text and hintLabel.Text ~= text then
+		hintLabel.Text = text
 	end
 end
 
