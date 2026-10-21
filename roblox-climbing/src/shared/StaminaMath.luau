@@ -59,6 +59,15 @@ function StaminaMath.step(current: number, rate: number, dt: number, max: number
 	return math.clamp(current + rate * dt, 0, max)
 end
 
+-- Chalk keeps hands dry: a draining rate is cut by up to `reduction` with a full bag
+-- (`chalk01` = 1). Recovery isn't affected.
+function StaminaMath.withChalk(rate: number, chalk01: number, reduction: number): number
+	if rate >= 0 then
+		return rate
+	end
+	return rate * (1 - reduction * math.clamp(chalk01, 0, 1))
+end
+
 -- Seconds until stamina hits zero at `rate` (math.huge if it isn't draining).
 function StaminaMath.secondsLeft(current: number, rate: number): number
 	if rate >= 0 then

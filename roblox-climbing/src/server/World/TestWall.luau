@@ -31,6 +31,7 @@ local Tags = require(Shared.Tags)
 
 local BuildUtil = require(script.Parent.BuildUtil)
 local HoldModels = require(script.Parent.HoldModels)
+local RouteKit = require(script.Parent.RouteKit)
 local Layout = require(script.Parent.TestWallLayout)
 
 local WALL = Config.TestWall
@@ -542,6 +543,12 @@ function TestWall.Build(): Folder
 	route:SetAttribute("HeightMeters", math.round(Config.studsToMeters(Layout.Height) * 100) / 100)
 	route:SetAttribute("Indoor", true)
 	route:SetAttribute("BaseY", frame.origin.Y) -- floor level; the height counter measures from here
+	route:SetAttribute("Order", 1)
+	route:SetAttribute("AutoBelay", true) -- letting go lowers you gently (RopeService)
+	route:SetAttribute("Rope", false)
+	route:SetAttribute("Leaderboard", true)
+	route:SetAttribute("StartPosition", frame.origin + frame.flatNormal * 4 + Vector3.yAxis * (MAT_THICKNESS + 3))
+	route:SetAttribute("TopAnchor", facePoint(frame, 0, Layout.Height + 1.5, -0.5))
 
 	buildWallBody(frame, route)
 	local covered = buildHolds(frame, route)
@@ -552,6 +559,8 @@ function TestWall.Build(): Folder
 	buildTopOut(frame, route)
 	buildLightRig(frame, route)
 	buildLegend(frame, route)
+	RouteKit.addSign(route, frame.origin - frame.right * (Layout.Width / 2 + 3.5) + frame.flatNormal * 1.5, frame.flatNormal, string.upper(WALL.RouteName))
+	RouteKit.addChalkBucket(route, frame.origin - frame.right * (Layout.Width / 2 + 1.5) + frame.flatNormal * 3)
 
 	-- Parent last so everything replicates and is tagged in one go.
 	route.Parent = routes

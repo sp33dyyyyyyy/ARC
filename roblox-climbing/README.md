@@ -2,7 +2,7 @@
 
 A skill-based rock climbing game for Roblox: four limbs placed one at a time, stamina, ropes, routes and leaderboards. It is built one stage at a time (see the design doc's Build Order).
 
-**Current stage: 2, limb-by-limb climbing (click and drag each hand/foot onto holds), weight shifting and dynos, on the realistic test wall from Stage 1.**
+**Current build: limb-by-limb climbing with stamina, ragdoll falls and death, plus the world: the gym hub (bouldering, Kilter board, tutorial wall), three outdoor crags up to a ~280 m big wall, timed routes with summit cards, ropes and auto-belays, chalk, gems and levels, saving and leaderboards.**
 
 Swap the placeholder name in `src/shared/Config.luau` (`Config.GameName`).
 
@@ -38,11 +38,25 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/server/World/Environment.luau` | `ServerScriptService.Server.World.Environment` | ModuleScript |
 | `src/server/Diagnostics/Stage1Check.luau` | `ServerScriptService.Server.Diagnostics.Stage1Check` | ModuleScript |
 | `src/server/Diagnostics/Stage2Check.luau` | `ServerScriptService.Server.Diagnostics.Stage2Check` | ModuleScript |
+| `src/server/Diagnostics/Stage4Check.luau` | `ServerScriptService.Server.Diagnostics.Stage4Check` | ModuleScript |
+| `src/server/Services/DataService.luau` | `ServerScriptService.Server.Services.DataService` | ModuleScript |
+| `src/server/Services/LeaderboardService.luau` | `ServerScriptService.Server.Services.LeaderboardService` | ModuleScript |
+| `src/server/Services/RouteService.luau` | `ServerScriptService.Server.Services.RouteService` | ModuleScript |
+| `src/server/Services/RopeService.luau` | `ServerScriptService.Server.Services.RopeService` | ModuleScript |
+| `src/server/Services/ChalkService.luau` | `ServerScriptService.Server.Services.ChalkService` | ModuleScript |
+| `src/server/World/Gym.luau` | `ServerScriptService.Server.World.Gym` | ModuleScript |
+| `src/server/World/Outdoors.luau` | `ServerScriptService.Server.World.Outdoors` | ModuleScript |
+| `src/server/World/RockWall.luau` | `ServerScriptService.Server.World.RockWall` | ModuleScript |
+| `src/server/World/PanelWall.luau` | `ServerScriptService.Server.World.PanelWall` | ModuleScript |
+| `src/server/World/RouteKit.luau` | `ServerScriptService.Server.World.RouteKit` | ModuleScript |
+| `src/server/World/RouteGenerator.luau` | `ServerScriptService.Server.World.RouteGenerator` | ModuleScript |
+| `src/server/World/Face.luau` | `ServerScriptService.Server.World.Face` | ModuleScript |
 | `src/client/Main.client.luau` | `StarterPlayer.StarterPlayerScripts.Client.Main` | **LocalScript** |
 | `src/client/Controllers/HoldInspector.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.HoldInspector` | ModuleScript |
 | `src/client/Controllers/ClimbController.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbController` | ModuleScript |
 | `src/client/Controllers/ClimbOverlay.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbOverlay` | ModuleScript |
 | `src/client/Controllers/ClimbAnimator.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbAnimator` | ModuleScript |
+| `src/client/Controllers/RouteHud.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.RouteHud` | ModuleScript |
 
 `Shared`, `Server`, `Services`, `World`, `Physics`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
 
@@ -270,11 +284,37 @@ Landing on a crash mat raises the lethal height by 20%. On the test wall that me
 
 **Free limbs** now hang on damped springs. They lag behind and swing when your body moves, then settle: a bit floppier than before, but not rag-doll floppy. All of this works on R6 and R15, with both kinds of joints. All tuning is in `Config.Falls`.
 
-## Stage 2 test checklist
+## The world, routes, ropes and saving
+
+Everything is built by the server on Play if it's missing (`Gym`, `Outdoors`, `Crags`, `Routes` in Workspace). To bake it into the place in edit mode, run in the command bar: `require(game.ServerScriptService.Server.World.Gym).Rebuild()` and `require(game.ServerScriptService.Server.World.Outdoors).Rebuild()`.
+
+**The gym** (you spawn here): reception with a chalk bucket, the big leaderboard wall, the bouldering hall (4 monoliths, 8 colour-coded problems V0 to V5 over round crash mats), the Kilter room (a 40° LED board with a lit problem, "First Light"), and the tutorial wall with an **auto-belay**.
+
+**Outdoors**, through the yellow door: grass, paths, a pine forest, snowy mountains and three crags.
+| Crag | Height | Routes |
+|---|---|---|
+| Wall A | ~15 m | Greywall Traverse (5a), Mossy Steps (4) |
+| Wall B | ~35 m, with an overhang and a ledge | Sentinel Prow (6b), Split Pillar (6c) |
+| The Colossus | ~280 m (El Cap scale): slabs, a 35° roof, 9 ledges | The Long Way Up (6a), Skyline Direct (7a) |
+Every outdoor route has a rope bag, a chalk bucket and a leaderboard sign at its base. Holds are generated (`RouteGenerator`) so no move is longer than an arm's reach, even past ledges. Ledges let you pass through while you climb, and catch you if you let go above one, so they're places to rest and recover stamina.
+
+**Routes.** Grab a route's low holds and the timer starts (top right, with a progress bar). Reach the top, or hold the finish jug, for a **summit card**: your time, previous best, gems and XP, and your leaderboard rank. The run ends if you fall, get caught by the rope, or end up back on the ground. Outdoors, free soloists climb over onto the summit. **Routes menu** (button bottom left, or **M**): every route with your best time, and **Go** to travel to its base.
+
+**Ropes.** Hold **Tie in** at a rope bag. A yellow rope runs to the anchor at the top. Let go or peel off and the rope catches you, then lowers you to the ground. Not tied in is **free solo**: the badge turns red, and a fall from high up is fatal. Indoors, the tutorial wall's auto-belay clips you in by itself (blue rope). Grab a hold while hanging to climb on.
+
+**Chalk.** Use any chalk bucket (**Chalk up**). Full chalk makes your stamina drain 25% slower and wears off as you climb (`Config.Chalk`).
+
+**Gems and levels.** Summits pay gems (more for higher routes, double on your first ascent) and XP. Level and gems show top left. Everything saves (`DataService`: one session-locked DataStore entry per player, autosaved). In Studio, saving needs **Game Settings → Security → Enable Studio Access to API Services**. Without it, progress and the leaderboards are kept in memory for the session (Output says so).
+
+**Leaderboards.** Fastest times per route: on each route's sign and on the gym's leaderboard wall, refreshed every minute (OrderedDataStores).
+
+All numbers live in `Config.Routes`, `Config.Rope` and `Config.Chalk`.
+
+## Test checklist
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 14 passed, 0 failed`** and **`[Stage3Check] 4 passed, 0 failed`**. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 10 passed, 0 failed`** (Stage4Check checks the gym, the crags and that all 16 routes are complete). Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").
@@ -286,11 +326,17 @@ Press **Play** and check:
 10. **Multiplayer view.** Use Test → Clients and Servers → 2 players. Each player sees the other's arms and legs on the holds.
 11. **Server authority.** Rejected requests show "Can't grab: …" and the limb snaps back.
 
+12. **A timed route.** Climb the tutorial wall from the bottom: the timer appears top right. Hold the finish jug: summit card with time, gems and XP. Let go: the auto-belay catches you and lowers you.
+13. **Ropes outdoors.** Walk out the door to Wall A (or press M → Go). Without tying in, the badge says Free solo. Hold **Tie in** at the rope bag, climb a bit and press V: the rope catches you and lowers you.
+14. **Chalk.** Chalk up at a bucket: the chip top left shows Chalk 100% and it wears off as you climb.
+15. **Leaderboards.** After a summit your name appears on the route's sign and on the gym's leaderboard wall within a minute.
+16. **Big wall.** M → Go to The Long Way Up. Climb past the first ledge (you slide past it), let go just above it, and you land on it.
+
 Run the checks again any time from the server command bar:
-`require(game.ServerScriptService.Server.Diagnostics.Stage2Check).Run()`
+`require(game.ServerScriptService.Server.Diagnostics.Stage4Check).Run()`
 
 ---
 
-## Coming in Stage 3
+## Still to come
 
-Stamina and grip: per-arm pump that drains by hold type and quality, number of limbs on, body stretch, wall angle and cut feet. A stamina bar next to the climber that goes blue to orange to red. Resting on jugs and stances recovers. An arm at zero lets go.
+From the design doc, not built yet: the iPad wall builder, picking problems on the Kilter board, the phone shop with delivery box, the backpack/loadout and gear (cams, nuts, lead clipping), the camera, skills and daily rewards, custom animation assets, sound, and mobile touch controls polish.

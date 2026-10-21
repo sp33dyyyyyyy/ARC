@@ -34,6 +34,24 @@ local Surfaces: { [string]: Surface } = {
 	ShoeRubber = { Material = Enum.Material.Rubber, Color = Color3.fromRGB(26, 26, 28), Transparency = 0.55 },
 	Tape = { Material = Enum.Material.Fabric, Color = Color3.fromRGB(70, 200, 120) },
 
+	-- Natural rock (crags and the giant wall).
+	RockFace = { Material = Enum.Material.Rock, Color = Color3.fromRGB(116, 113, 108), Variant = "GraniteFace" },
+	RockHold = { Material = Enum.Material.Granite, Color = Color3.fromRGB(132, 128, 121), Variant = "GraniteHold" },
+	Ledge = { Material = Enum.Material.Slate, Color = Color3.fromRGB(104, 101, 96), Variant = "GraniteFace" },
+
+	-- Gym building.
+	GymWall = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(240, 241, 243) },
+	NavyPanel = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(26, 36, 70) },
+	Ceiling = { Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(18, 18, 22) },
+	GymFloor = { Material = Enum.Material.Concrete, Color = Color3.fromRGB(118, 120, 124), Variant = "PolishedConcrete", Reflectance = 0.04 },
+	RubberFloor = { Material = Enum.Material.Rubber, Color = Color3.fromRGB(38, 40, 46) },
+	LightWood = { Material = Enum.Material.Wood, Color = Color3.fromRGB(214, 184, 140), Variant = "BirchPlywood" },
+	Glass = { Material = Enum.Material.Glass, Color = Color3.fromRGB(190, 220, 235), Transparency = 0.6 },
+	Neon = { Material = Enum.Material.Neon, Color = Color3.fromRGB(255, 255, 255) },
+	Bark = { Material = Enum.Material.Wood, Color = Color3.fromRGB(88, 62, 44) },
+	PineNeedles = { Material = Enum.Material.Grass, Color = Color3.fromRGB(44, 82, 52) },
+	Cardboard = { Material = Enum.Material.Cardboard, Color = Color3.fromRGB(186, 150, 104) },
+
 	-- Floor and crash mats.
 	MatVinyl = { Material = Enum.Material.Leather, Color = Color3.fromRGB(40, 46, 64), Variant = "MatVinyl" },
 	MatSeamCover = { Material = Enum.Material.Fabric, Color = Color3.fromRGB(28, 32, 44) },

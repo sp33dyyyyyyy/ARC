@@ -13,6 +13,11 @@ local EVENTS = {
 	"ClimbRequest",
 	-- server -> client: (limb, reason) when a request was refused
 	"ClimbRejected",
+	-- server -> client: ("Started", routeId) | ("Summit", result) | ("Failed", routeId, reason)
+	--                   | ("Notice", text)
+	"RouteEvent",
+	-- client -> server: ("Retry") | ("Untie")
+	"RouteRequest",
 }
 
 local Remotes = {}

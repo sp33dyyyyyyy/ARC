@@ -10,4 +10,5 @@ return table.freeze({
 	RouteStart = "RouteStart", -- start pad of a route (Stage 5)
 	RouteSummit = "RouteSummit", -- summit volume of a route (Stage 5)
 	CrashMat = "CrashMat", -- landing on this softens falls (Stage 3)
+	Ledge = "Ledge", -- a ledge on a big wall: climbers pass through it, and can stand on it
 })

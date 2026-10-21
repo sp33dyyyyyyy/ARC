@@ -6,6 +6,8 @@
 -- "Stamina" (0..Max) for the HUD. Resting means all four limbs on holds without moving one
 -- for Config.Stamina.RestDelay seconds. At zero the climber is too tired and peels off
 -- (ClimbService.ForceOff "Exhausted", which RagdollService turns into a limp fall).
+-- Chalk (the character's "Chalk" attribute, from ChalkService) slows the drain and wears
+-- off while you climb.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,6 +21,7 @@ local ClimbService = require(script.Parent.ClimbService)
 local HoldService = require(script.Parent.HoldService)
 
 local STAMINA = Config.Stamina
+local CHALK = Config.Chalk
 
 local StaminaService = {}
 
@@ -94,6 +97,14 @@ local function tick(dt: number)
 		end
 		local restingFor = if state.restSince then now - state.restSince else 0
 		local rate = StaminaMath.rate(grips, restingFor, STAMINA)
+		local chalk = character:GetAttribute("Chalk")
+		if type(chalk) == "number" and chalk > 0 then
+			rate = StaminaMath.withChalk(rate, chalk / CHALK.Max, CHALK.DrainReduction)
+			if #grips > 0 then
+				local left = math.max(0, chalk - CHALK.DrainPerSecond * dt)
+				character:SetAttribute("Chalk", if left > 0 then math.floor(left * 10 + 0.5) / 10 else nil)
+			end
+		end
 		state.stamina = StaminaMath.step(state.stamina, rate, dt, STAMINA.Max)
 
 		local rounded = math.floor(state.stamina * 10 + 0.5) / 10

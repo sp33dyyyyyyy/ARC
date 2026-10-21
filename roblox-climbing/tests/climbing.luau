@@ -301,6 +301,70 @@ test("climbing without resting tires you out in a sensible time", function()
 	expect(StaminaMath.step(5, -100, 1, tuning.Max) == 0 and StaminaMath.step(95, 100, 1, tuning.Max) == tuning.Max)
 end)
 
+-- Route generator -------------------------------------------------------------
+
+local function nearestAbove(list, i): number
+	local a = list[i]
+	local best = math.huge
+	for j, b in list do
+		if j ~= i and b.y > a.y + 0.5 then
+			best = math.min(best, math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2))
+		end
+	end
+	return best
+end
+
+test("chalk slows draining but never speeds up recovery", function()
+	local hanging = StaminaMath.rate(grips(2, "Edge"), 0, tuning)
+	local chalked = StaminaMath.withChalk(hanging, 1, 0.25)
+	expect(math.abs(chalked - hanging * 0.75) < 1e-9, `expected 25% slower drain, got {chalked} vs {hanging}`)
+	expect(StaminaMath.withChalk(hanging, 0, 0.25) == hanging, "empty chalk bag should change nothing")
+	expect(StaminaMath.withChalk(10, 1, 0.25) == 10, "recovery must not change")
+end)
+
+test("generated routes: no move longer than 3.6 studs (even past ledges), every pair has hands and feet", function()
+	for seed = 1, 200 do
+		local difficulty = (seed % 5) / 4
+		local height = 40 + seed * 3
+		-- Ledges every 30 studs, as on the big walls (RockWall's bands).
+		local skip = {}
+		for s = 30, height - 10, 30 do
+			table.insert(skip, { s - 1.2, s + 0.6 })
+		end
+		local route = RouteGenerator.generate({ seed = seed * 7919, height = height, lineX = 0, drift = (seed % 3 - 1) * 12, difficulty = difficulty, skip = skip })
+		local starts, finishes = 0, 0
+		for i, h in route do
+			expect(HoldTypes.isValid(h.type), `seed {seed}: bad type {h.type}`)
+			if h.role == "Start" then
+				starts += 1
+			elseif h.role == "Finish" then
+				finishes += 1
+			else
+				local gap = nearestAbove(route, i)
+				expect(gap <= 3.6, `seed {seed} difficulty {difficulty}: hold {i} gap {gap}`)
+			end
+		end
+		expect(starts == 2 and finishes == 1, `seed {seed}: {starts} starts, {finishes} finishes`)
+		for i = 1, #route - 1, 2 do
+			local a, b = HoldTypes.get(route[i].type), HoldTypes.get(route[i + 1].type)
+			if route[i + 1].role ~= "Finish" then
+				expect((a.HandOK or b.HandOK) and (a.FootOK or b.FootOK), `seed {seed}: pair {i} lacks hands or feet`)
+			end
+		end
+	end
+end)
+
+test("generated routes are repeatable and leave ledge bands clear", function()
+	local params = { seed = 42, height = 120, lineX = 3, wander = 1.5, skip = { { 58, 64 } } }
+	local a, b = RouteGenerator.generate(params), RouteGenerator.generate(params)
+	expect(#a == #b, "different lengths for the same seed")
+	for i = 1, #a do
+		expect(a[i].x == b[i].x and a[i].y == b[i].y and a[i].type == b[i].type, `hold {i} differs`)
+		expect(not (a[i].y > 58.4 and a[i].y < 63.6), `hold {i} at {a[i].y} is on the ledge`)
+	end
+	expect(a[#a].y > 110, `finish at {a[#a].y} is not near the top`)
+end)
+
 -- Whole wall ----------------------------------------------------------------
 
 -- Breadth-first search over which hold each limb is on, using the real solver and the

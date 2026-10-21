@@ -6,7 +6,7 @@
 local Config = {}
 
 Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.5.0-stage3"
+Config.Version = "0.6.0-maps"
 
 Config.METERS_PER_STUD = 0.28
 
@@ -126,6 +126,38 @@ Config.Falls = {
 	RespawnSeconds = 4,
 }
 
+-- Routes (RouteService): timing, rewards and the leaderboards.
+Config.Routes = {
+	StartBand = 9, -- a run only starts if your first hold is this low (studs above the base)
+	FailGroundSeconds = 1.2, -- off the wall and standing on the ground this long ends the run
+	ProgressTick = 0.2,
+	RetryCooldown = 2,
+	-- Rewards for a summit: gems = base + per metre climbed, double the first time.
+	GemsBase = 5,
+	GemsPerMeter = 1.2,
+	FirstClearBonus = 2,
+	XPPerMeter = 6,
+	LeaderboardSize = 10,
+	LeaderboardRefresh = 60, -- seconds between leaderboard reloads
+}
+
+-- Ropes (RopeService): top-rope outdoors (tie in at the rope bag), auto-belay indoors.
+Config.Rope = {
+	CatchSlack = 0.8, -- studs of rope that pays out when you fall on it
+	HangSeconds = 1.2, -- dangle this long before being lowered
+	LowerSpeed = 7, -- studs per second
+	UntieDistance = 30, -- walking this far from the route's base unties you
+	Color = Color3.fromRGB(245, 205, 40),
+	AutoBelayColor = Color3.fromRGB(40, 150, 240),
+}
+
+-- Chalk (ChalkService): chalk up at a bucket for drier hands and less stamina drain.
+Config.Chalk = {
+	Max = 100,
+	DrainPerSecond = 1.4, -- while on the wall
+	DrainReduction = 0.25, -- full chalk drains stamina this much slower
+}
+
 Config.Debug = {
 	-- Hover a hold with the mouse to see its type/quality. Toggle in game with H.
 	HoldInspectorKey = Enum.KeyCode.H,
@@ -139,7 +171,7 @@ Config.Debug = {
 -- Workspace.Routes.TestWall is missing, or in edit mode from the command bar (see README).
 Config.TestWall = {
 	FolderName = "TestWall",
-	RouteName = "Test Wall",
+	RouteName = "Tutorial Wall",
 	Grade = "VB",
 	-- Bottom-centre of the wall's climbing face, on the floor.
 	Origin = Vector3.new(0, 0, -24),

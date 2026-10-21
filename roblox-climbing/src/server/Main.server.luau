@@ -1,7 +1,6 @@
 --!strict
 -- Server entry point. The only Script on the server; everything else is a ModuleScript.
 -- Order: rig check -> lighting + missing world pieces -> Init every service -> Start every service.
--- Later stages add their services to SERVICE_ORDER (RouteService, RopeService, ...).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,10 +10,15 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared").Config)
 
 local Server = script.Parent
 local SERVICE_ORDER = {
+	"DataService",
 	"HoldService",
 	"ClimbService",
 	"StaminaService",
 	"RagdollService",
+	"LeaderboardService",
+	"RopeService",
+	"RouteService",
+	"ChalkService",
 }
 
 print(`[{Config.GameName}] server v{Config.Version}`)
@@ -53,8 +57,15 @@ end
 buildStep("Environment.Apply", function()
 	require(Server.World.Environment).Apply()
 end)
+-- Gym first: it provides the floor and spawn the tutorial wall would otherwise make.
+buildStep("Gym.Ensure", function()
+	require(Server.World.Gym).Ensure()
+end)
 buildStep("TestWall.Ensure", function()
 	require(Server.World.TestWall).Ensure()
+end)
+buildStep("Outdoors.Ensure", function()
+	require(Server.World.Outdoors).Ensure()
 end)
 
 -- Each service starts on its own: one failing is reported loudly in Output and the others
@@ -101,5 +112,6 @@ if Config.Debug.RunSelfChecksInStudio and RunService:IsStudio() then
 		require(Server.Diagnostics.Stage1Check).Run()
 		require(Server.Diagnostics.Stage2Check).Run()
 		require(Server.Diagnostics.Stage3Check).Run()
+		require(Server.Diagnostics.Stage4Check).Run()
 	end)
 end

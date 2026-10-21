@@ -1,7 +1,6 @@
 --!strict
 -- Client entry point. The only LocalScript; everything else is a ModuleScript controller.
 -- Order: Init every controller -> Start every controller.
--- Later stages add ClimbController, UIController, ... to CONTROLLER_ORDER.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -11,6 +10,7 @@ local Client = script.Parent
 local CONTROLLER_ORDER = {
 	"HoldInspector",
 	"ClimbController",
+	"RouteHud",
 }
 
 print(`[{Config.GameName}] client v{Config.Version}`)

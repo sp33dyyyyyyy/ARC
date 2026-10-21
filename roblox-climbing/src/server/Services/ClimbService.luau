@@ -10,8 +10,9 @@
 --    refuses one.
 --  * Watchdog: a body that stays impossibly far from its holds is taken off the wall.
 --  * Tells other services when someone leaves the wall and why (OnLeftWall: "Release",
---    "LetGo", "Dyno", "Exhausted", "Watchdog", "HoldGone", "Died"), and lets them force a
---    climber off (ForceOff, e.g. StaminaService when grip runs out).
+--    "LetGo", "Dyno", "Exhausted", "Watchdog", "HoldGone", "Died", "Teleport"), when a limb
+--    goes on a hold (OnPlaced), and lets them force a climber off (ForceOff, e.g.
+--    StaminaService when grip runs out).
 --
 -- The body itself is moved by the owning client (it owns its character's physics);
 -- the server only checks that it stays plausible.
@@ -52,6 +53,7 @@ local limiter = RateLimiter.new(CLIMB.RequestsPerSecond, CLIMB.RequestBurst)
 local rejectedEvent: RemoteEvent
 local leftWallListeners: { (Player, string) -> () } = {}
 local dynoListeners: { (Player) -> () } = {}
+local placedListeners: { (Player, string, BasePart) -> () } = {}
 
 function ClimbService.attributeName(limb: string): string
 	return ATTRIBUTE_PREFIX .. limb
@@ -79,6 +81,11 @@ local function setLimb(rig: Rig, limb: string, hold: BasePart?, reason: string?)
 			task.spawn(listener, rig.player, reason or "Release")
 		end
 	end
+	if hold then
+		for _, listener in placedListeners do
+			task.spawn(listener, rig.player, limb, hold)
+		end
+	end
 end
 
 local function releaseAll(rig: Rig, reason: string)
@@ -91,6 +98,11 @@ end
 -- `listener(player, reason)` runs whenever a climber stops holding anything.
 function ClimbService.OnLeftWall(listener: (Player, string) -> ())
 	table.insert(leftWallListeners, listener)
+end
+
+-- `listener(player, limb, hold)` runs every time the server puts a limb on a hold.
+function ClimbService.OnPlaced(listener: (Player, string, BasePart) -> ())
+	table.insert(placedListeners, listener)
 end
 
 -- `listener(player)` runs when a climber launches a dyno.

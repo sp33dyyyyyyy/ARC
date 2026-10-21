@@ -228,33 +228,55 @@ local function addTape(body: BasePart, surfaceCFrame: CFrame, look: HoldLook, ro
 	end
 end
 
+export type Options = {
+	role: string?, -- "Start" / "Finish" get tape (plastic style)
+	tapeColor: Color3?,
+	markLayer: number?, -- any integer that differs between neighbouring holds
+	style: ("plastic" | "rock")?, -- gym polyurethane (default) or natural rock
+	color: Color3?, -- overrides the type colour (gym problems are one colour)
+}
+
+-- Details that only make sense on a bolt-on plastic hold.
+local PLASTIC_ONLY = { BoltHole = true, BoltHead = true, ScrewL = true, ScrewR = true }
+-- Wall marks skipped on rock to keep part counts down on huge crags.
+local ROCK_SKIPS = { ChalkSmear = true, ShoeRubber = true, ShoeRubber2 = true, ChalkL = true, ChalkR = true }
+
 -- Builds a hold of `typeName` sitting on the wall at `surfaceCFrame` (see top of file).
--- `markLayer` is any integer that differs between neighbouring holds (e.g. their index).
 -- Returns the body part; the caller sets attributes, tags and parents it.
-function HoldModels.build(typeName: string, surfaceCFrame: CFrame, role: string?, tapeColor: Color3?, markLayer: number?): BasePart
+function HoldModels.buildStyled(typeName: string, surfaceCFrame: CFrame, options: Options): BasePart
 	local look = LOOKS[typeName]
 	assert(look, `HoldModels: no look for hold type {typeName}`)
+	local rock = options.style == "rock"
+	local color = options.color or (if rock then Color3.fromRGB(132, 128, 121) else look.color)
+	local tint = if typeName == "Crack" and not rock then look.color else color
 
 	local centerZ = -(look.size.Z / 2 - look.embed)
 	local body = BuildUtil.part({
 		name = typeName,
 		size = look.size,
 		cframe = surfaceCFrame * CFrame.new(0, 0, centerZ),
-		surface = if typeName == "Crack" then "CrackInside" else "HoldUrethane",
-		color = look.color,
+		surface = if typeName == "Crack" then "CrackInside" elseif rock then "RockHold" else "HoldUrethane",
+		color = if typeName == "Crack" then nil else tint,
 		ellipsoid = look.ellipsoid,
 		query = true,
 	})
 
-	local shade = look.color:Lerp(Color3.new(0, 0, 0), 0.7)
-	local markOffset = ((markLayer or 0) % MARK_LAYERS) * MARK_LAYER_STEP
+	local shade = tint:Lerp(Color3.new(0, 0, 0), 0.7)
+	local markOffset = ((options.markLayer or 0) % MARK_LAYERS) * MARK_LAYER_STEP
 	for _, detail in look.details do
+		if rock and (PLASTIC_ONLY[detail.name] or ROCK_SKIPS[detail.name]) then
+			continue
+		end
+		local surface = detail.surface
+		if rock and (surface == "HoldUrethane" or surface == "HoldVolume") then
+			surface = "RockHold"
+		end
 		BuildUtil.part({
 			name = detail.name,
 			size = detail.size,
 			cframe = detailFrame(surfaceCFrame, detail, markOffset),
-			surface = detail.surface,
-			color = if detail.tint == "hold" then look.color elseif detail.tint == "shade" then shade else nil,
+			surface = surface,
+			color = if detail.tint == "hold" then tint elseif detail.tint == "shade" then shade elseif surface == "RockHold" then color else nil,
 			shape = if detail.shape == "cylX" or detail.shape == "cylZ" then Enum.PartType.Cylinder else nil,
 			wedge = detail.shape == "wedgeUnder",
 			ellipsoid = detail.shape == "ellipsoid",
@@ -264,7 +286,9 @@ function HoldModels.build(typeName: string, surfaceCFrame: CFrame, role: string?
 		})
 	end
 
-	addTape(body, surfaceCFrame, look, role, tapeColor or Color3.fromRGB(70, 200, 120))
+	if not rock then
+		addTape(body, surfaceCFrame, look, options.role, options.tapeColor or Color3.fromRGB(70, 200, 120))
+	end
 
 	-- Where the hand/foot goes (HoldUtil.getGripCFrame), facing out of the wall.
 	local grip = Instance.new("Attachment")
@@ -273,6 +297,11 @@ function HoldModels.build(typeName: string, surfaceCFrame: CFrame, role: string?
 	grip.Parent = body
 
 	return body
+end
+
+-- Gym hold in its type colour (the test wall).
+function HoldModels.build(typeName: string, surfaceCFrame: CFrame, role: string?, tapeColor: Color3?, markLayer: number?): BasePart
+	return HoldModels.buildStyled(typeName, surfaceCFrame, { role = role, tapeColor = tapeColor, markLayer = markLayer })
 end
 
 return table.freeze(HoldModels)

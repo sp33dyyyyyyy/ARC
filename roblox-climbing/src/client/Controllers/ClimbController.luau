@@ -93,10 +93,29 @@ local warnedTired = false
 ---------------------------------------------------------------------------------------
 -- Holds
 
+-- Holds are also kept in a coarse grid, so "holds near here" only looks at nearby cells
+-- (big walls have thousands of holds).
+local CELL = 16
+local holdCells: { [string]: { [BasePart]: boolean } } = {}
+local cellOf: { [BasePart]: string } = {}
+
+local function cellKey(x: number, y: number, z: number): string
+	return `{x},{y},{z}`
+end
+
 local function indexHold(instance: Instance)
 	local id = instance:GetAttribute("HoldId")
 	if instance:IsA("BasePart") and type(id) == "string" then
 		holdsById[id] = instance
+		local p = instance.Position
+		local key = cellKey(math.floor(p.X / CELL), math.floor(p.Y / CELL), math.floor(p.Z / CELL))
+		local cell = holdCells[key]
+		if cell == nil then
+			cell = {}
+			holdCells[key] = cell
+		end
+		cell[instance] = true
+		cellOf[instance] = key
 	end
 end
 
@@ -105,6 +124,35 @@ local function unindexHold(instance: Instance)
 	if type(id) == "string" and holdsById[id] == instance then
 		holdsById[id] = nil
 	end
+	local part = instance :: BasePart
+	local key = cellOf[part]
+	if key then
+		cellOf[part] = nil
+		local cell = holdCells[key]
+		if cell then
+			cell[part] = nil
+		end
+	end
+end
+
+-- Every indexed hold whose part is within `radius` of `point` (roughly; callers check).
+local function holdsNear(point: Vector3, radius: number): { BasePart }
+	local found = {}
+	local r = math.ceil(radius / CELL)
+	local cx, cy, cz = math.floor(point.X / CELL), math.floor(point.Y / CELL), math.floor(point.Z / CELL)
+	for x = cx - r, cx + r do
+		for y = cy - r, cy + r do
+			for z = cz - r, cz + r do
+				local cell = holdCells[cellKey(x, y, z)]
+				if cell then
+					for hold in cell do
+						table.insert(found, hold)
+					end
+				end
+			end
+		end
+	end
+	return found
 end
 
 local function gripPosition(hold: BasePart): Vector3
@@ -320,7 +368,7 @@ end
 
 local function nearestHold(point: Vector3, radius: number, filter: (BasePart) -> boolean): BasePart?
 	local best, bestDistance = nil, radius
-	for _, hold in holdsById do
+	for _, hold in holdsNear(point, radius + 2) do
 		local distance = (gripPosition(hold) - point).Magnitude
 		if distance < bestDistance and filter(hold) then
 			best, bestDistance = hold, distance
@@ -592,7 +640,7 @@ local function updateMarkers()
 	end
 	local markers: { ClimbOverlay.Marker } = {}
 	local candidate = drag and drag.candidate
-	for _, hold in holdsById do
+	for _, hold in holdsNear(root.Position, CLIMB.MarkerRange + 2) do
 		local position = gripPosition(hold)
 		if (position - root.Position).Magnitude <= CLIMB.MarkerRange and accepts(limb, hold) then
 			local reachable = inReach(limb, hold)
@@ -823,6 +871,35 @@ local function updateStamina()
 	end
 end
 
+-- Ledges on the big walls (tag Ledge) are solid to stand on but would block a body
+-- climbing past them. While climbing, this client makes them non-solid for itself (it
+-- simulates its own character); each turns solid again once you're off the wall and clear
+-- of it, so letting go above a ledge lands you on it.
+local ledgesOff: { [BasePart]: boolean } = {}
+local function updateLedges(position: Vector3)
+	if climbing then
+		for _, ledge in CollectionService:GetTagged(Tags.Ledge) do
+			if ledge:IsA("BasePart") and not ledgesOff[ledge] then
+				ledgesOff[ledge] = true
+				ledge.CanCollide = false
+			end
+		end
+		return
+	end
+	for ledge in ledgesOff do
+		local relative = ledge.CFrame:PointToObjectSpace(position)
+		local half = ledge.Size / 2
+		local overlapping = math.abs(relative.X) < half.X + 1
+			and math.abs(relative.Z) < half.Z + 1
+			and relative.Y > -half.Y - 2.6
+			and relative.Y < half.Y + 1.4
+		if not overlapping or ledge.Parent == nil then
+			ledgesOff[ledge] = nil
+			ledge.CanCollide = true
+		end
+	end
+end
+
 local function step(dt: number)
 	if character == nil or root == nil or humanoid == nil or humanoid.Health <= 0 then
 		return
@@ -861,6 +938,7 @@ local function step(dt: number)
 	if climbing and flightUntil == nil and #grips > 0 then
 		updateBody(grips)
 	end
+	updateLedges(root.Position)
 	if dynoCharge then
 		dynoCharge = math.min(1, dynoCharge + dt / DYNO.ChargeTime)
 		local aim, hold = dynoAim()

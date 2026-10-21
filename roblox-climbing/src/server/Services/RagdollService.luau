@@ -8,6 +8,7 @@
 --      up to LethalHeight               knocked down, back up after KnockdownSeconds
 --      LethalHeight and more            dead (the ragdoll crumples), respawn
 --    Landing on a crash mat raises the lethal height by CrashMatFactor.
+--  * Climbers tied in to a rope ("TiedIn" attribute, RopeService) are caught instead.
 --  * Publishes "FellReason" ("Exhausted", "MissedDyno", "LetGo") and "LastFall" (metres)
 --    on the character, and "FallDeath" (metres) when a fall kills, for the client's messages.
 
@@ -96,7 +97,7 @@ end
 
 local function onLeftWall(player: Player, reason: string)
 	local state = stateFor(player)
-	if state == nil or reason == "Died" then
+	if state == nil or reason == "Died" or reason == "Teleport" then
 		return
 	end
 	local character = state.character
@@ -107,6 +108,9 @@ local function onLeftWall(player: Player, reason: string)
 	if reason == "Dyno" then
 		state.dynoUntil = os.clock() + FALLS.DynoGrace
 		return
+	end
+	if character:GetAttribute("TiedIn") ~= nil then
+		return -- the rope catches you (RopeService)
 	end
 	if reason == "Exhausted" then
 		goLimp(character, "Exhausted")
@@ -149,7 +153,8 @@ local function tick()
 			continue
 		end
 
-		if character:GetAttribute("Climbing") == true then
+		-- On the wall, or tied in (the rope catches and lowers you): no fall to measure.
+		if character:GetAttribute("Climbing") == true or (character:GetAttribute("TiedIn") ~= nil and not Ragdoll.isRagdolled(character)) then
 			state.airborne = false
 			state.peakY = nil
 			state.dynoUntil = nil
