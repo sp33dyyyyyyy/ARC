@@ -141,7 +141,7 @@ local function row(parent: Instance, rank: number, entry: Entry, textSize: numbe
 	local rankLabel = Instance.new("TextLabel")
 	rankLabel.BackgroundTransparency = 1
 	rankLabel.Size = UDim2.new(0, height * 1.3, 1, 0)
-	rankLabel.Font = Enum.Font.GothamBlack
+	rankLabel.Font = Enum.Font.Michroma
 	rankLabel.TextSize = textSize
 	rankLabel.TextColor3 = if rank == 1
 		then Color3.fromRGB(255, 210, 60)
@@ -172,7 +172,7 @@ local function row(parent: Instance, rank: number, entry: Entry, textSize: numbe
 	time.AnchorPoint = Vector2.new(1, 0)
 	time.Position = UDim2.new(1, -8, 0, 0)
 	time.Size = UDim2.new(0, 84, 1, 0)
-	time.Font = Enum.Font.GothamBold
+	time.Font = Enum.Font.Sarpanch
 	time.TextSize = textSize
 	time.TextXAlignment = Enum.TextXAlignment.Right
 	time.TextColor3 = Color3.fromRGB(120, 240, 170)
@@ -230,7 +230,7 @@ local function drawGymCell(grid: Instance, index: number, route: Instance, entri
 		title.BackgroundTransparency = 1
 		title.Position = UDim2.fromOffset(10, 6)
 		title.Size = UDim2.new(1, -20, 0, 30)
-		title.Font = Enum.Font.GothamBlack
+		title.Font = Enum.Font.Michroma
 		title.TextSize = 24
 		title.TextXAlignment = Enum.TextXAlignment.Left
 		title.TextColor3 = Color3.fromRGB(255, 214, 64)

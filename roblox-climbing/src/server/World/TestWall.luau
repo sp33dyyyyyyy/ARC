@@ -421,7 +421,8 @@ end
 local function buildLegend(frame: WallFrame, route: Instance)
 	local flatRight = Vector3.yAxis:Cross(frame.flatNormal)
 	local width, height, bottom = 5, 8, 1.2
-	local center = frame.origin + flatRight * (Layout.Width / 2 + 3.5) + frame.flatNormal * 0.8 + Vector3.yAxis * (bottom + height / 2)
+	-- Beside the crash mat (it runs 2 studs past each side of the wall), not on it.
+	local center = frame.origin + flatRight * (Layout.Width / 2 + 4.6) + frame.flatNormal * 0.8 + Vector3.yAxis * (bottom + height / 2)
 	local cframe = frameAt(center, frame.flatNormal, Vector3.yAxis)
 
 	local sign = part({
@@ -465,7 +466,7 @@ local function buildLegend(frame: WallFrame, route: Instance)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
 		l.Size = UDim2.new(1, -18, 0, size + 8)
-		l.Font = Enum.Font.GothamBold
+		l.Font = Enum.Font.Sarpanch
 		l.TextSize = size
 		l.TextColor3 = color
 		l.TextXAlignment = Enum.TextXAlignment.Left
@@ -559,8 +560,9 @@ function TestWall.Build(): Folder
 	buildTopOut(frame, route)
 	buildLightRig(frame, route)
 	buildLegend(frame, route)
-	RouteKit.addSign(route, frame.origin - frame.right * (Layout.Width / 2 + 3.5) + frame.flatNormal * 1.5, frame.flatNormal, string.upper(WALL.RouteName))
-	RouteKit.addChalkBucket(route, frame.origin - frame.right * (Layout.Width / 2 + 1.5) + frame.flatNormal * 3)
+	-- Sign and chalk bucket stand on the floor beside the crash mat, not half inside it.
+	RouteKit.addSign(route, frame.origin - frame.right * (Layout.Width / 2 + 4.6) + frame.flatNormal * 1.5, frame.flatNormal, string.upper(WALL.RouteName))
+	RouteKit.addChalkBucket(route, frame.origin - frame.right * (Layout.Width / 2 + 3) + frame.flatNormal * 5)
 	RouteKit.addAutoBelay(route, frame.origin + Vector3.yAxis * MAT_THICKNESS, facePoint(frame, 0, Layout.Height, 0), frame.flatNormal)
 
 	-- Parent last so everything replicates and is tagged in one go.

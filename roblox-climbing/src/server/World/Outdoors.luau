@@ -24,7 +24,10 @@ local RockWall = require(script.Parent.RockWall)
 local part = BuildUtil.part
 local frameAt = BuildUtil.frameAt
 
-local GROUND_Y = -0.5 -- grass sits just under the gym floor
+-- Ground level outdoors: flush with the gym floor. Terrain is made of 4-stud voxels, so
+-- the grass is filled exactly to a voxel boundary (y = 0) to be perfectly flat there;
+-- anything off the grid becomes a soft bulge that swallows props standing on it.
+local GROUND_Y = 0
 local FACING = Vector3.new(0, 0, -1) -- every crag faces the gym
 
 local Outdoors = {}
@@ -102,6 +105,9 @@ local function buildTerrain()
 	local terrain = Workspace.Terrain
 	-- Everything around the gym and out to the mountains (the gym floor sits on top).
 	terrain:FillBlock(CFrame.new(0, GROUND_Y - 4, 300), Vector3.new(1800, 8, 1800), Enum.Material.LeafyGrass)
+	-- No grass under the gym (its blades would poke up through the floor): carve its
+	-- footprint, which lies on the voxel grid, back to air.
+	terrain:FillBlock(CFrame.new(0, GROUND_Y - 2, 2), Vector3.new(128, 4, 84), Enum.Material.Air)
 
 	-- Dirt paths from the door to each crag.
 	local door = Vector3.new(0, 0, 46)
@@ -114,7 +120,8 @@ local function buildTerrain()
 	for _, segment in paths do
 		local a, b = segment[1], segment[2]
 		local length = (b - a).Magnitude
-		terrain:FillBlock(CFrame.lookAt((a + b) / 2, b) + Vector3.yAxis * (GROUND_Y - 0.45), Vector3.new(7, 1, length + 6), Enum.Material.Ground)
+		-- The whole top voxel layer, so the path only changes material and stays flat.
+		terrain:FillBlock(CFrame.lookAt((a + b) / 2, b) + Vector3.yAxis * (GROUND_Y - 2), Vector3.new(8, 4, length + 6), Enum.Material.Ground)
 	end
 end
 
@@ -261,11 +268,13 @@ local function buildSignpost(parent: Instance, position: Vector3, lines: string)
 	})
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 60
 	gui.Parent = board
 	local text = Instance.new("TextLabel")
 	text.BackgroundTransparency = 1
 	text.Size = UDim2.fromScale(1, 1)
-	text.Font = Enum.Font.GothamBold
+	text.Font = Enum.Font.Sarpanch
 	text.TextScaled = true
 	text.RichText = true
 	text.TextColor3 = Color3.fromRGB(50, 32, 18)

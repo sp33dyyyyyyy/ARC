@@ -123,7 +123,7 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Position = UDim2.fromOffset(14, 10)
 	titleLabel.Size = UDim2.new(1, -110, 0, 34)
-	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.Font = Enum.Font.Michroma
 	titleLabel.TextScaled = true
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.TextColor3 = Color3.new(1, 1, 1)
@@ -135,7 +135,7 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	pill.Position = UDim2.new(1, -12, 0, 14)
 	pill.Size = UDim2.fromOffset(84, 26)
 	pill.BackgroundColor3 = Color3.fromRGB(70, 200, 120)
-	pill.Font = Enum.Font.GothamBold
+	pill.Font = Enum.Font.Sarpanch
 	pill.TextSize = 15
 	pill.TextColor3 = Color3.fromRGB(10, 30, 16)
 	pill.Text = "Fastest"

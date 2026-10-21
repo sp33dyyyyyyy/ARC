@@ -54,7 +54,7 @@ end
 local function text(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.GothamBold
+	label.Font = Enum.Font.Sarpanch
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextSize = 16
 	label.TextXAlignment = Enum.TextXAlignment.Left
@@ -69,7 +69,7 @@ local function button(parent: Instance, label: string, color: Color3): TextButto
 	local b = Instance.new("TextButton")
 	b.AutoButtonColor = true
 	b.BackgroundColor3 = color
-	b.Font = Enum.Font.GothamBold
+	b.Font = Enum.Font.Sarpanch
 	b.TextSize = 15
 	b.TextColor3 = Color3.fromRGB(14, 16, 22)
 	b.Text = label
@@ -106,7 +106,7 @@ local function window(name: string, title: string, size: Vector2): Frame
 	if workspace.CurrentCamera then
 		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	end
-	text(frame, { Position = UDim2.fromOffset(20, 14), Size = UDim2.new(1, -80, 0, 34), Font = Enum.Font.GothamBlack, TextSize = 28, TextColor3 = ORANGE, Text = title })
+	text(frame, { Position = UDim2.fromOffset(20, 14), Size = UDim2.new(1, -80, 0, 34), Font = Enum.Font.Michroma, TextSize = 28, TextColor3 = ORANGE, Text = title })
 	local close = button(frame, "✕", Color3.fromRGB(200, 206, 218))
 	close.AnchorPoint = Vector2.new(1, 0)
 	close.Position = UDim2.new(1, -14, 0, 14)

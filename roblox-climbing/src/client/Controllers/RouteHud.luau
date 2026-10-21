@@ -62,7 +62,7 @@ end
 local function text(parent: Instance, props: { [string]: any }): TextLabel
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.GothamBold
+	label.Font = Enum.Font.Sarpanch
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextSize = 16
 	for key, value in props do
@@ -76,7 +76,7 @@ local function button(parent: Instance, label: string, color: Color3): TextButto
 	local b = Instance.new("TextButton")
 	b.AutoButtonColor = true
 	b.BackgroundColor3 = color
-	b.Font = Enum.Font.GothamBold
+	b.Font = Enum.Font.Sarpanch
 	b.TextSize = 16
 	b.TextColor3 = Color3.fromRGB(12, 18, 30)
 	b.Text = label
@@ -150,7 +150,7 @@ local function buildRunCard()
 	corner(runCard, 12)
 	runCard.Parent = screen
 	runTitle = text(runCard, { Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -24, 0, 20), TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, RichText = true, TextSize = 15 })
-	runTimer = text(runCard, { Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -24, 0, 34), TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBlack, TextSize = 30, TextColor3 = GREEN, Text = "0:00.00" })
+	runTimer = text(runCard, { Position = UDim2.fromOffset(12, 26), Size = UDim2.new(1, -24, 0, 34), TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.Michroma, TextSize = 25, TextColor3 = GREEN, Text = "0:00.00" })
 	local bar = Instance.new("Frame")
 	bar.Position = UDim2.fromOffset(12, 66)
 	bar.Size = UDim2.new(1, -90, 0, 10)
@@ -173,7 +173,7 @@ local function buildRopeBadge()
 	ropeBadge.Size = UDim2.fromOffset(230, 30)
 	ropeBadge.BackgroundColor3 = NAVY
 	ropeBadge.BackgroundTransparency = 0.15
-	ropeBadge.Font = Enum.Font.GothamBold
+	ropeBadge.Font = Enum.Font.Sarpanch
 	ropeBadge.TextSize = 14
 	ropeBadge.TextColor3 = Color3.new(1, 1, 1)
 	ropeBadge.RichText = true
@@ -219,9 +219,9 @@ local function buildSummitCard()
 	stroke.Color = GOLD
 	stroke.Thickness = 2
 	stroke.Parent = summitCard
-	summitTitle = text(summitCard, { Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 44), Font = Enum.Font.GothamBlack, TextSize = 40, TextColor3 = GOLD, Text = "SUMMIT!" })
+	summitTitle = text(summitCard, { Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 44), Font = Enum.Font.Michroma, TextSize = 32, TextColor3 = GOLD, Text = "SUMMIT!" })
 	summitRoute = text(summitCard, { Position = UDim2.fromOffset(0, 58), Size = UDim2.new(1, 0, 0, 22), TextSize = 17, RichText = true })
-	summitTime = text(summitCard, { Position = UDim2.fromOffset(0, 86), Size = UDim2.new(1, 0, 0, 44), Font = Enum.Font.GothamBlack, TextSize = 38, TextColor3 = GREEN })
+	summitTime = text(summitCard, { Position = UDim2.fromOffset(0, 86), Size = UDim2.new(1, 0, 0, 44), Font = Enum.Font.Michroma, TextSize = 32, TextColor3 = GREEN })
 	summitBest = text(summitCard, { Position = UDim2.fromOffset(0, 132), Size = UDim2.new(1, 0, 0, 20), TextSize = 15, TextColor3 = GREY, RichText = true })
 	summitRewards = text(summitCard, { Position = UDim2.fromOffset(0, 160), Size = UDim2.new(1, 0, 0, 24), TextSize = 19, RichText = true })
 	local retry = button(summitCard, "Retry", GREEN)
@@ -259,7 +259,7 @@ local function buildMenu()
 	local constraint = Instance.new("UISizeConstraint")
 	constraint.MaxSize = Vector2.new(math.huge, 560)
 	constraint.Parent = menu
-	text(menu, { Position = UDim2.fromOffset(18, 12), Size = UDim2.new(1, -80, 0, 34), Font = Enum.Font.GothamBlack, TextSize = 28, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = GOLD, Text = "ROUTES" })
+	text(menu, { Position = UDim2.fromOffset(18, 12), Size = UDim2.new(1, -80, 0, 34), Font = Enum.Font.Michroma, TextSize = 28, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = GOLD, Text = "ROUTES" })
 	local close = button(menu, "✕", Color3.fromRGB(200, 210, 226))
 	close.AnchorPoint = Vector2.new(1, 0)
 	close.Position = UDim2.new(1, -12, 0, 12)

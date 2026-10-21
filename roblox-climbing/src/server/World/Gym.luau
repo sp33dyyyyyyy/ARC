@@ -59,13 +59,23 @@ end
 local function label(parent: BasePart, face: Enum.NormalId, text: string, color: Color3, font: Enum.Font?, glow: boolean?): SurfaceGui
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = face
+	-- A canvas sized to the face (not the default 800x600 stretched over it), so text
+	-- keeps its proportions on long, thin signs.
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 60
 	gui.LightInfluence = if glow then 0 else 0.6
 	gui.Brightness = 1
 	gui.Parent = parent
 	local textLabel = Instance.new("TextLabel")
 	textLabel.BackgroundTransparency = 1
 	textLabel.Size = UDim2.fromScale(1, 1)
-	textLabel.Font = font or Enum.Font.GothamBlack
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0.04, 0)
+	padding.PaddingRight = UDim.new(0.04, 0)
+	padding.PaddingTop = UDim.new(0.12, 0)
+	padding.PaddingBottom = UDim.new(0.12, 0)
+	padding.Parent = textLabel
+	textLabel.Font = font or Enum.Font.Michroma
 	textLabel.TextScaled = true
 	textLabel.RichText = true
 	textLabel.TextColor3 = color
@@ -78,8 +88,8 @@ end
 local function hangingSign(parent: Instance, text: string, center: Vector3, facing: Vector3, width: number)
 	local cframe = frameAt(center, facing, Vector3.yAxis)
 	local sign = part({ name = "Sign", size = Vector3.new(width, 2.4, 0.3), cframe = cframe, surface = "Charcoal", parent = parent })
-	label(sign, Enum.NormalId.Front, text, WHITE, Enum.Font.GothamBold, false).Name = "Text"
-	label(sign, Enum.NormalId.Back, text, WHITE, Enum.Font.GothamBold, false).Name = "TextBack"
+	label(sign, Enum.NormalId.Front, text, WHITE, Enum.Font.Sarpanch, false).Name = "Text"
+	label(sign, Enum.NormalId.Back, text, WHITE, Enum.Font.Sarpanch, false).Name = "TextBack"
 	part({ name = "Underline", size = Vector3.new(width, 0.16, 0.32), cframe = cframe * CFrame.new(0, -1.28, 0), surface = "Accent", shadow = false, parent = parent })
 	for _, x in { -width / 2 + 0.6, width / 2 - 0.6 } do
 		local top = (cframe * CFrame.new(x, 1.2, 0)).Position
@@ -155,17 +165,18 @@ local function buildShell(model: Model)
 	for _, sign in { -1, 1 } do
 		local cx = sign * (DOOR_HALF + sideWidth / 2)
 		box("FrontUpper", Vector3.new(sideWidth + 1, HEIGHT - GLASS_TOP, 1), Vector3.new(cx + sign * 0.5, (HEIGHT + GLASS_TOP) / 2, Z1 + 0.5), "SoftWhite", shell)
-		box("Plinth", Vector3.new(sideWidth + 1, 0.6, 1.2), Vector3.new(cx + sign * 0.5, 0.3, Z1 + 0.5), "Charcoal", shell)
+		-- Plinth from the door frame to the corner (not under the frame).
+		box("Plinth", Vector3.new(sideWidth - 0.6 + 1, 0.6, 1.2), Vector3.new(cx + sign * 0.8, 0.3, Z1 + 0.5), "Charcoal", shell)
 		local glass = box("Glass", Vector3.new(sideWidth, GLASS_TOP - 0.6, 0.2), Vector3.new(cx, 0.6 + (GLASS_TOP - 0.6) / 2, Z1 + 0.5), "ClearGlass", shell)
 		glass.CastShadow = false
 		local x = DOOR_HALF + 8
 		while x < w / 2 - 0.5 do
-			standing("Mullion", Vector3.new(0.4, GLASS_TOP, 1.2), Vector3.new(sign * x, 0, Z1 + 0.5), "BlackSteel", shell)
+			standing("Mullion", Vector3.new(0.4, GLASS_TOP - 0.6, 1.2), Vector3.new(sign * x, 0.6, Z1 + 0.5), "BlackSteel", shell)
 			x += 8
 		end
 		box("Transom", Vector3.new(sideWidth, 0.4, 1.2), Vector3.new(cx, GLASS_TOP - 0.2, Z1 + 0.5), "BlackSteel", shell)
 	end
-	box("Lintel", Vector3.new(DOOR_HALF * 2, HEIGHT - DOOR_HEIGHT, 1), Vector3.new(0, (HEIGHT + DOOR_HEIGHT) / 2, Z1 + 0.5), "SoftWhite", shell)
+	box("Lintel", Vector3.new(DOOR_HALF * 2, HEIGHT - DOOR_HEIGHT - 0.6, 1), Vector3.new(0, (HEIGHT + DOOR_HEIGHT + 0.6) / 2, Z1 + 0.5), "SoftWhite", shell)
 	-- Entrance: black steel frame, a canopy and a downlight.
 	for _, x in { -DOOR_HALF - 0.3, DOOR_HALF + 0.3 } do
 		standing("DoorFrame", Vector3.new(0.6, DOOR_HEIGHT, 1.6), Vector3.new(x, 0, Z1 + 0.5), "BlackSteel", shell)
@@ -202,7 +213,7 @@ local function buildShell(model: Model)
 		x += 1.6
 	end
 	local logo = box("Logo", Vector3.new(34, 8, 0.3), Vector3.new(0, (HEIGHT + GLASS_TOP) / 2, slatZ), "Charcoal", shell, false)
-	label(logo, Enum.NormalId.Back, `{string.upper(Config.GameName)}`, WHITE, Enum.Font.GothamBlack, true).Name = "LogoText"
+	label(logo, Enum.NormalId.Back, `{string.upper(Config.GameName)}`, WHITE, Enum.Font.Michroma, true).Name = "LogoText"
 	box("LogoAccent", Vector3.new(26, 0.4, 0.32), Vector3.new(0, (HEIGHT + GLASS_TOP) / 2 - 3.6, slatZ + 0.01), "Accent", shell, false)
 
 	-- Exposed steel trusses under the ceiling.
@@ -260,7 +271,7 @@ local function buildSpawn(model: Model)
 	disc.CanQuery = false
 	local face = part({ name = "LogoFace", size = Vector3.new(7, 0.02, 7), cframe = CFrame.new(SPAWN + Vector3.yAxis * 0.05) * CFrame.Angles(0, math.pi, 0), surface = "Charcoal", shadow = false, parent = logo })
 	face.Transparency = 1
-	label(face, Enum.NormalId.Top, `▲\n{string.upper(Config.GameName)}`, WHITE, Enum.Font.GothamBlack, false)
+	label(face, Enum.NormalId.Top, `▲\n{string.upper(Config.GameName)}`, WHITE, Enum.Font.Michroma, false)
 	logo.Parent = model
 
 	local spawn = Instance.new("SpawnLocation")
@@ -325,7 +336,7 @@ local function buildReception(model: Model)
 	local cframe = counter(desk, "Desk", center, 11, Vector3.new(0, 0, -1))
 	part({ name = "MonitorStand", size = Vector3.new(0.3, 0.8, 0.3), cframe = cframe * CFrame.new(-2, 2.3, 0.5), surface = "BlackSteel", parent = desk })
 	local screen = part({ name = "Monitor", size = Vector3.new(2.6, 1.6, 0.12), cframe = cframe * CFrame.new(-2, 3.4, 0.4), surface = "Charcoal", parent = desk })
-	label(screen, Enum.NormalId.Front, `<font color="#FF7A30">WELCOME</font>\nto {Config.GameName}`, WHITE, Enum.Font.GothamBold, true)
+	label(screen, Enum.NormalId.Front, `<font color="#FF7A30">WELCOME</font>\nto {Config.GameName}`, WHITE, Enum.Font.Sarpanch, true)
 	npc("Front desk", center + Vector3.new(0, 0, 3), Vector3.new(0, 0, -1), desk, ORANGE)
 	RouteKit.addChalkBucket(desk, center + Vector3.new(-8, 0, -1))
 	plant(desk, center + Vector3.new(8, 0, 2))
@@ -356,7 +367,7 @@ local function buildLeaderboardWall(model: Model)
 	title.BackgroundTransparency = 1
 	title.Position = UDim2.fromOffset(0, 12)
 	title.Size = UDim2.new(1, 0, 0, 60)
-	title.Font = Enum.Font.GothamBlack
+	title.Font = Enum.Font.Michroma
 	title.TextSize = 52
 	title.TextColor3 = WHITE
 	title.RichText = true
@@ -573,7 +584,7 @@ local function buildBoulders(model: Model)
 				parent = monolith,
 			})
 			number.Transparency = 1
-			label(number, Enum.NormalId.Top, tostring(index), problem.color, Enum.Font.GothamBlack, false)
+			label(number, Enum.NormalId.Top, tostring(index), problem.color, Enum.Font.Michroma, false)
 		end
 		-- Cap over the top, wide enough to cover the overhanging face.
 		local overhang = height * math.sin(math.rad(BOULDER_OVERHANG))
@@ -625,9 +636,10 @@ local function buildKilter(model: Model)
 	local top = Face.top(face)
 	for _, side in { -1, 1 } do
 		local x = BX + side * 6.4
-		BuildUtil.beam("FramePost", Vector3.new(x, 1, BZ - 1.5), Vector3.new(top.X + side * 6.4, top.Y + 0.5, top.Z - 1.5), 0.5, "BlackSteel", room).CanCollide = true
+		BuildUtil.beam("FramePost", Vector3.new(x, 0.25, BZ - 1.5), Vector3.new(top.X + side * 6.4, top.Y + 0.5, top.Z - 1.5), 0.5, "BlackSteel", room).CanCollide = true
 		BuildUtil.beam("FrameLeg", Vector3.new(x, 0.3, BZ - 6), Vector3.new(top.X + side * 6.4, top.Y + 0.5, top.Z - 1.5), 0.4, "BlackSteel", room).CanCollide = true
 		standing("FootPlate", Vector3.new(1, 0.1, 1), Vector3.new(x, 0, BZ - 6), "BlackSteel", room)
+		standing("FootPlate", Vector3.new(1, 0.1, 1), Vector3.new(x, 0, BZ - 1.5), "BlackSteel", room)
 	end
 
 	-- 12 x 12 grid of small pale holds; the lit problem uses some of them.
@@ -765,7 +777,7 @@ local function buildShop(model: Model)
 	end
 	local cframe = counter(shop, "Counter", Vector3.new(48, 0, 11), 9, Vector3.new(-1, 0, 0))
 	local till = part({ name = "Till", size = Vector3.new(1.6, 1.1, 0.12), cframe = cframe * CFrame.new(2.5, 2.5, 0.2) * CFrame.Angles(math.rad(-15), 0, 0), surface = "Charcoal", parent = shop })
-	label(till, Enum.NormalId.Front, `<font color="#FF7A30">💎</font> GEAR`, WHITE, Enum.Font.GothamBold, true)
+	label(till, Enum.NormalId.Front, `<font color="#FF7A30">💎</font> GEAR`, WHITE, Enum.Font.Sarpanch, true)
 	npc("Pro shop", Vector3.new(51, 0, 11), Vector3.new(-1, 0, 0), shop, Color3.fromRGB(42, 44, 50))
 	local promptPart = part({ name = "ShopPrompt", size = Vector3.new(1, 1, 1), cframe = cframe * CFrame.new(0, 2.4, 0), surface = "Charcoal", parent = shop })
 	promptPart.Transparency = 1

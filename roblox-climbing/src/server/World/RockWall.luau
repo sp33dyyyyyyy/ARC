@@ -189,6 +189,14 @@ function RockWall.build(def: WallDef): Model
 	end
 	rock.Parent = model
 
+	-- Packed dirt (no grass blades) where each route starts, so the rope bag, chalk bucket
+	-- and sign stand on a flat, clear patch.
+	for _, route in def.routes do
+		local base = Face.point(face, route.lineX, 0, 0)
+		local patch = Vector3.new(base.X, def.groundY - 2, base.Z) + flat * 6
+		terrain:FillBlock(frameAt(patch, flat, Vector3.yAxis), Vector3.new(26, 4, 14), Enum.Material.Ground)
+	end
+
 	for _, route in def.routes do
 		local holds = RouteGenerator.generate({
 			seed = route.seed,

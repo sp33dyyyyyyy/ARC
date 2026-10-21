@@ -94,7 +94,7 @@ function ClimbOverlay.init()
 	heightLabel.BackgroundTransparency = 1
 	heightLabel.Size = UDim2.new(1, 0, 1, -14)
 	heightLabel.Position = UDim2.fromOffset(0, 13)
-	heightLabel.Font = Enum.Font.GothamBold
+	heightLabel.Font = Enum.Font.Sarpanch
 	heightLabel.TextSize = 18
 	heightLabel.TextColor3 = Color3.fromRGB(20, 40, 50)
 	heightLabel.Parent = heightPill
@@ -171,7 +171,7 @@ function ClimbOverlay.init()
 	deathTitle.Position = UDim2.fromScale(0.5, 0.45)
 	deathTitle.Size = UDim2.fromOffset(600, 60)
 	deathTitle.BackgroundTransparency = 1
-	deathTitle.Font = Enum.Font.GothamBlack
+	deathTitle.Font = Enum.Font.Michroma
 	deathTitle.TextSize = 46
 	deathTitle.TextColor3 = Color3.new(1, 1, 1)
 	deathTitle.ZIndex = 11

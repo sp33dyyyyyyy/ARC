@@ -113,12 +113,44 @@ def main():
                     if vol > 0.25 * small:
                         problems["clash"].append(f"{p['path']} <-> {q['path']} ({overlap.round(2).tolist()})")
 
+    # Covered: something standing on the floor whose foot is buried in a floor covering
+    # (mats, tiles, padding, decking) laid over it - you'd see it cut off at the covering.
+    coverings = []
+    for p, lo, hi in boxes:
+        size = hi - lo
+        if size[1] <= 1.3 and size[0] * size[2] >= 16 and p["shape"] == "Block" and p["transparency"] < 0.5:
+            coverings.append((p, lo, hi))
+    cover_grid = defaultdict(list)
+    for i, (p, lo, hi) in enumerate(coverings):
+        for gx in range(int(lo[0] // 16), int(hi[0] // 16) + 1):
+            for gz in range(int(lo[2] // 16), int(hi[2] // 16) + 1):
+                cover_grid[(gx, gz)].append(i)
+    for p in world["parts"]:
+        if p["transparency"] >= 0.95 or "Crags" in p["path"] or "Holds" in p["path"]:
+            continue
+        c = corners(p)
+        lo, hi = c.min(axis=0), c.max(axis=0)
+        up = np.array(p["cf"][3:]).reshape(3, 3)[:, 1]
+        if hi[1] - lo[1] > 40 or abs(up[1]) < 0.95 or any(n in name_of(p) for n in ("Core", "SeamV")):
+            continue  # tall/tilted parts' boxes aren't their feet; wall cores meet the pads by design
+        foot = (lo + hi) / 2
+        foot[1] = lo[1]
+        for i in cover_grid.get((int(foot[0] // 16), int(foot[2] // 16)), []):
+            q, qlo, qhi = coverings[i]
+            if q is p or q["path"] == p["path"] and q["cf"] == p["cf"]:
+                continue
+            inside = qlo[0] < foot[0] < qhi[0] and qlo[2] < foot[2] < qhi[2]
+            depth = qhi[1] - foot[1]
+            if inside and 0.015 < depth < 1.3 and foot[1] >= qlo[1] - 1.5 and hi[1] > qhi[1] + 0.05:
+                problems["covered"].append(f"{p['path']} has {depth:.2f} studs buried in {q['path']}")
+                break
+
     for light in world["lights"]:
         if light["brightness"] > 2.5 or (light["class"] == "SurfaceLight" and light["brightness"] * light["range"] > 40):
             problems["lights"].append(f"{light['path']} {light['class']} brightness {light['brightness']} range {light['range']}")
 
     total = 0
-    for kind in ("sunk", "buried", "floating", "clash", "lights"):
+    for kind in ("sunk", "buried", "floating", "covered", "clash", "lights"):
         items = problems[kind]
         total += len(items)
         print(f"{kind}: {len(items)}")
