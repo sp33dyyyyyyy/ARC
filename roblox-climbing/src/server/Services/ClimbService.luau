@@ -1,11 +1,10 @@
 --!strict
 -- ClimbService (server): authority over which limb holds which hold.
 --
---  * Gives every R15 character four IKControls (hands and feet). While a limb is on a
---    hold, its IKControl targets the hold's Grip attachment. IKControls replicate, so every
---    player sees everyone's arms and legs on the holds.
 --  * Stores the state as character attributes: "Climb_LeftHand" = HoldId (absent = free),
---    plus "Climbing" = true while any limb is on a hold. Clients read these.
+--    plus "Climbing" = true while any limb is on a hold. Every client reads these and
+--    poses that character's arms and legs onto the holds (LimbRig), so everyone sees
+--    everyone climbing. Works for R6 and R15.
 --  * Validates every request from the client (rate limit, argument types, hold exists,
 --    right limb type, within reach of the HumanoidRootPart) and tells the client when it
 --    refuses one.
@@ -23,6 +22,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ClimbMath = require(Shared.ClimbMath)
 local Config = require(Shared.Config)
 local HoldUtil = require(Shared.HoldUtil)
+local LimbRig = require(Shared.LimbRig)
 local RateLimiter = require(Shared.RateLimiter)
 local Remotes = require(Shared.Remotes)
 
@@ -30,11 +30,6 @@ local HoldService = require(script.Parent.HoldService)
 
 local CLIMB = Config.Climb
 local DYNO = CLIMB.Dyno
--- R15 arm and leg parts; they go in Config.Climb.LimbCollisionGroup.
-local LIMB_PARTS = {
-	"LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand",
-	"LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot",
-}
 local ATTRIBUTE_PREFIX = "Climb_"
 local WATCHDOG_INTERVAL = 0.25
 
@@ -44,7 +39,6 @@ type Rig = {
 	character: Model,
 	humanoid: Humanoid,
 	root: BasePart,
-	ik: { [string]: IKControl },
 	farFor: number, -- seconds the body has been implausibly far from its holds
 	dynoUntil: number, -- os.clock() until which a dyno catch gets extra reach tolerance
 }
@@ -55,42 +49,6 @@ local rejectedEvent: RemoteEvent
 
 function ClimbService.attributeName(limb: string): string
 	return ATTRIBUTE_PREFIX .. limb
-end
-
--- Builds the IK rig on an R15 character. Returns nil for R6 or incomplete rigs.
--- Also used by Diagnostics on a test dummy.
-function ClimbService.buildIK(character: Model, humanoid: Humanoid): { [string]: IKControl }?
-	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-		return nil
-	end
-	local ik: { [string]: IKControl } = {}
-	for _, limb in Config.LimbOrder do
-		local def = Config.Limbs[limb]
-		local chainRoot = character:WaitForChild(def.ChainRoot, 5)
-		local endEffector = character:WaitForChild(def.EndEffector, 5)
-		local torso = character:WaitForChild(def.PoleTorso, 5)
-		if not (chainRoot and endEffector and torso) then
-			return nil
-		end
-
-		local pole = Instance.new("Attachment")
-		pole.Name = `ClimbPole_{limb}`
-		pole.Position = def.Pole
-		pole.Parent = torso
-
-		local control = Instance.new("IKControl")
-		control.Name = `Climb_{limb}`
-		control.Type = Enum.IKControlType.Position
-		control.ChainRoot = chainRoot
-		control.EndEffector = endEffector
-		control.Pole = pole
-		control.SmoothTime = 0.08
-		control.Weight = 1
-		control.Enabled = false
-		control.Parent = humanoid
-		ik[limb] = control
-	end
-	return ik
 end
 
 local function heldHolds(rig: Rig): { [string]: BasePart }
@@ -107,12 +65,6 @@ end
 
 local function setLimb(rig: Rig, limb: string, hold: BasePart?)
 	rig.character:SetAttribute(ClimbService.attributeName(limb), if hold then hold:GetAttribute("HoldId") else nil)
-	local control = rig.ik[limb]
-	if control then
-		local grip = hold and hold:FindFirstChild(HoldUtil.GRIP_ATTACHMENT)
-		control.Target = grip :: any -- nil clears it
-		control.Enabled = grip ~= nil
-	end
 	rig.character:SetAttribute("Climbing", next(heldHolds(rig)) ~= nil)
 end
 
@@ -185,17 +137,15 @@ local function onCharacter(player: Player, character: Model)
 	if humanoid == nil or root == nil or character.Parent == nil then
 		return
 	end
-	local ik = ClimbService.buildIK(character, humanoid)
-	if ik == nil then
-		return -- R6 or broken rig: Main.server already warns about R6
-	end
-	for _, name in LIMB_PARTS do
-		local part = character:FindFirstChild(name)
-		if part and part:IsA("BasePart") then
-			part.CollisionGroup = CLIMB.LimbCollisionGroup
+	if PhysicsService:IsCollisionGroupRegistered(CLIMB.LimbCollisionGroup) then
+		for _, name in LimbRig.LIMB_PART_NAMES do
+			local part = character:FindFirstChild(name)
+			if part and part:IsA("BasePart") then
+				part.CollisionGroup = CLIMB.LimbCollisionGroup
+			end
 		end
 	end
-	local rig: Rig = { character = character, humanoid = humanoid, root = root, ik = ik, farFor = 0, dynoUntil = 0 }
+	local rig: Rig = { character = character, humanoid = humanoid, root = root, farFor = 0, dynoUntil = 0 }
 	rigs[player] = rig
 	humanoid.Died:Connect(function()
 		if rigs[player] == rig then
@@ -239,10 +189,15 @@ end
 function ClimbService.Init()
 	-- Arms and legs pass through the world, so IK can put hands and feet on holds without
 	-- the wall pushing the body around. The torso and head still collide.
-	if not PhysicsService:IsCollisionGroupRegistered(CLIMB.LimbCollisionGroup) then
-		PhysicsService:RegisterCollisionGroup(CLIMB.LimbCollisionGroup)
+	local ok, err = pcall(function()
+		if not PhysicsService:IsCollisionGroupRegistered(CLIMB.LimbCollisionGroup) then
+			PhysicsService:RegisterCollisionGroup(CLIMB.LimbCollisionGroup)
+		end
+		PhysicsService:CollisionGroupSetCollidable(CLIMB.LimbCollisionGroup, "Default", false)
+	end)
+	if not ok then
+		warn(`[ClimbService] couldn't set up the limb collision group (climbing still works): {err}`)
 	end
-	PhysicsService:CollisionGroupSetCollidable(CLIMB.LimbCollisionGroup, "Default", false)
 	rejectedEvent = Remotes.event("ClimbRejected")
 	Remotes.event("ClimbRequest").OnServerEvent:Connect(onRequest)
 end

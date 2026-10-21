@@ -14,6 +14,10 @@
 --
 -- The server owns the truth (character attributes "Climb_<Limb>"). This script predicts
 -- each request so it feels instant and rolls back if the server refuses it.
+--
+-- Arms and legs are posed by pointing each shoulder/hip joint at its hold (LimbRig), every
+-- frame after animations. That works on R6 and R15 and needs nothing from the server, and
+-- this script poses other climbers the same way from their attributes.
 
 local ContextActionService = game:GetService("ContextActionService")
 local CollectionService = game:GetService("CollectionService")
@@ -28,6 +32,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ClimbMath = require(Shared:WaitForChild("ClimbMath"))
 local Config = require(Shared:WaitForChild("Config"))
 local HoldUtil = require(Shared:WaitForChild("HoldUtil"))
+local LimbRig = require(Shared:WaitForChild("LimbRig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Tags = require(Shared:WaitForChild("Tags"))
 
@@ -63,8 +68,9 @@ local groundParams = RaycastParams.new()
 local character: Model? = nil
 local humanoid: Humanoid? = nil
 local root: BasePart? = nil
-local limbParts: { [string]: BasePart } = {}
-local ik: { [string]: IKControl } = {}
+local limbs: { [string]: LimbRig.Limb } = {} -- shoulder/hip joints found on this rig
+local tips: { [string]: Attachment } = {} -- the hand/foot points (rings and picking)
+local posedLocal: { [string]: boolean } = {}
 local alignPosition: AlignPosition? = nil
 local alignOrientation: AlignOrientation? = nil
 local characterConnections: { RBXScriptConnection } = {}
@@ -78,11 +84,17 @@ local climbing = false
 local selected: string? = nil
 local drag: Drag? = nil
 local pointer: Vector2? = nil -- viewport coordinates
-local dragTargets: { [string]: Attachment } = {}
+local dragPoints: { [string]: Vector3 } = {} -- where a dragged limb is reaching
 local dynoCharge: number? = nil
 local flightUntil: number? = nil
 local flightHold: BasePart? = nil -- the hold a dyno is aimed at
 local wallNormal = Vector3.zAxis
+
+-- Current pose of every joint this script moves (eased towards its goal each frame).
+local poses: { [Motor6D]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
+-- Other players' rigs, found when they start climbing.
+type OtherRig = { limbs: { [string]: LimbRig.Limb }, posed: boolean }
+local others: { [Model]: OtherRig } = setmetatable({}, { __mode = "k" }) :: any
 
 ---------------------------------------------------------------------------------------
 -- Holds
@@ -125,6 +137,15 @@ end
 
 local function inReach(limb: string, hold: BasePart): boolean
 	return root ~= nil and ClimbMath.inReach(root.Position, gripPosition(hold), Config.Limbs[limb].Reach)
+end
+
+-- World position of a hand/foot (the body centre if this rig lacks that limb).
+local function tipPosition(limb: string): Vector3?
+	local tip = tips[limb]
+	if tip then
+		return tip.WorldPosition
+	end
+	return root and root.Position
 end
 
 ---------------------------------------------------------------------------------------
@@ -278,8 +299,8 @@ local function pickLimb(point: Vector2): (string?, number)
 		return nil, math.huge
 	end
 	local best, bestDistance = nil, CLIMB.PickRadiusPx
-	for limb, part in limbParts do
-		local screen, onScreen = camera:WorldToViewportPoint(part.Position)
+	for limb, tip in tips do
+		local screen, onScreen = camera:WorldToViewportPoint(tip.WorldPosition)
 		if onScreen then
 			local distance = (Vector2.new(screen.X, screen.Y) - point).Magnitude
 			if distance < bestDistance then
@@ -339,9 +360,9 @@ end
 local function bestLimbFor(hold: BasePart): string?
 	local best, bestScore = nil, math.huge
 	for _, limb in Config.LimbOrder do
-		local part = limbParts[limb]
-		if part and accepts(limb, hold) and inReach(limb, hold) and heldId(limb) ~= holdId(hold) then
-			local score = (part.Position - gripPosition(hold)).Magnitude + (if heldId(limb) then 100 else 0)
+		local tip = tipPosition(limb)
+		if tip and accepts(limb, hold) and inReach(limb, hold) and heldId(limb) ~= holdId(hold) then
+			local score = (tip - gripPosition(hold)).Magnitude + (if heldId(limb) then 100 else 0)
 			if score < bestScore then
 				best, bestScore = limb, score
 			end
@@ -416,9 +437,9 @@ end
 local function closestFreeHand(hold: BasePart): string?
 	local best, bestDistance = nil, math.huge
 	for _, limb in { "LeftHand", "RightHand" } do
-		local hand = limbParts[limb]
+		local hand = tipPosition(limb)
 		if hand and heldId(limb) == nil then
-			local distance = (hand.Position - gripPosition(hold)).Magnitude
+			local distance = (hand - gripPosition(hold)).Magnitude
 			if distance < bestDistance then
 				best, bestDistance = limb, distance
 			end
@@ -438,9 +459,9 @@ local function tryCatch()
 		end
 	end
 	for _, limb in { "LeftHand", "RightHand" } do
-		local hand = limbParts[limb]
+		local hand = tipPosition(limb)
 		if hand and heldId(limb) == nil then
-			local hold = nearestHold(hand.Position, DYNO.CatchRadius, function(h)
+			local hold = nearestHold(hand, DYNO.CatchRadius, function(h)
 				return accepts(limb, h) and inReach(limb, h)
 			end)
 			if hold and requestPlace(limb, hold) then
@@ -551,7 +572,7 @@ local function updateDrag()
 		if offset.Magnitude > reach then
 			target = root.Position + offset.Unit * reach
 		end
-		dragTargets[current.limb].WorldPosition = target
+		dragPoints[current.limb] = target
 	end
 	ClimbOverlay.setDragDot(target, if current.valid then kindColor(current.limb) elseif hold then COLORS.OutOfReach else nil)
 end
@@ -585,30 +606,81 @@ local function updateRings()
 	for _, limb in Config.LimbOrder do
 		local active = (drag ~= nil and drag.limb == limb) or selected == limb
 		local color = if active then COLORS.Selected elseif heldId(limb) then COLORS.Attached else COLORS.Free
-		ClimbOverlay.setLimbRing(limb, if show then limbParts[limb] else nil, color, active)
+		ClimbOverlay.setLimbRing(limb, if show then tips[limb] else nil, color, active)
 	end
 end
 
-local function updateIK()
-	for limb, control in ik do
-		local target: Instance? = nil
-		if drag and drag.limb == limb and drag.moved then
-			target = dragTargets[limb]
-		elseif flightUntil == nil then
-			local hold = heldHold(limb)
-			target = hold and hold:FindFirstChild(HoldUtil.GRIP_ATTACHMENT)
-		elseif flightHold and limbKind(limb) == "Hand" then
-			-- Mid-dyno both hands reach for the target hold.
-			target = flightHold:FindFirstChild(HoldUtil.GRIP_ATTACHMENT)
+---------------------------------------------------------------------------------------
+-- Posing arms and legs (runs in PreSimulation, after animations)
+
+local function aimLimb(limb: LimbRig.Limb, target: Vector3?, alpha: number)
+	local joint = limb.joint
+	local goal = if target then LimbRig.aimTransform(limb, target) else CFrame.identity
+	local current = (poses[joint] or CFrame.identity):Lerp(goal, alpha)
+	poses[joint] = current
+	joint.Transform = current
+end
+
+local function releaseLimb(limb: LimbRig.Limb)
+	poses[limb.joint] = nil
+	LimbRig.relax(limb)
+end
+
+-- Where this player's limb should point, and whether this script controls it right now.
+local function localLimbTarget(limb: string): (Vector3?, boolean)
+	if drag and drag.limb == limb and drag.moved then
+		return dragPoints[limb], true
+	end
+	if not climbing then
+		return nil, false
+	end
+	if flightUntil then
+		-- Mid-dyno both hands reach for the target hold.
+		if flightHold and limbKind(limb) == "Hand" then
+			return gripPosition(flightHold), true
 		end
-		-- Written every frame: the server also sets these, and this client's view of its own
-		-- character must follow its predictions.
-		if control.Target ~= target then
-			control.Target = target :: any
+		return nil, true
+	end
+	local hold = heldHold(limb)
+	return if hold then gripPosition(hold) else nil, true
+end
+
+local function poseAll(dt: number)
+	local alpha = 1 - math.exp(-dt * 18)
+
+	for limb, record in limbs do
+		local target, active = localLimbTarget(limb)
+		if active then
+			aimLimb(record, target, alpha)
+			posedLocal[limb] = true
+		elseif posedLocal[limb] then
+			releaseLimb(record)
+			posedLocal[limb] = nil
 		end
-		local enabled = target ~= nil
-		if control.Enabled ~= enabled then
-			control.Enabled = enabled
+	end
+
+	for _, other in Players:GetPlayers() do
+		local otherCharacter = other.Character
+		if other == player or otherCharacter == nil then
+			continue
+		end
+		local entry = others[otherCharacter]
+		if otherCharacter:GetAttribute("Climbing") == true then
+			if entry == nil then
+				entry = { limbs = (LimbRig.find(otherCharacter)), posed = false }
+				others[otherCharacter] = entry
+			end
+			for limb, record in entry.limbs do
+				local id = otherCharacter:GetAttribute("Climb_" .. limb)
+				local hold = if type(id) == "string" then holdsById[id] else nil
+				aimLimb(record, if hold then gripPosition(hold) else nil, alpha)
+			end
+			entry.posed = true
+		elseif entry and entry.posed then
+			for _, record in entry.limbs do
+				releaseLimb(record)
+			end
+			entry.posed = false
 		end
 	end
 end
@@ -647,7 +719,7 @@ local function updateBody(grips: { ClimbMath.Grip })
 	local body = ClimbMath.solveBody(grips, wallNormal, shift, CLIMB)
 	if root and humanoid then
 		-- Hanging low from the start holds: stand on the mat instead of sinking into it.
-		local standingHeight = humanoid.HipHeight + root.Size.Y / 2
+		local standingHeight = LimbRig.standingHeight(humanoid, root)
 		body = ClimbMath.clampAboveGround(body, groundBelow(body), standingHeight, CLIMB.GroundCrouch)
 	end
 	alignPosition.Position = body
@@ -669,7 +741,7 @@ local function updateHeight()
 			break
 		end
 	end
-	local standingHeight = humanoid.HipHeight + root.Size.Y / 2
+	local standingHeight = LimbRig.standingHeight(humanoid, root)
 	ClimbOverlay.setHeight(Config.studsToMeters(math.max(0, root.Position.Y - baseY - standingHeight)))
 end
 
@@ -681,6 +753,11 @@ local function step(dt: number)
 	for limb, p in pending do
 		if now - p.at > CLIMB.PendingTimeout then
 			pending[limb] = nil -- the server never answered: show its state again
+			local actual = character:GetAttribute("Climb_" .. limb)
+			if p.holdId ~= nil and actual ~= p.holdId then
+				warn("[ClimbController] the server didn't answer a grab; look for 'SERVER ERROR' lines in Output")
+				ClimbOverlay.toast("Server didn't answer - see Output")
+			end
 		end
 	end
 
@@ -715,7 +792,6 @@ local function step(dt: number)
 	end
 
 	updateDrag()
-	updateIK()
 	updateMarkers()
 	updateRings()
 	updateHeight()
@@ -732,10 +808,16 @@ local function clearCharacter()
 	if climbing then
 		exitClimb()
 	end
+	for _, record in limbs do
+		releaseLimb(record)
+	end
+	for _, tip in tips do
+		tip:Destroy()
+	end
 	character, humanoid, root = nil, nil, nil
 	alignPosition, alignOrientation = nil, nil
-	table.clear(limbParts)
-	table.clear(ik)
+	limbs, tips = {}, {}
+	table.clear(posedLocal)
 	table.clear(pending)
 	selected, drag = nil, nil
 	for _, limb in Config.LimbOrder do
@@ -747,27 +829,28 @@ end
 
 local function onCharacter(newCharacter: Model)
 	clearCharacter()
+	print("[ClimbController] character spawned, setting up climbing")
 	local newHumanoid = newCharacter:WaitForChild("Humanoid", 10) :: Humanoid?
 	local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 10) :: BasePart?
-	if newHumanoid == nil or newRoot == nil or newHumanoid.RigType ~= Enum.HumanoidRigType.R15 then
+	if newHumanoid == nil or newRoot == nil then
+		warn("[ClimbController] character has no Humanoid/HumanoidRootPart; climbing disabled for this life")
 		return
 	end
 
-	local parts: { [string]: BasePart } = {}
-	local controlsByLimb: { [string]: IKControl } = {}
-	for _, limb in Config.LimbOrder do
-		local def = Config.Limbs[limb]
-		local part = newCharacter:WaitForChild(def.EndEffector, 10)
-		local control = newHumanoid:WaitForChild(`Climb_{limb}`, 10) -- made by ClimbService
-		if not (part and part:IsA("BasePart") and control and control:IsA("IKControl")) then
-			warn(`[ClimbController] {limb} is missing its part or IKControl; climbing disabled`)
-			return
+	-- Limb joints can arrive a moment after the character; keep looking for a few seconds.
+	local found, missing = LimbRig.find(newCharacter)
+	for _ = 1, 10 do
+		if #missing == 0 or newCharacter ~= player.Character then
+			break
 		end
-		parts[limb] = part
-		controlsByLimb[limb] = control
+		task.wait(0.5)
+		found, missing = LimbRig.find(newCharacter)
 	end
 	if newCharacter ~= player.Character then
 		return -- respawned while we were waiting; the newer call sets things up
+	end
+	if #missing > 0 then
+		warn(`[ClimbController] couldn't find {table.concat(missing, ", ")}: you can still climb, those limbs just won't move`)
 	end
 	-- Roblox's own ladder climbing must never take over on the wall's features.
 	newHumanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
@@ -796,9 +879,23 @@ local function onCharacter(newCharacter: Model)
 	orientation.Enabled = false
 	orientation.Parent = newRoot
 
+	local newTips: { [string]: Attachment } = {}
+	for limb, record in found do
+		local tip = Instance.new("Attachment")
+		tip.Name = `ClimbTip_{limb}`
+		tip.Position = record.tipOffset
+		tip.Parent = record.endPart
+		newTips[limb] = tip
+	end
+
 	character, humanoid, root = newCharacter, newHumanoid, newRoot
 	alignPosition, alignOrientation = position, orientation
-	limbParts, ik = parts, controlsByLimb
+	limbs, tips = found, newTips
+	local count = 0
+	for _ in found do
+		count += 1
+	end
+	print(`[ClimbController] ready: {newHumanoid.RigType.Name} rig, {count}/4 limbs`)
 
 	table.insert(characterConnections, newCharacter.AttributeChanged:Connect(function(name)
 		local limb = string.match(name, "^Climb_(.+)$")
@@ -821,13 +918,6 @@ function ClimbController.Init()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	groundParams.FilterType = Enum.RaycastFilterType.Exclude
 	groundParams.RespectCanCollide = true
-
-	for _, limb in Config.LimbOrder do
-		local target = Instance.new("Attachment")
-		target.Name = `ClimbDragTarget_{limb}`
-		target.Parent = Workspace.Terrain
-		dragTargets[limb] = target
-	end
 
 	local ok, playerModule = pcall(function()
 		return require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule") :: ModuleScript) :: any
@@ -884,6 +974,7 @@ function ClimbController.Start()
 		task.spawn(onCharacter, player.Character)
 	end
 	RunService.RenderStepped:Connect(step)
+	RunService.PreSimulation:Connect(poseAll)
 end
 
 return ClimbController

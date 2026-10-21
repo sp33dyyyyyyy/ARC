@@ -113,3 +113,68 @@ local function enumStub(path: string): any
 	})
 end
 local Enum = enumStub("Enum")
+
+-- CFrame: position + 3x3 rotation (rows), enough for LimbRig's maths.
+local CFrame = {}
+local CF = {}
+local function cf(p: any, r: { number }): any
+	return setmetatable({ p = p, r = r }, CF)
+end
+local function rot(r: { number }, v: any): any
+	return Vector3.new(r[1] * v.X + r[2] * v.Y + r[3] * v.Z, r[4] * v.X + r[5] * v.Y + r[6] * v.Z, r[7] * v.X + r[8] * v.Y + r[9] * v.Z)
+end
+local function transpose(r: { number }): { number }
+	return { r[1], r[4], r[7], r[2], r[5], r[8], r[3], r[6], r[9] }
+end
+local function matmul(a: { number }, b: { number }): { number }
+	local out = {}
+	for i = 0, 2 do
+		for j = 1, 3 do
+			out[i * 3 + j] = a[i * 3 + 1] * b[j] + a[i * 3 + 2] * b[3 + j] + a[i * 3 + 3] * b[6 + j]
+		end
+	end
+	return out
+end
+CF.__mul = function(a, b)
+	if getmetatable(b) == CF then
+		return cf(a.p + rot(a.r, b.p), matmul(a.r, b.r))
+	end
+	return a.p + rot(a.r, b)
+end
+CF.__index = function(c, key)
+	if key == "Position" then
+		return c.p
+	elseif key == "Inverse" then
+		return function(self)
+			local t = transpose(self.r)
+			return cf(-rot(t, self.p), t)
+		end
+	elseif key == "VectorToWorldSpace" then
+		return function(self, v)
+			return rot(self.r, v)
+		end
+	elseif key == "VectorToObjectSpace" then
+		return function(self, v)
+			return rot(transpose(self.r), v)
+		end
+	end
+	return nil
+end
+CFrame.new = function(x: number?, y: number?, z: number?, ...: number)
+	local r = { ... }
+	if #r ~= 9 then
+		r = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }
+	end
+	return cf(Vector3.new(x or 0, y or 0, z or 0), r)
+end
+CFrame.identity = CFrame.new()
+CFrame.fromAxisAngle = function(axis: any, angle: number)
+	local u = axis.Unit
+	local c, s, t = math.cos(angle), math.sin(angle), 1 - math.cos(angle)
+	local x, y, z = u.X, u.Y, u.Z
+	return cf(Vector3.zero, {
+		t * x * x + c, t * x * y - s * z, t * x * z + s * y,
+		t * x * y + s * z, t * y * y + c, t * y * z - s * x,
+		t * x * z - s * y, t * y * z + s * x, t * z * z + c,
+	})
+end

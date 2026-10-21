@@ -166,6 +166,32 @@ test("dyno: arrival is below the hold and out from the wall, flight time is sane
 	expect(time > 0.15 and time < 0.8, `time {time}`)
 end)
 
+-- Limb posing -----------------------------------------------------------------
+
+test("LimbRig.aimTransform points an R6-style arm at any target", function()
+	-- A torso turned 35 degrees, with Roblox's real R6 Right Shoulder offsets.
+	local torso = { CFrame = CFrame.new(3, 4, -2) * CFrame.fromAxisAngle(Vector3.yAxis, math.rad(35)) }
+	local joint = {
+		Part0 = torso,
+		C0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		C1 = CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+	}
+	local limb = { name = "RightHand", joint = joint, endPart = torso, tipOffset = Vector3.zero } :: any
+	local jointFrame = torso.CFrame * joint.C0
+	for _, offset in {
+		Vector3.new(0, 3, -1), -- up and forward (reaching for a hold)
+		Vector3.new(2, -1, 0.5),
+		Vector3.new(-0.3, -2, 0), -- roughly where it hangs
+		Vector3.new(0.01, 2, 0), -- almost straight up (opposite of hanging)
+	} do
+		local target = jointFrame.Position + offset
+		local limbFrame = jointFrame * LimbRig.aimTransform(limb, target) * joint.C1:Inverse()
+		local pointing = limbFrame:VectorToWorldSpace(Vector3.new(0, -1, 0))
+		local dot = pointing:Dot((target - jointFrame.Position).Unit)
+		expect(dot > 0.9999, `aim at offset {offset}: off by {dot}`)
+	end
+end)
+
 -- Whole wall ----------------------------------------------------------------
 
 -- Breadth-first search over which hold each limb is on, using the real solver and the

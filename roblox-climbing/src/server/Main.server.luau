@@ -55,23 +55,44 @@ buildStep("TestWall.Ensure", function()
 	require(Server.World.TestWall).Ensure()
 end)
 
+-- Each service starts on its own: one failing is reported loudly in Output and the others
+-- still run.
 type Service = { Init: (() -> ())?, Start: (() -> ())? }
-local services: { Service } = {}
+local services: { [string]: Service } = {}
 for _, name in SERVICE_ORDER do
 	local module = Server.Services:FindFirstChild(name)
-	assert(module and module:IsA("ModuleScript"), `missing service module {name}`)
-	table.insert(services, require(module) :: any)
-end
-for _, service in services do
-	if service.Init then
-		service.Init()
+	local ok, result = pcall(function()
+		assert(module and module:IsA("ModuleScript"), `missing service module {name}`)
+		return require(module) :: any
+	end)
+	if ok then
+		services[name] = result
+	else
+		warn(`[{Config.GameName}] SERVER ERROR loading {name}: {result}`)
 	end
 end
-for _, service in services do
-	if service.Start then
-		task.spawn(service.Start)
+for _, name in SERVICE_ORDER do
+	local service = services[name]
+	if service and service.Init then
+		local ok, err = pcall(service.Init :: () -> any)
+		if not ok then
+			warn(`[{Config.GameName}] SERVER ERROR in {name}.Init: {err}`)
+			services[name] = nil
+		end
 	end
 end
+for _, name in SERVICE_ORDER do
+	local service = services[name]
+	if service and service.Start then
+		task.spawn(function()
+			local ok, err = pcall(service.Start :: () -> any)
+			if not ok then
+				warn(`[{Config.GameName}] SERVER ERROR in {name}.Start: {err}`)
+			end
+		end)
+	end
+end
+print(`[{Config.GameName}] server ready`)
 
 if Config.Debug.RunSelfChecksInStudio and RunService:IsStudio() then
 	task.defer(function()

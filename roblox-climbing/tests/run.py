@@ -5,10 +5,10 @@
     LUAU=/path/to/luau python3 tests/run.py
 
 1. tests/unit.luau runs as-is (pure modules loaded with require).
-2. tests/climbing.luau needs the real Config, HoldTypes, ClimbMath and TestWallLayout
-   modules, which use Roblox types. This script builds one Luau file from tests/mocks.luau
-   (Vector3/Vector2/Color3/Enum stand-ins), those module sources and the hold grip points
-   read out of HoldModels.luau, then runs it.
+2. tests/climbing.luau needs the real Config, HoldTypes, ClimbMath, LimbRig and
+   TestWallLayout modules, which use Roblox types. This script builds one Luau file from
+   tests/mocks.luau (Vector3/Vector2/CFrame/Color3/Enum stand-ins), those module sources
+   and the hold grip points read out of HoldModels.luau, then runs it.
 """
 import os
 import re
@@ -61,6 +61,7 @@ def main():
         inline_module("Config", "src", "shared", "Config.luau"),
         inline_module("ClimbMath", "src", "shared", "ClimbMath.luau"),
         inline_module("Layout", "src", "server", "World", "TestWallLayout.luau"),
+        inline_module("LimbRig", "src", "shared", "LimbRig.luau"),
         grips_from_hold_models(),
         read("tests", "climbing.luau"),
     ])

@@ -6,7 +6,7 @@
 local Config = {}
 
 Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.2.1-stage2"
+Config.Version = "0.3.0-stage2"
 
 Config.METERS_PER_STUD = 0.28
 
@@ -22,22 +22,16 @@ export type LimbKind = "Hand" | "Foot"
 export type LimbDef = {
 	Kind: LimbKind,
 	Key: Enum.KeyCode, -- selects the limb (then click a hold); dragging the limb works too
-	-- Max distance from the HumanoidRootPart to a hold's grip point. Matches a default-scale
-	-- R15 arm/leg at full stretch, so IK can always reach a hold the game lets you take.
+	-- Max distance from the HumanoidRootPart to a hold's grip point. About an arm/leg at
+	-- full stretch, so a limb can always reach a hold the game lets you take.
 	Reach: number,
-	-- R15 parts for the IKControl chain, and where the elbow/knee points (a "pole"),
-	-- relative to `PoleTorso`. Elbows point down and back, knees out to the side.
-	ChainRoot: string,
-	EndEffector: string,
-	PoleTorso: string,
-	Pole: Vector3,
 }
 
 Config.Limbs = {
-	LeftHand = { Kind = "Hand", Key = Enum.KeyCode.Q, Reach = 3.7, ChainRoot = "LeftUpperArm", EndEffector = "LeftHand", PoleTorso = "UpperTorso", Pole = Vector3.new(-2.5, -1.5, 1.5) } :: LimbDef,
-	RightHand = { Kind = "Hand", Key = Enum.KeyCode.E, Reach = 3.7, ChainRoot = "RightUpperArm", EndEffector = "RightHand", PoleTorso = "UpperTorso", Pole = Vector3.new(2.5, -1.5, 1.5) } :: LimbDef,
-	LeftFoot = { Kind = "Foot", Key = Enum.KeyCode.Z, Reach = 3.1, ChainRoot = "LeftUpperLeg", EndEffector = "LeftFoot", PoleTorso = "LowerTorso", Pole = Vector3.new(-2.5, -0.5, -1.5) } :: LimbDef,
-	RightFoot = { Kind = "Foot", Key = Enum.KeyCode.C, Reach = 3.1, ChainRoot = "RightUpperLeg", EndEffector = "RightFoot", PoleTorso = "LowerTorso", Pole = Vector3.new(2.5, -0.5, -1.5) } :: LimbDef,
+	LeftHand = { Kind = "Hand", Key = Enum.KeyCode.Q, Reach = 3.7 } :: LimbDef,
+	RightHand = { Kind = "Hand", Key = Enum.KeyCode.E, Reach = 3.7 } :: LimbDef,
+	LeftFoot = { Kind = "Foot", Key = Enum.KeyCode.Z, Reach = 3.1 } :: LimbDef,
+	RightFoot = { Kind = "Foot", Key = Enum.KeyCode.C, Reach = 3.1 } :: LimbDef,
 }
 Config.LimbOrder = { "LeftHand", "RightHand", "LeftFoot", "RightFoot" }
 

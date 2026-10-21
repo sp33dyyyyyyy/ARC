@@ -146,8 +146,8 @@ function ClimbOverlay.setMarkers(markers: { Marker })
 	end
 end
 
--- Ring on a hand/foot. Pass nil part (or color) to hide it.
-function ClimbOverlay.setLimbRing(limb: string, part: BasePart?, color: Color3?, big: boolean?)
+-- Ring on a hand/foot (`at` is the part or attachment). Pass nil `at` (or color) to hide it.
+function ClimbOverlay.setLimbRing(limb: string, at: Instance?, color: Color3?, big: boolean?)
 	local ring = rings[limb]
 	if ring == nil then
 		local gui = Instance.new("BillboardGui")
@@ -168,11 +168,11 @@ function ClimbOverlay.setLimbRing(limb: string, part: BasePart?, color: Color3?,
 		ring = { gui = gui, stroke = stroke }
 		rings[limb] = ring
 	end
-	if part == nil or color == nil then
+	if at == nil or color == nil then
 		ring.gui.Enabled = false
 		return
 	end
-	ring.gui.Adornee = part
+	ring.gui.Adornee = at
 	ring.gui.Size = if big then UDim2.fromOffset(40, 40) else UDim2.fromOffset(28, 28)
 	ring.stroke.Color = color
 	ring.stroke.Thickness = if big then 4 else 2.5

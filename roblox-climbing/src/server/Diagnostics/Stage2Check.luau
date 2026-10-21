@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ClimbMath = require(Shared.ClimbMath)
 local Config = require(Shared.Config)
 local HoldUtil = require(Shared.HoldUtil)
+local LimbRig = require(Shared.LimbRig)
 local Remotes = require(Shared.Remotes)
 
 local Server = script.Parent.Parent
@@ -48,27 +49,33 @@ function Stage2Check.Run(): boolean
 	end
 	check("remote events exist", #missing == 0, "missing " .. table.concat(missing, ", "))
 
-	-- IK rig on a test R15 dummy
-	local ok, dummy = pcall(function()
-		return Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), Enum.HumanoidRigType.R15)
-	end)
-	if ok and dummy then
-		local humanoid = dummy:FindFirstChildOfClass("Humanoid") :: Humanoid
-		local rig = ClimbService.buildIK(dummy, humanoid)
-		local problems = {}
-		for _, limb in Config.LimbOrder do
-			local def = Config.Limbs[limb]
-			local control = rig and rig[limb]
-			if control == nil then
-				table.insert(problems, `{limb}: no IKControl`)
-			elseif not (control.ChainRoot and control.ChainRoot.Name == def.ChainRoot and control.EndEffector and control.EndEffector.Name == def.EndEffector and control.Pole) then
-				table.insert(problems, `{limb}: wrong chain`)
+	-- Limb rigs on R15 and R6 test dummies: all four shoulder/hip joints are found, and the
+	-- aim maths turns each limb (which hangs along -Y) to point at a target.
+	for _, rigType in { Enum.HumanoidRigType.R15, Enum.HumanoidRigType.R6 } do
+		local name = `limb rig ({rigType.Name}): 4 joints found and aim points the limb at a target`
+		local ok, dummy = pcall(function()
+			return Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), rigType)
+		end)
+		if not ok or dummy == nil then
+			check(name, false, `could not create a test dummy: {dummy}`)
+			continue
+		end
+		local limbs, missingJoints = LimbRig.find(dummy)
+		local problems = table.clone(missingJoints)
+		for limbName, limb in limbs do
+			local jointFrame = (limb.joint.Part0 :: BasePart).CFrame * limb.joint.C0
+			local target = jointFrame.Position + Vector3.new(0.7, 2, -1.5)
+			local transform = LimbRig.aimTransform(limb, target)
+			-- With that Transform the limb's down axis must point at the target.
+			local limbFrame = jointFrame * transform * limb.joint.C1:Inverse()
+			local pointing = limbFrame:VectorToWorldSpace(Vector3.new(0, -1, 0))
+			local wanted = (target - jointFrame.Position).Unit
+			if pointing:Dot(wanted) < 0.999 then
+				table.insert(problems, `{limbName} points {pointing:Dot(wanted)} off`)
 			end
 		end
-		check("IK rig: 4 IKControls with the right chains and poles", #problems == 0, table.concat(problems, "; "))
+		check(name, #problems == 0, table.concat(problems, "; "))
 		dummy:Destroy()
-	else
-		check("IK rig: 4 IKControls with the right chains and poles", false, `could not create a test dummy: {dummy}`)
 	end
 
 	local group = Config.Climb.LimbCollisionGroup
