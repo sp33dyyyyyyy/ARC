@@ -1,0 +1,253 @@
+--!strict
+-- ClimbService (server): authority over which limb holds which hold.
+--
+--  * Gives every R15 character four IKControls (hands and feet). While a limb is on a
+--    hold, its IKControl targets the hold's Grip attachment. IKControls replicate, so every
+--    player sees everyone's arms and legs on the holds.
+--  * Stores the state as character attributes: "Climb_LeftHand" = HoldId (absent = free),
+--    plus "Climbing" = true while any limb is on a hold. Clients read these.
+--  * Validates every request from the client (rate limit, argument types, hold exists,
+--    right limb type, within reach of the HumanoidRootPart) and tells the client when it
+--    refuses one.
+--  * Watchdog: a body that stays impossibly far from its holds is taken off the wall.
+--
+-- The body itself is moved by the owning client (it owns its character's physics);
+-- the server only checks that it stays plausible.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ClimbMath = require(Shared.ClimbMath)
+local Config = require(Shared.Config)
+local HoldUtil = require(Shared.HoldUtil)
+local RateLimiter = require(Shared.RateLimiter)
+local Remotes = require(Shared.Remotes)
+
+local HoldService = require(script.Parent.HoldService)
+
+local CLIMB = Config.Climb
+local ATTRIBUTE_PREFIX = "Climb_"
+local WATCHDOG_INTERVAL = 0.25
+
+local ClimbService = {}
+
+type Rig = {
+	character: Model,
+	humanoid: Humanoid,
+	root: BasePart,
+	ik: { [string]: IKControl },
+	farFor: number, -- seconds the body has been implausibly far from its holds
+}
+
+local rigs: { [Player]: Rig } = {}
+local limiter = RateLimiter.new(CLIMB.RequestsPerSecond, CLIMB.RequestBurst)
+local rejectedEvent: RemoteEvent
+
+function ClimbService.attributeName(limb: string): string
+	return ATTRIBUTE_PREFIX .. limb
+end
+
+-- Builds the IK rig on an R15 character. Returns nil for R6 or incomplete rigs.
+-- Also used by Diagnostics on a test dummy.
+function ClimbService.buildIK(character: Model, humanoid: Humanoid): { [string]: IKControl }?
+	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
+		return nil
+	end
+	local ik: { [string]: IKControl } = {}
+	for _, limb in Config.LimbOrder do
+		local def = Config.Limbs[limb]
+		local chainRoot = character:WaitForChild(def.ChainRoot, 5)
+		local endEffector = character:WaitForChild(def.EndEffector, 5)
+		local torso = character:WaitForChild(def.PoleTorso, 5)
+		if not (chainRoot and endEffector and torso) then
+			return nil
+		end
+
+		local pole = Instance.new("Attachment")
+		pole.Name = `ClimbPole_{limb}`
+		pole.Position = def.Pole
+		pole.Parent = torso
+
+		local control = Instance.new("IKControl")
+		control.Name = `Climb_{limb}`
+		control.Type = Enum.IKControlType.Position
+		control.ChainRoot = chainRoot
+		control.EndEffector = endEffector
+		control.Pole = pole
+		control.SmoothTime = 0.08
+		control.Weight = 1
+		control.Enabled = false
+		control.Parent = humanoid
+		ik[limb] = control
+	end
+	return ik
+end
+
+local function heldHolds(rig: Rig): { [string]: BasePart }
+	local held = {}
+	for _, limb in Config.LimbOrder do
+		local id = rig.character:GetAttribute(ClimbService.attributeName(limb))
+		local hold = if type(id) == "string" then HoldService.GetHold(id) else nil
+		if hold then
+			held[limb] = hold
+		end
+	end
+	return held
+end
+
+local function setLimb(rig: Rig, limb: string, hold: BasePart?)
+	rig.character:SetAttribute(ClimbService.attributeName(limb), if hold then hold:GetAttribute("HoldId") else nil)
+	local control = rig.ik[limb]
+	if control then
+		local grip = hold and hold:FindFirstChild(HoldUtil.GRIP_ATTACHMENT)
+		control.Target = grip :: any -- nil clears it
+		control.Enabled = grip ~= nil
+	end
+	rig.character:SetAttribute("Climbing", next(heldHolds(rig)) ~= nil)
+end
+
+local function releaseAll(rig: Rig)
+	for _, limb in Config.LimbOrder do
+		setLimb(rig, limb, nil)
+	end
+	rig.farFor = 0
+end
+
+export type PlaceCheck = { ok: boolean, reason: string?, hold: BasePart? }
+
+-- The reach rule, shared by the remote handler and the Diagnostics.
+function ClimbService.CheckPlace(rootPosition: Vector3, limb: any, holdId: any): PlaceCheck
+	local def = if type(limb) == "string" then Config.Limbs[limb] else nil
+	if def == nil then
+		return { ok = false, reason = "unknown limb" }
+	end
+	if type(holdId) ~= "string" then
+		return { ok = false, reason = "bad hold id" }
+	end
+	local hold = HoldService.GetHold(holdId)
+	local info = hold and HoldService.GetHoldInfo(hold)
+	if hold == nil or info == nil then
+		return { ok = false, reason = "no such hold" }
+	end
+	if not HoldUtil.accepts(info, def.Kind) then
+		return { ok = false, reason = if def.Kind == "Hand" then "feet only" else "hands only" }
+	end
+	if not ClimbMath.inReach(rootPosition, HoldUtil.getGripCFrame(hold).Position, def.Reach, CLIMB.ReachTolerance) then
+		return { ok = false, reason = "out of reach" }
+	end
+	return { ok = true, hold = hold }
+end
+
+local function onRequest(player: Player, action: any, limb: any, holdId: any)
+	if not limiter:allow(player) then
+		return
+	end
+	local rig = rigs[player]
+	if rig == nil or rig.humanoid.Health <= 0 or type(action) ~= "string" then
+		return
+	end
+
+	if action == "Place" then
+		local result = ClimbService.CheckPlace(rig.root.Position, limb, holdId)
+		if result.ok then
+			setLimb(rig, limb :: string, result.hold)
+		else
+			rejectedEvent:FireClient(player, if type(limb) == "string" then limb else "", result.reason)
+		end
+	elseif action == "Release" then
+		if type(limb) == "string" and Config.Limbs[limb] then
+			setLimb(rig, limb, nil)
+		end
+	elseif action == "LetGo" or action == "Dyno" then
+		releaseAll(rig)
+	end
+end
+
+local function onCharacter(player: Player, character: Model)
+	rigs[player] = nil
+	local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
+	local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
+	if humanoid == nil or root == nil or character.Parent == nil then
+		return
+	end
+	local ik = ClimbService.buildIK(character, humanoid)
+	if ik == nil then
+		return -- R6 or broken rig: Main.server already warns about R6
+	end
+	local rig: Rig = { character = character, humanoid = humanoid, root = root, ik = ik, farFor = 0 }
+	rigs[player] = rig
+	humanoid.Died:Connect(function()
+		if rigs[player] == rig then
+			releaseAll(rig)
+		end
+	end)
+end
+
+-- Takes players off the wall if their body is implausibly far from what they hold
+-- (teleport exploits, physics glitches), or if a hold they were on disappears.
+local function watchdog(dt: number)
+	for player, rig in rigs do
+		if rig.character.Parent == nil then
+			rigs[player] = nil
+			continue
+		end
+		local far = false
+		for _, limb in Config.LimbOrder do
+			local id = rig.character:GetAttribute(ClimbService.attributeName(limb))
+			if type(id) ~= "string" then
+				continue
+			end
+			local hold = HoldService.GetHold(id)
+			if hold == nil then
+				setLimb(rig, limb, nil)
+				continue
+			end
+			local reach = Config.Limbs[limb].Reach + CLIMB.WatchdogExtra
+			if not ClimbMath.inReach(rig.root.Position, HoldUtil.getGripCFrame(hold).Position, reach) then
+				far = true
+			end
+		end
+		rig.farFor = if far then rig.farFor + dt else 0
+		if rig.farFor >= CLIMB.WatchdogSeconds then
+			warn(`[ClimbService] {player.Name} was too far from their holds; taken off the wall`)
+			releaseAll(rig)
+		end
+	end
+end
+
+function ClimbService.Init()
+	rejectedEvent = Remotes.event("ClimbRejected")
+	Remotes.event("ClimbRequest").OnServerEvent:Connect(onRequest)
+end
+
+function ClimbService.Start()
+	local function watchPlayer(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			onCharacter(player, character)
+		end)
+		if player.Character then
+			task.spawn(onCharacter, player, player.Character)
+		end
+	end
+	Players.PlayerAdded:Connect(watchPlayer)
+	for _, player in Players:GetPlayers() do
+		watchPlayer(player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		rigs[player] = nil
+		limiter:forget(player)
+	end)
+
+	local elapsed = 0
+	RunService.Heartbeat:Connect(function(dt)
+		elapsed += dt
+		if elapsed >= WATCHDOG_INTERVAL then
+			watchdog(elapsed)
+			elapsed = 0
+		end
+	end)
+end
+
+return ClimbService

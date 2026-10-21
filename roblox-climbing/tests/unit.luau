@@ -5,6 +5,7 @@
 local HoldTypes = require("../src/shared/HoldTypes")
 local Layout = require("../src/server/World/TestWallLayout")
 local Holds = Layout.Holds
+local RateLimiter = require("../src/shared/RateLimiter")
 
 local passed, failed = 0, 0
 local function test(name: string, fn: () -> ())
@@ -152,6 +153,42 @@ test("there are footholds below the start holds", function()
 		end
 	end
 	expect(feet >= 2, `feet={feet}`)
+end)
+
+
+-- RateLimiter ---------------------------------------------------------------
+
+test("RateLimiter allows a burst, then refuses", function()
+	local limiter = RateLimiter.new(10, 3)
+	for i = 1, 3 do
+		expect(limiter:allow("p", 0), `burst request {i}`)
+	end
+	expect(not limiter:allow("p", 0), "4th in the same instant is refused")
+end)
+
+test("RateLimiter refills at its rate and caps at the burst", function()
+	local limiter = RateLimiter.new(10, 3)
+	for _ = 1, 3 do
+		limiter:allow("p", 0)
+	end
+	expect(not limiter:allow("p", 0.05), "half a token after 0.05 s")
+	expect(limiter:allow("p", 0.2), "a token after 0.1 s more")
+	-- A long wait refills only up to the burst.
+	local allowed = 0
+	for _ = 1, 10 do
+		if limiter:allow("p", 100) then
+			allowed += 1
+		end
+	end
+	expect(allowed == 3, `allowed {allowed} after a long wait`)
+end)
+
+test("RateLimiter keys are independent and can be forgotten", function()
+	local limiter = RateLimiter.new(1, 1)
+	expect(limiter:allow("a", 0) and limiter:allow("b", 0))
+	expect(not limiter:allow("a", 0))
+	limiter:forget("a")
+	expect(limiter:allow("a", 0), "forgotten key starts with a full bucket")
 end)
 
 print(`\n{passed} passed, {failed} failed`)

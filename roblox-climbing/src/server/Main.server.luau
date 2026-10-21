@@ -1,7 +1,7 @@
 --!strict
 -- Server entry point. The only Script on the server; everything else is a ModuleScript.
 -- Order: rig check -> lighting + missing world pieces -> Init every service -> Start every service.
--- Later stages add their services to SERVICE_ORDER (ClimbService, StaminaService, ...).
+-- Later stages add their services to SERVICE_ORDER (StaminaService, RopeService, ...).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,6 +12,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared").Config)
 local Server = script.Parent
 local SERVICE_ORDER = {
 	"HoldService",
+	"ClimbService",
 }
 
 print(`[{Config.GameName}] server v{Config.Version}`)
@@ -37,6 +38,8 @@ Players.PlayerAdded:Connect(watchPlayer)
 for _, player in Players:GetPlayers() do
 	watchPlayer(player)
 end
+
+require(ReplicatedStorage.Shared.Remotes).setup()
 
 -- Build missing world pieces. A failure here is reported but doesn't stop the services.
 local function buildStep(name: string, run: () -> ())
@@ -73,5 +76,6 @@ end
 if Config.Debug.RunSelfChecksInStudio and RunService:IsStudio() then
 	task.defer(function()
 		require(Server.Diagnostics.Stage1Check).Run()
+		require(Server.Diagnostics.Stage2Check).Run()
 	end)
 end

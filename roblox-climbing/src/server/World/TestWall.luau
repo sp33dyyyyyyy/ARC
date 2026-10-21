@@ -538,6 +538,7 @@ function TestWall.Build(): Folder
 	route:SetAttribute("HeightStuds", Layout.Height)
 	route:SetAttribute("HeightMeters", math.round(Config.studsToMeters(Layout.Height) * 100) / 100)
 	route:SetAttribute("Indoor", true)
+	route:SetAttribute("BaseY", frame.origin.Y) -- floor level; the height counter measures from here
 
 	buildWallBody(frame, route)
 	local covered = buildHolds(frame, route)

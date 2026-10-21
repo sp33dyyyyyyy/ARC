@@ -10,6 +10,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Client = script.Parent
 local CONTROLLER_ORDER = {
 	"HoldInspector",
+	"ClimbController",
 }
 
 print(`[{Config.GameName}] client v{Config.Version}`)

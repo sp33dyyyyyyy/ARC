@@ -6,7 +6,7 @@
 local Config = {}
 
 Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.1.1-stage1"
+Config.Version = "0.2.0-stage2"
 
 Config.METERS_PER_STUD = 0.28
 
@@ -21,25 +21,89 @@ end
 export type LimbKind = "Hand" | "Foot"
 export type LimbDef = {
 	Kind: LimbKind,
-	Key: Enum.KeyCode,
-	-- Max distance from the HumanoidRootPart to a hold's grip point (used from Stage 2).
+	Key: Enum.KeyCode, -- selects the limb (then click a hold); dragging the limb works too
+	-- Max distance from the HumanoidRootPart to a hold's grip point. Matches a default-scale
+	-- R15 arm/leg at full stretch, so IK can always reach a hold the game lets you take.
 	Reach: number,
+	-- R15 parts for the IKControl chain, and where the elbow/knee points (a "pole"),
+	-- relative to `PoleTorso`. Elbows point down and back, knees out to the side.
+	ChainRoot: string,
+	EndEffector: string,
+	PoleTorso: string,
+	Pole: Vector3,
 }
 
--- Limb keys from the design doc: Q/E hands, Z/C feet.
 Config.Limbs = {
-	LeftHand = { Kind = "Hand", Key = Enum.KeyCode.Q, Reach = 4.2 } :: LimbDef,
-	RightHand = { Kind = "Hand", Key = Enum.KeyCode.E, Reach = 4.2 } :: LimbDef,
-	LeftFoot = { Kind = "Foot", Key = Enum.KeyCode.Z, Reach = 3.8 } :: LimbDef,
-	RightFoot = { Kind = "Foot", Key = Enum.KeyCode.C, Reach = 3.8 } :: LimbDef,
+	LeftHand = { Kind = "Hand", Key = Enum.KeyCode.Q, Reach = 3.7, ChainRoot = "LeftUpperArm", EndEffector = "LeftHand", PoleTorso = "UpperTorso", Pole = Vector3.new(-2.5, -1.5, 1.5) } :: LimbDef,
+	RightHand = { Kind = "Hand", Key = Enum.KeyCode.E, Reach = 3.7, ChainRoot = "RightUpperArm", EndEffector = "RightHand", PoleTorso = "UpperTorso", Pole = Vector3.new(2.5, -1.5, 1.5) } :: LimbDef,
+	LeftFoot = { Kind = "Foot", Key = Enum.KeyCode.Z, Reach = 3.1, ChainRoot = "LeftUpperLeg", EndEffector = "LeftFoot", PoleTorso = "LowerTorso", Pole = Vector3.new(-2.5, -0.5, -1.5) } :: LimbDef,
+	RightFoot = { Kind = "Foot", Key = Enum.KeyCode.C, Reach = 3.1, ChainRoot = "RightUpperLeg", EndEffector = "RightFoot", PoleTorso = "LowerTorso", Pole = Vector3.new(2.5, -0.5, -1.5) } :: LimbDef,
 }
 Config.LimbOrder = { "LeftHand", "RightHand", "LeftFoot", "RightFoot" }
+
+-- Climbing (Stage 2). Distances in studs.
+Config.Climb = {
+	-- Body placement around the attached holds (see ClimbMath.solveBody).
+	BodyOffset = 1.1, -- HumanoidRootPart distance out from the wall
+	MinWallGap = 0.9, -- never closer than this (torso would clip the wall)
+	HangBelowHands = 2.6, -- hands only: hang this far below them
+	StandAboveFeet = 2.7, -- feet only: stand this far above them
+	HandBias = 0.45, -- hands + feet: body sits this fraction of the way from feet to hands
+	ShiftRange = Vector2.new(1.5, 1.5), -- WASD weight shift, right/left and up/down
+	ReachSlack = 0.95, -- body keeps every attached limb within Reach * this
+
+	-- Body constraints (AlignPosition / AlignOrientation on the HumanoidRootPart).
+	AlignResponsiveness = 14,
+	AlignMaxVelocity = 18,
+	AlignMaxForce = 60000,
+
+	-- Input and feedback.
+	PickRadiusPx = 42, -- how close (pixels) to a hand/foot a click must be to grab it
+	ClickMovePx = 8, -- a press that moves less than this is a click (select), not a drag
+	SnapRadius = 1.2, -- dropping this close to a hold snaps onto it
+	MarkerRange = 16, -- show hold markers within this distance while placing a limb
+	PendingTimeout = 2, -- seconds to wait for the server before undoing a prediction
+
+	-- Server rules.
+	ReachTolerance = 1.5, -- extra reach allowed for latency
+	RequestsPerSecond = 20,
+	RequestBurst = 30,
+	WatchdogExtra = 4, -- body further than Reach + this from a held hold...
+	WatchdogSeconds = 1, -- ...for this long is forced off the wall
+
+	-- Dyno: hold Space to charge, aim with the mouse, release to jump for a hold.
+	Dyno = {
+		ChargeTime = 0.9,
+		MinCharge = 0.15, -- releasing below this cancels
+		MinSpeed = 16,
+		MaxSpeed = 40,
+		UpBoost = 6, -- extra upward speed to fight gravity
+		MaxAimDistance = 10,
+		CatchWindow = 1.0, -- seconds after launch a hand can still catch a hold
+		CatchRadius = 1.4, -- a free hand this close to a hand hold grabs it
+	},
+
+	Keys = {
+		LetGo = Enum.KeyCode.V,
+		Dyno = Enum.KeyCode.Space,
+	},
+
+	-- Colours from the reference video: green = hands, teal = feet.
+	Colors = {
+		Hand = Color3.fromRGB(92, 230, 92),
+		Foot = Color3.fromRGB(63, 209, 201),
+		OutOfReach = Color3.fromRGB(235, 80, 80),
+		Selected = Color3.fromRGB(255, 214, 64),
+		Attached = Color3.fromRGB(255, 255, 255),
+		Free = Color3.fromRGB(160, 168, 184),
+	},
+}
 
 Config.Debug = {
 	-- Hover a hold with the mouse to see its type/quality. Toggle in game with H.
 	HoldInspectorKey = Enum.KeyCode.H,
-	HoldInspectorStartsOn = true,
-	-- Run Diagnostics/Stage1Check when you press Play in Studio (never on live servers).
+	HoldInspectorStartsOn = false,
+	-- Run the Diagnostics checks when you press Play in Studio (never on live servers).
 	RunSelfChecksInStudio = true,
 }
 

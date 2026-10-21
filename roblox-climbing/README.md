@@ -2,7 +2,7 @@
 
 A skill-based rock climbing game for Roblox: four limbs placed one at a time, stamina, ropes, routes and leaderboards. It is built one stage at a time (see the design doc's Build Order).
 
-**Current stage: 1, project structure plus one test wall with 20 tagged holds.**
+**Current stage: 2, limb-by-limb climbing (click and drag each hand/foot onto holds), weight shifting and dynos, on the realistic test wall from Stage 1.**
 
 Swap the placeholder name in `src/shared/Config.luau` (`Config.GameName`).
 
@@ -18,6 +18,10 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/shared/Tags.luau` | `ReplicatedStorage.Shared.Tags` | ModuleScript |
 | `src/shared/HoldTypes.luau` | `ReplicatedStorage.Shared.HoldTypes` | ModuleScript |
 | `src/shared/HoldUtil.luau` | `ReplicatedStorage.Shared.HoldUtil` | ModuleScript |
+| `src/shared/ClimbMath.luau` | `ReplicatedStorage.Shared.ClimbMath` | ModuleScript |
+| `src/shared/Remotes.luau` | `ReplicatedStorage.Shared.Remotes` | ModuleScript |
+| `src/shared/RateLimiter.luau` | `ReplicatedStorage.Shared.RateLimiter` | ModuleScript |
+| `src/server/Services/ClimbService.luau` | `ServerScriptService.Server.Services.ClimbService` | ModuleScript |
 | `src/server/Main.server.luau` | `ServerScriptService.Server.Main` | **Script** |
 | `src/server/Services/HoldService.luau` | `ServerScriptService.Server.Services.HoldService` | ModuleScript |
 | `src/server/World/TestWall.luau` | `ServerScriptService.Server.World.TestWall` | ModuleScript |
@@ -27,8 +31,11 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/server/World/BuildUtil.luau` | `ServerScriptService.Server.World.BuildUtil` | ModuleScript |
 | `src/server/World/Environment.luau` | `ServerScriptService.Server.World.Environment` | ModuleScript |
 | `src/server/Diagnostics/Stage1Check.luau` | `ServerScriptService.Server.Diagnostics.Stage1Check` | ModuleScript |
+| `src/server/Diagnostics/Stage2Check.luau` | `ServerScriptService.Server.Diagnostics.Stage2Check` | ModuleScript |
 | `src/client/Main.client.luau` | `StarterPlayer.StarterPlayerScripts.Client.Main` | **LocalScript** |
 | `src/client/Controllers/HoldInspector.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.HoldInspector` | ModuleScript |
+| `src/client/Controllers/ClimbController.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbController` | ModuleScript |
+| `src/client/Controllers/ClimbOverlay.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbOverlay` | ModuleScript |
 
 `Shared`, `Server`, `Services`, `World`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
 
@@ -152,8 +159,8 @@ Press **Play** in Studio and check:
 
 1. **Output shows the self-check passing.** You should see `[HoldService] 20 holds registered`, then a list of `[Stage1Check] PASS …` lines ending in **`[Stage1Check] 11 passed, 0 failed`**. Any `FAIL` line names the hold or part at fault.
 2. **You spawn facing the wall.** You see a painted plywood wall with seams and a grid of T-nuts, shaped holds with bolts and chalk, a dark segmented crash mat with a green taped start box, floodlights on arms above the wall, and the route sign on the right. Walk behind the wall to see the steel frame, and look at its edges to see the plywood. Nothing should flicker as you move the camera. Your character is R15, with no R6 warning in Output.
-3. **Hover inspector works.** Move the mouse over any hold. It gets an outline and a tooltip with its type, id, `Quality`, whether hands/feet may use it, and its height in metres. The start jugs say **START**, the top jug says **FINISH**, and footholds show `Hands no`.
-4. **Press H.** The inspector turns off. Press H again and it turns back on. On a touch device, tap a hold instead of hovering. Hovering a hold's lip, bolt or chalk also selects the hold. Hovering a chalk smear or T-nut on the wall selects nothing.
+3. **Hover inspector works.** Press H to turn it on, then move the mouse over any hold. It gets an outline and a tooltip with its type, id, `Quality`, whether hands/feet may use it, and its height in metres. The start jugs say **START**, the top jug says **FINISH**, and footholds show `Hands no`.
+4. **Press H.** The inspector turns on (it starts off from Stage 2, so it doesn't get in the way of climbing). Press H again and it turns off. On a touch device, tap a hold instead of hovering. Hovering a hold's lip, bolt or chalk also selects the hold. Hovering a chalk smear or T-nut on the wall selects nothing.
 5. **Attributes are visible in Studio.** While playing, select `Workspace.Routes.TestWall.Holds.05_Jug`. The Attributes panel shows `HoldType = Jug`, `Quality = 0.9`, `HandOK = true`, `FootOK = true`, `HoldId = TestWall_05`, `Role = Start`, and it has a `Grip` attachment.
 6. **Robustness:** stop, set one hold's `HoldType` to `Banana` in edit mode (after building the wall in edit mode), then press Play. Output warns `invalid HoldType Banana; using Edge`, and the tooltip shows the hold as Edge. Undo afterwards.
 7. **Re-run the check any time** from the server command bar during Play:
@@ -168,10 +175,61 @@ cd roblox-climbing
 luau tests/unit.luau
 ```
 
-Expected: `12 passed, 0 failed`.
+Expected: `15 passed, 0 failed`.
 
 ---
 
-## Coming in Stage 2
+## Climbing (Stage 2)
 
-Limb selection (Q/E/Z/C) with a ring on the active limb, click-to-place on holds within reach (green/red hover), R15 `IKControl` arms and legs, WASD weight-shift driven by `AlignPosition`, and the first RemoteEvents (with rate limiting) for server-validated limb placement. These go in `ClimbService` (server) and `ClimbController` (client).
+The climbing works like the reference video: third-person camera, and you **click and drag each limb onto a hold**.
+
+| Control | What it does |
+|---|---|
+| **Drag a hand or foot** onto a hold | That limb grabs the hold. Rings show on your hands and feet when you're near the wall. |
+| While dragging | Holds light up: **green** = a hand can reach it, **teal** = a foot can reach it, **red** = too far. Wrong-type holds stay unlit (footholds are feet-only, pinches hands-only). |
+| Drop on empty wall | That limb lets go. With nothing held you fall off. |
+| **Click a limb**, or press **Q / E / Z / C** | Selects left hand / right hand / left foot / right foot (yellow ring). Then click a hold. |
+| **Click a hold** with nothing selected | The nearest free limb that can reach it takes it. That's also how you get on the wall from the mat. |
+| **W A S D** | Shift your weight: the body moves around the holds. Use it to get a far hold in reach. |
+| **Hold Space**, aim, release | Dyno. An ellipse grows around you while it charges. You launch towards the cursor, and a free hand that passes near a hand hold catches it. Otherwise you fall. |
+| **V** | Let go of the wall. |
+| Mobile | Drag limbs with your finger. Dyno and Let go appear as on-screen buttons while climbing. |
+| Gamepad | A = dyno, B = let go. Gamepad limb placement comes in Stage 10. |
+
+The height above the floor shows in a pill at the top centre while you climb.
+
+**How it works**
+
+- `ClimbService` (server) is the authority. It stores what each limb holds as character attributes (`Climb_LeftHand = "TestWall_05"`). It validates every request: rate limit, argument types, hold exists, right limb type, and within reach of the body plus a small latency allowance. It refuses everything else.
+- Every character gets four **IKControls** (made on the server, so everyone sees everyone's arms and legs on the holds). Each targets the hold's `Grip` attachment.
+- `ClimbController` (client) predicts each request so it feels instant, and rolls back if the server refuses. It holds the body with an `AlignPosition` + `AlignOrientation` at the spot `ClimbMath.solveBody` picks. That spot is between your hands and feet (or hanging below your hands), 1.1 studs off the wall, shifted by WASD, and never further than each limb can reach.
+- Anti-cheat: if your body stays further than reach + 4 studs from what you hold for a second, the server takes you off the wall.
+- Reach (studs from the HumanoidRootPart): hands **3.7**, feet **3.1**. These match a default R15 arm/leg at full stretch, so the IK can always actually touch a hold the game lets you take. All tuning is in `Config.Climb`.
+- Rules this stage: **one hand** is enough to hang (shaky). Stamina makes that costly in Stage 3. Falling off the wall uses normal physics. Ropes, ragdoll and fall damage come in Stage 4.
+
+I simulated the test wall with exactly these reach rules (every limb, every hold, every WASD shift). It can be climbed from the mat to the finish jug, and every hold on it is reachable.
+
+## Stage 2 test checklist
+
+Press **Play** and check:
+
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 12 passed, 0 failed`**. Stage2Check tests the remotes, the IK rig on a test dummy, 8 server reach/type cases and the body solver.
+2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
+3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
+4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").
+5. **Weight shift.** Hold W and the body moves up. A/D move it sideways. Holds that were red turn green as you shift towards them.
+6. **Select and click.** Press Q (yellow ring on the left hand), then click a hold. Or click a hold with nothing selected, and the nearest limb that can reach it takes it.
+7. **Let a limb go.** Drag a limb off a hold onto empty wall. That limb dangles and the body re-settles.
+8. **Dyno.** Hold Space: the ellipse grows and a white dot shows the aim. Aim at a hold above and release. You fly towards it and a hand catches it if it passes close. Aim at empty wall and you fall to the mat.
+9. **V** drops you off the wall onto the mat.
+10. **Multiplayer view.** Use Test → Clients and Servers → 2 players. Each player sees the other's arms and legs on the holds.
+11. **Server authority.** Rejected requests show "Can't grab: …" and the limb snaps back.
+
+Run the checks again any time from the server command bar:
+`require(game.ServerScriptService.Server.Diagnostics.Stage2Check).Run()`
+
+---
+
+## Coming in Stage 3
+
+Stamina and grip: per-arm pump that drains by hold type and quality, number of limbs on, body stretch, wall angle and cut feet. A stamina bar next to the climber that goes blue to orange to red. Resting on jugs and stances recovers. An arm at zero lets go.
