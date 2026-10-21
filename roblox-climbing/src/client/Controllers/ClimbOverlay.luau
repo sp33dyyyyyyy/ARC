@@ -48,9 +48,11 @@ end
 function ClimbOverlay.init()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 
+	-- Adornments and billboards live in Workspace so they always render. This folder is
+	-- created by the client, so it exists only for this player.
 	folder = Instance.new("Folder")
 	folder.Name = "ClimbOverlay"
-	folder.Parent = playerGui
+	folder.Parent = Workspace
 
 	screen = Instance.new("ScreenGui")
 	screen.Name = "ClimbHud"
@@ -189,8 +191,9 @@ function ClimbOverlay.setDragDot(position: Vector3?, color: Color3?)
 	dragDot.Visible = true
 end
 
--- Dyno charge 0..1 around `root`, aiming at `aim`. nil root hides it.
-function ClimbOverlay.setDyno(root: BasePart?, charge: number?, aim: Vector3?)
+-- Dyno charge 0..1 around `root`, aiming at `aim` (dot in `aimColor`, white if nil).
+-- nil root hides it.
+function ClimbOverlay.setDyno(root: BasePart?, charge: number?, aim: Vector3?, aimColor: Color3?)
 	if root == nil or charge == nil then
 		dynoGui.Enabled = false
 		aimDot.Visible = false
@@ -203,7 +206,7 @@ function ClimbOverlay.setDyno(root: BasePart?, charge: number?, aim: Vector3?)
 	if aim then
 		aimDot.CFrame = CFrame.new(aim)
 		aimDot.Radius = 0.3
-		aimDot.Color3 = Color3.new(1, 1, 1)
+		aimDot.Color3 = aimColor or Color3.new(1, 1, 1)
 		aimDot.Transparency = 0.2
 		aimDot.Visible = true
 	else

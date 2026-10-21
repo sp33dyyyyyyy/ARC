@@ -166,16 +166,23 @@ Press **Play** in Studio and check:
 7. **Re-run the check any time** from the server command bar during Play:
    `require(game.ServerScriptService.Server.Diagnostics.Stage1Check).Run()`
 
-### Offline unit tests
+### Offline tests
 
-The pure-data modules (hold types and wall layout) have unit tests that run without Studio, using the [Luau CLI](https://github.com/luau-lang/luau/releases):
+These run without Studio, using the [Luau CLI](https://github.com/luau-lang/luau/releases) and Python 3:
 
 ```
 cd roblox-climbing
-luau tests/unit.luau
+python3 tests/run.py          # or: LUAU=/path/to/luau python3 tests/run.py
 ```
 
-Expected: `15 passed, 0 failed`.
+- `tests/unit.luau` (15 tests) covers hold types, the wall layout and the rate limiter.
+- `tests/climbing.luau` (12 tests) runs the **real** `Config`, `ClimbMath` and wall-layout code with stand-ins for Roblox's `Vector3`/`Vector2` (`tests/mocks.luau`). It covers:
+  - the body solver: resting poses, weight shift, never leaving a limb behind;
+  - the floor clamp;
+  - the dyno, including a 240 Hz physics integration check that the jump lands where it's aimed under Roblox gravity;
+  - a search over every limb/hold/shift combination proving the test wall can be climbed from the mat to the finish.
+
+Expected: `ALL TESTS PASSED`.
 
 ---
 
@@ -191,7 +198,7 @@ The climbing works like the reference video: third-person camera, and you **clic
 | **Click a limb**, or press **Q / E / Z / C** | Selects left hand / right hand / left foot / right foot (yellow ring). Then click a hold. |
 | **Click a hold** with nothing selected | The nearest free limb that can reach it takes it. That's also how you get on the wall from the mat. |
 | **W A S D** | Shift your weight: the body moves around the holds. Use it to get a far hold in reach. |
-| **Hold Space**, aim, release | Dyno. An ellipse grows around you while it charges. You launch towards the cursor, and a free hand that passes near a hand hold catches it. Otherwise you fall. |
+| **Hold Space**, aim at a hold, release | Dyno. An ellipse grows around you while it charges. The aim dot turns **green** once the charge is enough to reach the hold under the cursor. On release you fly on a real ballistic arc, both hands reach for the hold, and the nearer hand grabs it when it's in reach. Too little charge falls short and you drop. |
 | **V** | Let go of the wall. |
 | Mobile | Drag limbs with your finger. Dyno and Let go appear as on-screen buttons while climbing. |
 | Gamepad | A = dyno, B = let go. Gamepad limb placement comes in Stage 10. |
@@ -203,24 +210,28 @@ The height above the floor shows in a pill at the top centre while you climb.
 - `ClimbService` (server) is the authority. It stores what each limb holds as character attributes (`Climb_LeftHand = "TestWall_05"`). It validates every request: rate limit, argument types, hold exists, right limb type, and within reach of the body plus a small latency allowance. It refuses everything else.
 - Every character gets four **IKControls** (made on the server, so everyone sees everyone's arms and legs on the holds). Each targets the hold's `Grip` attachment.
 - `ClimbController` (client) predicts each request so it feels instant, and rolls back if the server refuses. It holds the body with an `AlignPosition` + `AlignOrientation` at the spot `ClimbMath.solveBody` picks. That spot is between your hands and feet (or hanging below your hands), 1.1 studs off the wall, shifted by WASD, and never further than each limb can reach.
-- Anti-cheat: if your body stays further than reach + 4 studs from what you hold for a second, the server takes you off the wall.
+- Anti-cheat: if your body stays further than reach + 4 studs from what you hold for a second, the server takes you off the wall. For 2 seconds after a dyno, the server allows 4 extra studs of reach for the catch, because its copy of your position lags behind you in flight.
+- **Arms and legs don't collide with the world** (collision group `ClimberLimbs`). IK can press hands and feet onto holds without the wall shoving the body around. The torso and head still collide.
+- **Near the floor** (hanging from the start holds), the body stands on the mat instead of sinking into it.
+- Roblox's own ladder climbing is switched off for the character, so it can't take over on wall features.
+- **Camera**: third person only (zoom 6 to 40 studs), like the reference. It's set on `StarterPlayer` by the Rojo project. If you set things up by hand, set `CameraMinZoomDistance` to 6 there.
 - Reach (studs from the HumanoidRootPart): hands **3.7**, feet **3.1**. These match a default R15 arm/leg at full stretch, so the IK can always actually touch a hold the game lets you take. All tuning is in `Config.Climb`.
 - Rules this stage: **one hand** is enough to hang (shaky). Stamina makes that costly in Stage 3. Falling off the wall uses normal physics. Ropes, ragdoll and fall damage come in Stage 4.
 
-I simulated the test wall with exactly these reach rules (every limb, every hold, every WASD shift). It can be climbed from the mat to the finish jug, and every hold on it is reachable.
+The offline tests run the real solver over every limb, hold and WASD shift, and prove the test wall can be climbed from the mat to the finish jug with every hold reachable.
 
 ## Stage 2 test checklist
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 12 passed, 0 failed`**. Stage2Check tests the remotes, the IK rig on a test dummy, 8 server reach/type cases and the body solver.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 13 passed, 0 failed`**. Stage2Check tests the remotes, the IK rig on a test dummy, the limb collision group, 8 server reach/type cases and the body solver.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").
 5. **Weight shift.** Hold W and the body moves up. A/D move it sideways. Holds that were red turn green as you shift towards them.
 6. **Select and click.** Press Q (yellow ring on the left hand), then click a hold. Or click a hold with nothing selected, and the nearest limb that can reach it takes it.
 7. **Let a limb go.** Drag a limb off a hold onto empty wall. That limb dangles and the body re-settles.
-8. **Dyno.** Hold Space: the ellipse grows and a white dot shows the aim. Aim at a hold above and release. You fly towards it and a hand catches it if it passes close. Aim at empty wall and you fall to the mat.
+8. **Dyno.** Hold Space: the ellipse grows and a dot shows the aim. Point at a hand hold above. The dot is yellow while the charge is too low and turns green when it's enough. Release on green: you arc up, both hands reach for the hold, and one grabs it. Release early and you fall short onto the mat.
 9. **V** drops you off the wall onto the mat.
 10. **Multiplayer view.** Use Test → Clients and Servers → 2 players. Each player sees the other's arms and legs on the holds.
 11. **Server authority.** Rejected requests show "Can't grab: …" and the limb snaps back.

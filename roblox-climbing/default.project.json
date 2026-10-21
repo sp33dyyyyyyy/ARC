@@ -17,7 +17,9 @@
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "$properties": {
-        "GameSettingsAvatar": "R15"
+        "GameSettingsAvatar": "R15",
+        "CameraMinZoomDistance": 6,
+        "CameraMaxZoomDistance": 40
       },
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",

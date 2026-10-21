@@ -14,6 +14,7 @@
 -- The body itself is moved by the owning client (it owns its character's physics);
 -- the server only checks that it stays plausible.
 
+local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -28,6 +29,12 @@ local Remotes = require(Shared.Remotes)
 local HoldService = require(script.Parent.HoldService)
 
 local CLIMB = Config.Climb
+local DYNO = CLIMB.Dyno
+-- R15 arm and leg parts; they go in Config.Climb.LimbCollisionGroup.
+local LIMB_PARTS = {
+	"LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand",
+	"LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot",
+}
 local ATTRIBUTE_PREFIX = "Climb_"
 local WATCHDOG_INTERVAL = 0.25
 
@@ -39,6 +46,7 @@ type Rig = {
 	root: BasePart,
 	ik: { [string]: IKControl },
 	farFor: number, -- seconds the body has been implausibly far from its holds
+	dynoUntil: number, -- os.clock() until which a dyno catch gets extra reach tolerance
 }
 
 local rigs: { [Player]: Rig } = {}
@@ -118,7 +126,8 @@ end
 export type PlaceCheck = { ok: boolean, reason: string?, hold: BasePart? }
 
 -- The reach rule, shared by the remote handler and the Diagnostics.
-function ClimbService.CheckPlace(rootPosition: Vector3, limb: any, holdId: any): PlaceCheck
+-- `extraTolerance` widens reach (used right after a dyno, when the server's view lags).
+function ClimbService.CheckPlace(rootPosition: Vector3, limb: any, holdId: any, extraTolerance: number?): PlaceCheck
 	local def = if type(limb) == "string" then Config.Limbs[limb] else nil
 	if def == nil then
 		return { ok = false, reason = "unknown limb" }
@@ -134,7 +143,7 @@ function ClimbService.CheckPlace(rootPosition: Vector3, limb: any, holdId: any):
 	if not HoldUtil.accepts(info, def.Kind) then
 		return { ok = false, reason = if def.Kind == "Hand" then "feet only" else "hands only" }
 	end
-	if not ClimbMath.inReach(rootPosition, HoldUtil.getGripCFrame(hold).Position, def.Reach, CLIMB.ReachTolerance) then
+	if not ClimbMath.inReach(rootPosition, HoldUtil.getGripCFrame(hold).Position, def.Reach, CLIMB.ReachTolerance + (extraTolerance or 0)) then
 		return { ok = false, reason = "out of reach" }
 	end
 	return { ok = true, hold = hold }
@@ -150,7 +159,8 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 	end
 
 	if action == "Place" then
-		local result = ClimbService.CheckPlace(rig.root.Position, limb, holdId)
+		local extra = if os.clock() < rig.dynoUntil then DYNO.ServerExtraTolerance else 0
+		local result = ClimbService.CheckPlace(rig.root.Position, limb, holdId, extra)
 		if result.ok then
 			setLimb(rig, limb :: string, result.hold)
 		else
@@ -160,8 +170,11 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 		if type(limb) == "string" and Config.Limbs[limb] then
 			setLimb(rig, limb, nil)
 		end
-	elseif action == "LetGo" or action == "Dyno" then
+	elseif action == "LetGo" then
 		releaseAll(rig)
+	elseif action == "Dyno" then
+		releaseAll(rig)
+		rig.dynoUntil = os.clock() + DYNO.ServerGrace
 	end
 end
 
@@ -176,7 +189,13 @@ local function onCharacter(player: Player, character: Model)
 	if ik == nil then
 		return -- R6 or broken rig: Main.server already warns about R6
 	end
-	local rig: Rig = { character = character, humanoid = humanoid, root = root, ik = ik, farFor = 0 }
+	for _, name in LIMB_PARTS do
+		local part = character:FindFirstChild(name)
+		if part and part:IsA("BasePart") then
+			part.CollisionGroup = CLIMB.LimbCollisionGroup
+		end
+	end
+	local rig: Rig = { character = character, humanoid = humanoid, root = root, ik = ik, farFor = 0, dynoUntil = 0 }
 	rigs[player] = rig
 	humanoid.Died:Connect(function()
 		if rigs[player] == rig then
@@ -218,6 +237,12 @@ local function watchdog(dt: number)
 end
 
 function ClimbService.Init()
+	-- Arms and legs pass through the world, so IK can put hands and feet on holds without
+	-- the wall pushing the body around. The torso and head still collide.
+	if not PhysicsService:IsCollisionGroupRegistered(CLIMB.LimbCollisionGroup) then
+		PhysicsService:RegisterCollisionGroup(CLIMB.LimbCollisionGroup)
+	end
+	PhysicsService:CollisionGroupSetCollidable(CLIMB.LimbCollisionGroup, "Default", false)
 	rejectedEvent = Remotes.event("ClimbRejected")
 	Remotes.event("ClimbRequest").OnServerEvent:Connect(onRequest)
 end

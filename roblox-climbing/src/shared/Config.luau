@@ -6,7 +6,7 @@
 local Config = {}
 
 Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.2.0-stage2"
+Config.Version = "0.2.1-stage2"
 
 Config.METERS_PER_STUD = 0.28
 
@@ -47,7 +47,7 @@ Config.Climb = {
 	BodyOffset = 1.1, -- HumanoidRootPart distance out from the wall
 	MinWallGap = 0.9, -- never closer than this (torso would clip the wall)
 	HangBelowHands = 2.6, -- hands only: hang this far below them
-	StandAboveFeet = 2.7, -- feet only: stand this far above them
+	StandAboveFeet = 2.3, -- feet only: stand this far above them (legs slightly bent)
 	HandBias = 0.45, -- hands + feet: body sits this fraction of the way from feet to hands
 	ShiftRange = Vector2.new(1.5, 1.5), -- WASD weight shift, right/left and up/down
 	ReachSlack = 0.95, -- body keeps every attached limb within Reach * this
@@ -70,17 +70,25 @@ Config.Climb = {
 	RequestBurst = 30,
 	WatchdogExtra = 4, -- body further than Reach + this from a held hold...
 	WatchdogSeconds = 1, -- ...for this long is forced off the wall
+	GroundCrouch = 0.4, -- near the floor the body may crouch this much below standing height
+	-- Arms and legs go in this collision group, which doesn't collide with the world, so IK
+	-- can press hands and feet onto holds without the wall shoving the body around.
+	LimbCollisionGroup = "ClimberLimbs",
 
-	-- Dyno: hold Space to charge, aim with the mouse, release to jump for a hold.
+	-- Dyno: hold Space to charge, aim at a hold with the mouse, release to jump for it.
+	-- The jump follows a real ballistic arc under Roblox gravity (ClimbMath.planDyno).
 	Dyno = {
-		ChargeTime = 0.9,
+		ChargeTime = 0.9, -- seconds to full charge
 		MinCharge = 0.15, -- releasing below this cancels
-		MinSpeed = 16,
-		MaxSpeed = 40,
-		UpBoost = 6, -- extra upward speed to fight gravity
-		MaxAimDistance = 10,
-		CatchWindow = 1.0, -- seconds after launch a hand can still catch a hold
-		CatchRadius = 1.4, -- a free hand this close to a hand hold grabs it
+		MinDistance = 2, -- how far the body can travel at minimum charge...
+		MaxDistance = 10, -- ...and at full charge; too little charge falls short
+		CatchBelow = 1.6, -- the body aims this far below the target hold
+		FlightTimeBase = 0.2, -- flight time = base + per stud * distance
+		FlightTimePerStud = 0.035,
+		CatchGrace = 0.35, -- extra seconds after arriving to still catch a hold
+		CatchRadius = 1.4, -- a free hand this close to any hand hold grabs it
+		ServerGrace = 2, -- seconds after a dyno the server allows extra reach for catches...
+		ServerExtraTolerance = 4, -- ...of this many studs (its view of you lags in flight)
 	},
 
 	Keys = {

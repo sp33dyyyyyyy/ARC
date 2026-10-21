@@ -3,6 +3,7 @@
 -- Play in Studio and prints PASS/FAIL lines to Output. Re-run from the server command bar:
 --     require(game.ServerScriptService.Server.Diagnostics.Stage2Check).Run()
 
+local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -69,6 +70,12 @@ function Stage2Check.Run(): boolean
 	else
 		check("IK rig: 4 IKControls with the right chains and poles", false, `could not create a test dummy: {dummy}`)
 	end
+
+	local group = Config.Climb.LimbCollisionGroup
+	check(
+		`collision group "{group}" exists and ignores the world`,
+		PhysicsService:IsCollisionGroupRegistered(group) and not PhysicsService:CollisionGroupsAreCollidable(group, "Default")
+	)
 
 	-- Server reach/type rules, from a climber standing on the start pad
 	local route = TestWall.Find()

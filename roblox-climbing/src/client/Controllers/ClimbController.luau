@@ -57,6 +57,7 @@ local ClimbController = {}
 local requestEvent: RemoteEvent
 local controls: any = nil -- PlayerModule ControlModule (WASD / thumbstick / gamepad)
 local rayParams = RaycastParams.new()
+local groundParams = RaycastParams.new()
 
 -- Character
 local character: Model? = nil
@@ -80,7 +81,7 @@ local pointer: Vector2? = nil -- viewport coordinates
 local dragTargets: { [string]: Attachment } = {}
 local dynoCharge: number? = nil
 local flightUntil: number? = nil
-local flightAim: Vector3? = nil
+local flightHold: BasePart? = nil -- the hold a dyno is aimed at
 local wallNormal = Vector3.zAxis
 
 ---------------------------------------------------------------------------------------
@@ -212,7 +213,7 @@ local function exitClimb()
 	drag = nil
 	dynoCharge = nil
 	flightUntil = nil
-	flightAim = nil
+	flightHold = nil
 	setAligns(false)
 	ContextActionService:UnbindAction(ACTION_DYNO)
 	ContextActionService:UnbindAction(ACTION_LET_GO)
@@ -271,10 +272,10 @@ local function viewportPoint(input: InputObject): Vector2
 	return UserInputService:GetMouseLocation()
 end
 
-local function pickLimb(point: Vector2): string?
+local function pickLimb(point: Vector2): (string?, number)
 	local camera = Workspace.CurrentCamera
 	if camera == nil then
-		return nil
+		return nil, math.huge
 	end
 	local best, bestDistance = nil, CLIMB.PickRadiusPx
 	for limb, part in limbParts do
@@ -286,7 +287,7 @@ local function pickLimb(point: Vector2): string?
 			end
 		end
 	end
-	return best
+	return best, bestDistance
 end
 
 local function nearestHold(point: Vector3, radius: number, filter: (BasePart) -> boolean): BasePart?
@@ -300,12 +301,12 @@ local function nearestHold(point: Vector3, radius: number, filter: (BasePart) ->
 	return best
 end
 
--- What's under the pointer: the world point and the hold `limb` would take there
--- (the hold itself, or one within SnapRadius of the point).
-local function probe(point: Vector2, limb: string?): (Vector3?, BasePart?)
+-- What's under the pointer: the world point, the hold `limb` would take there (the hold
+-- itself, or one within SnapRadius of the point), and whether the pointer is right on it.
+local function probe(point: Vector2, limb: string?): (Vector3?, BasePart?, boolean)
 	local camera = Workspace.CurrentCamera
 	if camera == nil then
-		return nil, nil
+		return nil, nil, false
 	end
 	rayParams.FilterDescendantsInstances = if character then { character } else {}
 	local ray = camera:ViewportPointToRay(point.X, point.Y)
@@ -325,12 +326,12 @@ local function probe(point: Vector2, limb: string?): (Vector3?, BasePart?)
 		return limb == nil or accepts(limb, hold)
 	end
 	if hit and fits(hit) then
-		return worldPoint, hit
+		return worldPoint, hit, true
 	end
 	if worldPoint then
-		return worldPoint, nearestHold(worldPoint, CLIMB.SnapRadius, fits)
+		return worldPoint, nearestHold(worldPoint, CLIMB.SnapRadius, fits), false
 	end
-	return nil, nil
+	return nil, nil, false
 end
 
 -- The limb that should take `hold` when it is clicked with nothing selected:
@@ -362,20 +363,31 @@ end
 ---------------------------------------------------------------------------------------
 -- Dyno
 
-local function dynoAim(): Vector3?
-	if pointer == nil or root == nil then
-		return nil
+-- What the dyno is aimed at: the hand hold under the pointer, or just a point on the wall.
+local function dynoAim(): (Vector3?, BasePart?)
+	if pointer == nil then
+		return nil, nil
 	end
 	local point, hold = probe(pointer, "LeftHand")
-	local aim = if hold then gripPosition(hold) else point
+	if hold then
+		return gripPosition(hold), hold
+	end
+	return point, nil
+end
+
+-- Where a dyno with `charge` would carry the body, how long it flies, the hold it is aimed
+-- at, and whether that hold will be in reach on arrival (enough charge).
+local function planDyno(charge: number): (Vector3?, number, BasePart?, boolean)
+	if root == nil then
+		return nil, 0, nil, false
+	end
+	local aim, hold = dynoAim()
 	if aim == nil then
-		return nil
+		return nil, 0, nil, false
 	end
-	local offset = aim - root.Position
-	if offset.Magnitude > DYNO.MaxAimDistance then
-		aim = root.Position + offset.Unit * DYNO.MaxAimDistance
-	end
-	return aim
+	local arrival, time = ClimbMath.planDyno(root.Position, aim, wallNormal, charge, CLIMB.BodyOffset, DYNO)
+	local reaches = hold ~= nil and ClimbMath.inReach(arrival, aim, Config.Limbs.LeftHand.Reach * CLIMB.ReachSlack)
+	return arrival, time, hold, reaches
 end
 
 function launchDyno()
@@ -385,34 +397,52 @@ function launchDyno()
 	if charge == nil or charge < DYNO.MinCharge or not climbing or root == nil then
 		return
 	end
-	local aim = dynoAim()
-	if aim == nil or (aim - root.Position).Magnitude < 0.5 then
+	local arrival, time, hold = planDyno(charge)
+	if arrival == nil or (arrival - root.Position).Magnitude < 0.5 then
 		return
 	end
-	local speed = DYNO.MinSpeed + (DYNO.MaxSpeed - DYNO.MinSpeed) * charge
 	for _, limb in Config.LimbOrder do
 		pending[limb] = { holdId = nil, at = os.clock() }
 	end
 	requestEvent:FireServer("Dyno")
 	setAligns(false)
-	root.AssemblyLinearVelocity = (aim - root.Position).Unit * speed + Vector3.yAxis * DYNO.UpBoost
-	flightUntil = os.clock() + DYNO.CatchWindow
-	flightAim = aim
+	-- A real ballistic arc under Roblox gravity, landing at `arrival` after `time` seconds.
+	root.AssemblyLinearVelocity = ClimbMath.ballisticVelocity(root.Position, arrival, time, Workspace.Gravity)
+	root.AssemblyAngularVelocity = Vector3.zero
+	flightUntil = os.clock() + time + DYNO.CatchGrace
+	flightHold = hold
 end
 
--- During a dyno: a free hand that passes close to a hand hold grabs it.
+local function closestFreeHand(hold: BasePart): string?
+	local best, bestDistance = nil, math.huge
+	for _, limb in { "LeftHand", "RightHand" } do
+		local hand = limbParts[limb]
+		if hand and heldId(limb) == nil then
+			local distance = (hand.Position - gripPosition(hold)).Magnitude
+			if distance < bestDistance then
+				best, bestDistance = limb, distance
+			end
+		end
+	end
+	return best
+end
+
+-- During a dyno: grab the aimed-at hold as soon as it is in reach, or any hand hold a
+-- free hand passes close to.
 local function tryCatch()
+	local aimed = flightHold
+	if aimed and aimed.Parent and inReach("LeftHand", aimed) then
+		local limb = closestFreeHand(aimed)
+		if limb and requestPlace(limb, aimed) then
+			return
+		end
+	end
 	for _, limb in { "LeftHand", "RightHand" } do
 		local hand = limbParts[limb]
 		if hand and heldId(limb) == nil then
 			local hold = nearestHold(hand.Position, DYNO.CatchRadius, function(h)
 				return accepts(limb, h) and inReach(limb, h)
 			end)
-			if hold == nil and flightAim and (hand.Position - flightAim).Magnitude < DYNO.CatchRadius then
-				hold = nearestHold(flightAim, CLIMB.SnapRadius, function(h)
-					return accepts(limb, h) and inReach(limb, h)
-				end)
-			end
 			if hold and requestPlace(limb, hold) then
 				return
 			end
@@ -430,7 +460,12 @@ local function beginPointer(input: InputObject)
 	local point = viewportPoint(input)
 	pointer = point
 
-	local limb = pickLimb(point)
+	local limb, limbDistance = pickLimb(point)
+	-- Pointer right on a different hold and not right on the limb: the click is for the hold.
+	local _, directHold, direct = probe(point, nil)
+	if limb and direct and directHold and heldId(limb) ~= holdId(directHold) and limbDistance > CLIMB.PickRadiusPx * 0.4 then
+		limb = nil
+	end
 	if limb and (climbing or nearWall()) then
 		drag = {
 			limb = limb,
@@ -464,6 +499,14 @@ local function endPointer(input: InputObject)
 		return
 	end
 	drag = nil
+	-- Settle the drop from where the pointer is now; a quick flick can end between frames.
+	local point = viewportPoint(input)
+	if (point - current.start).Magnitude > CLIMB.ClickMovePx then
+		current.moved = true
+		local _, hold = probe(point, current.limb)
+		current.candidate = hold
+		current.valid = hold ~= nil and inReach(current.limb, hold)
+	end
 	if not current.moved then
 		-- A click on a limb selects it (click again to deselect).
 		selected = if selected == current.limb then nil else current.limb
@@ -554,6 +597,9 @@ local function updateIK()
 		elseif flightUntil == nil then
 			local hold = heldHold(limb)
 			target = hold and hold:FindFirstChild(HoldUtil.GRIP_ATTACHMENT)
+		elseif flightHold and limbKind(limb) == "Hand" then
+			-- Mid-dyno both hands reach for the target hold.
+			target = flightHold:FindFirstChild(HoldUtil.GRIP_ATTACHMENT)
 		end
 		-- Written every frame: the server also sets these, and this client's view of its own
 		-- character must follow its predictions.
@@ -565,6 +611,13 @@ local function updateIK()
 			control.Enabled = enabled
 		end
 	end
+end
+
+-- Height of the floor under `position` (collidable parts only, so holds are ignored).
+local function groundBelow(position: Vector3): number?
+	groundParams.FilterDescendantsInstances = if character then { character } else {}
+	local result = Workspace:Raycast(position + Vector3.yAxis, Vector3.yAxis * -12, groundParams)
+	return if result then result.Position.Y else nil
 end
 
 local function updateBody(grips: { ClimbMath.Grip })
@@ -592,6 +645,11 @@ local function updateBody(grips: { ClimbMath.Grip })
 		end
 	end
 	local body = ClimbMath.solveBody(grips, wallNormal, shift, CLIMB)
+	if root and humanoid then
+		-- Hanging low from the start holds: stand on the mat instead of sinking into it.
+		local standingHeight = humanoid.HipHeight + root.Size.Y / 2
+		body = ClimbMath.clampAboveGround(body, groundBelow(body), standingHeight, CLIMB.GroundCrouch)
+	end
 	alignPosition.Position = body
 	alignOrientation.CFrame = CFrame.lookAt(body, body - wallNormal)
 end
@@ -631,7 +689,7 @@ local function step(dt: number)
 		if flightUntil then
 			if #grips > 0 then
 				flightUntil = nil
-				flightAim = nil
+				flightHold = nil
 				setAligns(true)
 			elseif now > flightUntil then
 				exitClimb()
@@ -650,7 +708,10 @@ local function step(dt: number)
 	end
 	if dynoCharge then
 		dynoCharge = math.min(1, dynoCharge + dt / DYNO.ChargeTime)
-		ClimbOverlay.setDyno(root, dynoCharge, dynoAim())
+		local aim, hold = dynoAim()
+		local _, _, _, reaches = planDyno(dynoCharge)
+		-- Aim dot: green once the charge is enough to reach the hold under the cursor.
+		ClimbOverlay.setDyno(root, dynoCharge, aim, if reaches then COLORS.Hand elseif hold then COLORS.Selected else nil)
 	end
 
 	updateDrag()
@@ -708,6 +769,8 @@ local function onCharacter(newCharacter: Model)
 	if newCharacter ~= player.Character then
 		return -- respawned while we were waiting; the newer call sets things up
 	end
+	-- Roblox's own ladder climbing must never take over on the wall's features.
+	newHumanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
 
 	-- Body constraints. Created by this client: it owns its character's physics, and the
 	-- server checks the result (ClimbService watchdog).
@@ -721,6 +784,7 @@ local function onCharacter(newCharacter: Model)
 	position.MaxForce = CLIMB.AlignMaxForce
 	position.MaxVelocity = CLIMB.AlignMaxVelocity
 	position.Responsiveness = CLIMB.AlignResponsiveness
+	position.ApplyAtCenterOfMass = true -- pull the body without tipping it
 	position.Enabled = false
 	position.Parent = newRoot
 	local orientation = Instance.new("AlignOrientation")
@@ -755,6 +819,8 @@ function ClimbController.Init()
 	requestEvent = Remotes.event("ClimbRequest")
 	ClimbOverlay.init()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	groundParams.FilterType = Enum.RaycastFilterType.Exclude
+	groundParams.RespectCanCollide = true
 
 	for _, limb in Config.LimbOrder do
 		local target = Instance.new("Attachment")

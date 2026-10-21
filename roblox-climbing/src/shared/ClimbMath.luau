@@ -100,6 +100,54 @@ function ClimbMath.solveBody(grips: { Grip }, normal: Vector3, shift: Vector2, t
 	return body, satisfied
 end
 
+-- Raises `body` so a climber hanging near the floor stands on it instead of sinking in.
+-- `groundY` is the floor height under the body (nil = no floor found).
+function ClimbMath.clampAboveGround(body: Vector3, groundY: number?, standingHeight: number, crouch: number): Vector3
+	if groundY == nil then
+		return body
+	end
+	local lowest = groundY + standingHeight - crouch
+	if body.Y < lowest then
+		return Vector3.new(body.X, lowest, body.Z)
+	end
+	return body
+end
+
+export type DynoTuning = {
+	MinDistance: number,
+	MaxDistance: number,
+	CatchBelow: number,
+	FlightTimeBase: number,
+	FlightTimePerStud: number,
+}
+
+-- Plans a dyno from `root` towards a hold whose grip is at `grip` on a wall facing
+-- `normal`. The body aims for where it would hang from that hold (below it and out from
+-- the wall). `charge` (0..1) sets how far the jump can go; a weak jump falls short.
+-- Returns where the body will arrive and how long the flight takes.
+function ClimbMath.planDyno(root: Vector3, grip: Vector3, normal: Vector3, charge: number, bodyOffset: number, tuning: DynoTuning): (Vector3, number)
+	local _, up = ClimbMath.wallAxes(normal)
+	local desired = grip - up * tuning.CatchBelow + normal * bodyOffset
+	local offset = desired - root
+	local maxDistance = tuning.MinDistance + (tuning.MaxDistance - tuning.MinDistance) * math.clamp(charge, 0, 1)
+	if offset.Magnitude > maxDistance then
+		offset = offset.Unit * maxDistance
+	end
+	local time = tuning.FlightTimeBase + tuning.FlightTimePerStud * offset.Magnitude
+	return root + offset, time
+end
+
+-- Roblox steps physics at 240 Hz.
+ClimbMath.PHYSICS_STEP = 1 / 240
+
+-- Launch velocity that carries a body from `from` to `to` in `time` seconds under
+-- `gravity` (studs/s^2, positive; Roblox's default is 196.2). The extra half step makes up
+-- for stepped integration (speed is updated before position each step), which would
+-- otherwise land a little low.
+function ClimbMath.ballisticVelocity(from: Vector3, to: Vector3, time: number, gravity: number): Vector3
+	return (to - from) / time + Vector3.yAxis * (0.5 * gravity * (time + ClimbMath.PHYSICS_STEP))
+end
+
 -- Point where a ray hits the plane through `planePoint` with normal `normal`, if in front.
 function ClimbMath.rayPlane(origin: Vector3, direction: Vector3, planePoint: Vector3, normal: Vector3): Vector3?
 	local denominator = direction:Dot(normal)
