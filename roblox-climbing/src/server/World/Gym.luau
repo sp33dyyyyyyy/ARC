@@ -18,17 +18,19 @@
 --     require(game.ServerScriptService.Server.World.Gym).Rebuild()
 
 local CollectionService = game:GetService("CollectionService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
+local Gear = require(Shared.Gear)
 local Tags = require(Shared.Tags)
 
 local BuildUtil = require(script.Parent.BuildUtil)
 local Face = require(script.Parent.Face)
 local PanelWall = require(script.Parent.PanelWall)
+local Npc = require(script.Parent.Npc)
+local Props = require(script.Parent.Props)
 local RouteGenerator = require(script.Parent.RouteGenerator)
 local RouteKit = require(script.Parent.RouteKit)
 
@@ -97,33 +99,40 @@ local function hangingSign(parent: Instance, text: string, center: Vector3, faci
 	end
 end
 
--- A potted plant: concrete planter with a full, rounded shrub.
+-- A Creator Store prop (see Props), with `fallback` building the stand-in.
+local function prop(parent: Instance, key: string, position: Vector3, facing: Vector3, size: Vector3, fallback: (Model) -> ()): Model
+	return Props.slot(parent, key, Props.at(position, facing), size, fallback)
+end
+
+-- A potted plant (three kinds, in turn). Stand-in: a concrete planter with a rounded shrub.
+local PLANTS = { "plant_palm", "plant_floor", "plant_fig" }
+local plantCount = 0
 local function plant(parent: Instance, position: Vector3, scale: number?)
 	local s = scale or 1
-	local model = Instance.new("Model")
-	model.Name = "Plant"
-	part({
-		name = "Planter",
-		size = Vector3.new(2.4 * s, 2.2 * s, 2.2 * s),
-		cframe = CFrame.new(position + Vector3.yAxis * (1.2 * s)) * BuildUtil.AXIS_Y,
-		surface = "Planter",
-		shape = Enum.PartType.Cylinder,
-		collide = true,
-		query = true,
-		parent = model,
-	})
-	for i, offset in { Vector3.new(0, 3.6, 0), Vector3.new(0.6, 4.6, 0.3), Vector3.new(-0.5, 5.2, -0.3), Vector3.new(0.1, 6.0, 0.1) } do
+	plantCount += 1
+	prop(parent, PLANTS[(plantCount - 1) % #PLANTS + 1], position, Vector3.new(0, 0, 1), Vector3.new(3.6, 7, 3.6) * s, function(model)
 		part({
-			name = "Leaves",
-			size = Vector3.new(3.2 - i * 0.35, 2.6 - i * 0.2, 3.0 - i * 0.3) * s,
-			cframe = CFrame.new(position + offset * s) * CFrame.Angles(0, i * 1.3, 0),
-			surface = "Leaves",
-			color = Color3.fromRGB(52 + i * 6, 104 + i * 8, 58),
-			ellipsoid = true,
+			name = "Planter",
+			size = Vector3.new(2.4 * s, 2.2 * s, 2.2 * s),
+			cframe = CFrame.new(position + Vector3.yAxis * (1.2 * s)) * BuildUtil.AXIS_Y,
+			surface = "Planter",
+			shape = Enum.PartType.Cylinder,
+			collide = true,
+			query = true,
 			parent = model,
 		})
-	end
-	model.Parent = parent
+		for i, offset in { Vector3.new(0, 3.6, 0), Vector3.new(0.6, 4.6, 0.3), Vector3.new(-0.5, 5.2, -0.3), Vector3.new(0.1, 6.0, 0.1) } do
+			part({
+				name = "Leaves",
+				size = Vector3.new(3.2 - i * 0.35, 2.6 - i * 0.2, 3.0 - i * 0.3) * s,
+				cframe = CFrame.new(position + offset * s) * CFrame.Angles(0, i * 1.3, 0),
+				surface = "Leaves",
+				color = Color3.fromRGB(52 + i * 6, 104 + i * 8, 58),
+				ellipsoid = true,
+				parent = model,
+			})
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------------------
@@ -292,32 +301,14 @@ local function buildSpawn(model: Model)
 	end
 end
 
-local function npc(name: string, position: Vector3, facing: Vector3, parent: Instance, shirt: Color3)
-	local ok, model = pcall(function()
-		local description = Instance.new("HumanoidDescription")
-		description.HeadColor = Color3.fromRGB(234, 184, 146)
-		description.LeftArmColor = shirt
-		description.RightArmColor = shirt
-		description.TorsoColor = shirt
-		description.LeftLegColor = Color3.fromRGB(30, 36, 60)
-		description.RightLegColor = Color3.fromRGB(30, 36, 60)
-		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
-	end)
-	if not ok or model == nil then
-		return
-	end
-	model.Name = name
-	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	if root and humanoid then
-		root.Anchored = true
-		-- Feet exactly on the floor: the root sits HipHeight + half its height above it.
-		local y = humanoid.HipHeight + root.Size.Y / 2
-		model:PivotTo(CFrame.lookAt(position + Vector3.yAxis * y, position + Vector3.yAxis * y + facing))
-		humanoid.DisplayName = name
-		humanoid.NameDisplayDistance = 30
-	end
-	model.Parent = parent
+-- Gym staff and climbers, some in real climbing gear from the catalog.
+local GEAR = {
+	climber = { hat = 92040460524357, waist = 12765457067 }, -- Roc helmet, orange chalk bag
+	shop = { hat = 133255040917706, back = 119212407294452, waist = 12765420893 }, -- Aurora, Bravo pack, blue chalk bag
+	desk = { waist = 12765476571 },
+}
+local function npc(name: string, position: Vector3, facing: Vector3, parent: Instance, shirt: Color3, gear: Npc.Gear?)
+	Npc.spawn(name, position, facing, parent, shirt, gear)
 end
 
 -- A counter: charcoal body, white-oak top, a thin orange line at the toe.
@@ -337,7 +328,7 @@ local function buildReception(model: Model)
 	part({ name = "MonitorStand", size = Vector3.new(0.3, 0.8, 0.3), cframe = cframe * CFrame.new(-2, 2.3, 0.5), surface = "BlackSteel", parent = desk })
 	local screen = part({ name = "Monitor", size = Vector3.new(2.6, 1.6, 0.12), cframe = cframe * CFrame.new(-2, 3.4, 0.4), surface = "Charcoal", parent = desk })
 	label(screen, Enum.NormalId.Front, `<font color="#FF7A30">WELCOME</font>\nto {Config.GameName}`, WHITE, Enum.Font.Sarpanch, true)
-	npc("Front desk", center + Vector3.new(0, 0, 3), Vector3.new(0, 0, -1), desk, ORANGE)
+	npc("Front desk", center + Vector3.new(0, 0, 3), Vector3.new(0, 0, -1), desk, ORANGE, GEAR.desk)
 	RouteKit.addChalkBucket(desk, center + Vector3.new(-8, 0, -1))
 	plant(desk, center + Vector3.new(8, 0, 2))
 	desk.Parent = model
@@ -594,7 +585,7 @@ local function buildBoulders(model: Model)
 	end
 	RouteKit.addChalkBucket(hall, Vector3.new(-37, 0, -11))
 	hangingSign(hall, "BOULDERING", Vector3.new(-40, 24, 4), Vector3.new(1, 0, 0), 14)
-	npc("Climber", Vector3.new(-36, 0, 6), Vector3.new(-1, 0, 0), hall, Color3.fromRGB(40, 200, 200))
+	npc("Climber", Vector3.new(-36, 0, 6), Vector3.new(-1, 0, 0), hall, Color3.fromRGB(40, 200, 200), GEAR.climber)
 	hall.Parent = model
 end
 
@@ -745,6 +736,19 @@ end
 ---------------------------------------------------------------------------------------
 -- Pro shop (right), lockers (front left), lounge (front right), training corner
 
+-- A real catalog item (pack, helmet, chalk bag) on display, standing at `position`
+-- facing `facing`, fitted into `size`. ShopService swaps the stand-in for the item.
+local function gearDisplay(parent: Instance, assetId: number, position: Vector3, facing: Vector3, size: Vector3, fallback: (Model) -> ())
+	local model = Instance.new("Model")
+	model.Name = "GearDisplay"
+	model:SetAttribute("DisplayAsset", assetId)
+	model:SetAttribute("Base", Props.at(position, facing))
+	model:SetAttribute("FitSize", size)
+	fallback(model)
+	model.Parent = parent
+	CollectionService:AddTag(model, "GearDisplay")
+end
+
 -- A little product on a shelf, for the shop's displays.
 local function product(parent: Instance, kind: string, position: Vector3, color: Color3)
 	if kind == "shoe" then
@@ -768,17 +772,42 @@ local function buildShop(model: Model)
 	-- Shelving along the right wall: an oak back panel and four shelves of gear.
 	standing("ShelfBack", Vector3.new(0.3, 12, 20), Vector3.new(63.75, 0, 11), "WhiteOak", shop)
 	local colors = { Color3.fromRGB(255, 122, 48), Color3.fromRGB(60, 140, 240), Color3.fromRGB(40, 190, 120), Color3.fromRGB(230, 60, 80), Color3.fromRGB(240, 210, 60), Color3.fromRGB(150, 90, 220) }
-	for level, kind in { "shoe", "chalkbag", "rope", "pack" } do
+	-- The real catalog gear on display: chalk bags, helmets and packs (ShopService puts
+	-- the actual items on the shelves; the simple products are stand-ins).
+	local chalkLooks = Gear.CHALK_BAGS
+	local helmets: { Gear.Variant }, packs: { Gear.Variant } = {}, {}
+	for _, item in Gear.ITEMS do
+		local looks: { Gear.Variant } = item.variants or {}
+		for _, look in looks do
+			table.insert(if item.slot == "Helmet" then helmets else packs, look)
+		end
+	end
+	local shelves: { { kind: string, looks: { Gear.Variant } } } = {
+		{ kind = "shoe", looks = {} },
+		{ kind = "chalkbag", looks = chalkLooks },
+		{ kind = "helmet", looks = helmets },
+		{ kind = "pack", looks = packs },
+	}
+	for level, shelf in shelves do
 		local y = 1.6 + (level - 1) * 2.6
 		box("Shelf", Vector3.new(2, 0.2, 20), Vector3.new(62.6, y, 11), "WhiteOak", shop)
 		for i = 0, 6 do
-			product(shop, kind, Vector3.new(62.6, y + 0.1, 2.5 + i * 2.8), colors[(i + level) % #colors + 1])
+			local spot = Vector3.new(62.6, y + 0.1, 2.5 + i * 2.8)
+			local color = colors[(i + level) % #colors + 1]
+			local look = shelf.looks[(i % math.max(1, #shelf.looks)) + 1]
+			if look then
+				gearDisplay(shop, look.asset, spot, Vector3.new(-1, 0, 0), Vector3.new(1.6, if shelf.kind == "pack" then 2.2 else 1.4, 1.6), function(m)
+					product(m, if shelf.kind == "helmet" then "chalkbag" else shelf.kind, spot, look.color)
+				end)
+			else
+				product(shop, shelf.kind, spot, color)
+			end
 		end
 	end
 	local cframe = counter(shop, "Counter", Vector3.new(48, 0, 11), 9, Vector3.new(-1, 0, 0))
 	local till = part({ name = "Till", size = Vector3.new(1.6, 1.1, 0.12), cframe = cframe * CFrame.new(2.5, 2.5, 0.2) * CFrame.Angles(math.rad(-15), 0, 0), surface = "Charcoal", parent = shop })
 	label(till, Enum.NormalId.Front, `<font color="#FF7A30">💎</font> GEAR`, WHITE, Enum.Font.Sarpanch, true)
-	npc("Pro shop", Vector3.new(51, 0, 11), Vector3.new(-1, 0, 0), shop, Color3.fromRGB(42, 44, 50))
+	npc("Pro shop", Vector3.new(51, 0, 11), Vector3.new(-1, 0, 0), shop, Color3.fromRGB(42, 44, 50), GEAR.shop)
 	local promptPart = part({ name = "ShopPrompt", size = Vector3.new(1, 1, 1), cframe = cframe * CFrame.new(0, 2.4, 0), surface = "Charcoal", parent = shop })
 	promptPart.Transparency = 1
 	local prompt = Instance.new("ProximityPrompt")
@@ -809,23 +838,29 @@ local function buildLockers(model: Model)
 	for i = 0, 9 do
 		local z = 23 + i * 1.9
 		local paint = if i % 2 == 0 then "LockerPaint" else "Charcoal"
-		standing("Locker", Vector3.new(1.8, 7.2, 1.8), Vector3.new(-63, 0, z), paint, room)
-		local door = part({ name = "Door", size = Vector3.new(0.04, 6.6, 1.7), cframe = CFrame.new(-62.08, 3.6, z), surface = "WhiteOak", parent = room })
-		door.CastShadow = false
-		part({ name = "Handle", size = Vector3.new(0.12, 0.6, 0.12), cframe = CFrame.new(-62.0, 3.8, z + 0.6), surface = "BlackSteel", shadow = false, parent = room })
-		for v = 0, 2 do
-			part({ name = "Vent", size = Vector3.new(0.02, 0.06, 1.1), cframe = CFrame.new(-62.05, 6.2 - v * 0.2, z), surface = "Charcoal", shadow = false, parent = room })
-		end
+		prop(room, "locker", Vector3.new(-63, 0, z), Vector3.new(1, 0, 0), Vector3.new(1.8, 7.2, 1.8), function(m)
+			standing("Locker", Vector3.new(1.8, 7.2, 1.8), Vector3.new(-63, 0, z), paint, m)
+			local door = part({ name = "Door", size = Vector3.new(0.04, 6.6, 1.7), cframe = CFrame.new(-62.08, 3.6, z), surface = "WhiteOak", parent = m })
+			door.CastShadow = false
+			part({ name = "Handle", size = Vector3.new(0.12, 0.6, 0.12), cframe = CFrame.new(-62.0, 3.8, z + 0.6), surface = "BlackSteel", shadow = false, parent = m })
+			for v = 0, 2 do
+				part({ name = "Vent", size = Vector3.new(0.02, 0.06, 1.1), cframe = CFrame.new(-62.05, 6.2 - v * 0.2, z), surface = "Charcoal", shadow = false, parent = m })
+			end
+		end)
 	end
 	-- Bench and the bag station.
-	box("Bench", Vector3.new(2, 0.3, 12), Vector3.new(-57, 1.6, 32), "WhiteOak", room)
-	for _, z in { 27, 37 } do
-		standing("BenchLeg", Vector3.new(1.6, 1.45, 0.2), Vector3.new(-57, 0, z), "BlackSteel", room)
-	end
+	prop(room, "bench", Vector3.new(-57, 0, 32), Vector3.new(1, 0, 0), Vector3.new(10, 2.2, 2.4), function(m)
+		box("Bench", Vector3.new(2, 0.3, 12), Vector3.new(-57, 1.6, 32), "WhiteOak", m)
+		for _, z in { 27, 37 } do
+			standing("BenchLeg", Vector3.new(1.6, 1.45, 0.2), Vector3.new(-57, 0, z), "BlackSteel", m)
+		end
+	end)
 	standing("Mirror", Vector3.new(0.2, 8, 4), Vector3.new(-63.8, 1, 19.5), "Mirror", room)
 	local station = standing("BagStation", Vector3.new(2.4, 3.2, 2.4), Vector3.new(-50, 0, 36), "Charcoal", room)
 	box("StationTop", Vector3.new(2.8, 0.2, 2.8), Vector3.new(-50, 3.3, 36), "WhiteOak", room)
-	product(room, "pack", Vector3.new(-50, 3.4, 36), ORANGE)
+	gearDisplay(room, 128795521464166, Vector3.new(-50, 3.4, 36), Vector3.new(1, 0, 0), Vector3.new(2, 2.4, 2), function(m)
+		product(m, "pack", Vector3.new(-50, 3.4, 36), ORANGE)
+	end)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "OpenLocker"
 	prompt.ActionText = "Customise bag"
@@ -843,24 +878,40 @@ local function buildLounge(model: Model)
 	local lounge = Instance.new("Model")
 	lounge.Name = "Lounge"
 	-- Sofa against the right wall, facing into the gym.
-	standing("SofaSeat", Vector3.new(3, 1.4, 10), Vector3.new(61.5, 0, 34), "Upholstery", lounge)
-	standing("SofaBack", Vector3.new(1, 3.2, 10), Vector3.new(63.3, 0, 34), "Upholstery", lounge)
-	for _, z in { 28.6, 39.4 } do
-		standing("SofaArm", Vector3.new(4, 2.2, 0.8), Vector3.new(61.8, 0, z), "Upholstery", lounge)
-	end
-	for i, z in { 31, 34, 37 } do
-		part({ name = "Cushion", size = Vector3.new(0.6, 2, 2.2), cframe = CFrame.new(62.4, 2.4, z) * CFrame.Angles(0, 0, math.rad(-10)), surface = "Upholstery", color = if i == 2 then ORANGE else Color3.fromRGB(220, 214, 204), ellipsoid = true, parent = lounge })
-	end
+	prop(lounge, "sofa", Vector3.new(61.9, 0, 34), Vector3.new(-1, 0, 0), Vector3.new(10.8, 3.6, 4), function(m)
+		standing("SofaSeat", Vector3.new(3, 1.4, 10), Vector3.new(61.5, 0, 34), "Upholstery", m)
+		standing("SofaBack", Vector3.new(1, 3.2, 10), Vector3.new(63.3, 0, 34), "Upholstery", m)
+		for _, z in { 28.6, 39.4 } do
+			standing("SofaArm", Vector3.new(4, 2.2, 0.8), Vector3.new(61.8, 0, z), "Upholstery", m)
+		end
+		for i, z in { 31, 34, 37 } do
+			part({ name = "Cushion", size = Vector3.new(0.6, 2, 2.2), cframe = CFrame.new(62.4, 2.4, z) * CFrame.Angles(0, 0, math.rad(-10)), surface = "Upholstery", color = if i == 2 then ORANGE else Color3.fromRGB(220, 214, 204), ellipsoid = true, parent = m })
+		end
+	end)
 	standing("CoffeeTable", Vector3.new(3, 1.2, 5), Vector3.new(56.5, 0, 34), "WhiteOak", lounge)
 	-- Cafe bar along the front glass.
 	local cframe = counter(lounge, "CafeBar", Vector3.new(50, 0, 40.5), 10, Vector3.new(0, 0, -1))
-	part({ name = "CoffeeMachine", size = Vector3.new(1.4, 1.6, 1.1), cframe = cframe * CFrame.new(-3, 2.7, 0.3), surface = "BlackSteel", parent = lounge })
+	local barTop = (cframe * CFrame.new(-3, 1.9, 0.3)).Position
+	prop(lounge, "coffee", barTop, Vector3.new(0, 0, -1), Vector3.new(1.8, 1.9, 1.3), function(m)
+		part({ name = "CoffeeMachine", size = Vector3.new(1.4, 1.6, 1.1), cframe = cframe * CFrame.new(-3, 2.7, 0.3), surface = "BlackSteel", parent = m })
+	end)
 	for i = 0, 2 do
 		part({ name = "Cup", size = Vector3.new(0.35, 0.3, 0.3), cframe = cframe * CFrame.new(1 + i * 0.7, 2.08, 0) * BuildUtil.AXIS_Y, surface = "SoftWhite", shape = Enum.PartType.Cylinder, parent = lounge })
 	end
 	for _, x in { 46, 50, 54 } do
-		part({ name = "Stool", size = Vector3.new(2.4, 1.2, 1.2), cframe = CFrame.new(x, 1.2, 37.8) * BuildUtil.AXIS_Y, surface = "WhiteOak", shape = Enum.PartType.Cylinder, collide = true, query = true, parent = lounge })
+		prop(lounge, "stool", Vector3.new(x, 0, 37.8), Vector3.new(0, 0, 1), Vector3.new(1.5, 2.8, 1.5), function(m)
+			part({ name = "Stool", size = Vector3.new(2.4, 1.2, 1.2), cframe = CFrame.new(x, 1.2, 37.8) * BuildUtil.AXIS_Y, surface = "WhiteOak", shape = Enum.PartType.Cylinder, collide = true, query = true, parent = m })
+		end)
 	end
+	-- Vending machine in the corner and a water cooler by the door.
+	prop(lounge, "vending", Vector3.new(62.4, 0, 42.2), Vector3.new(-1, 0, 0), Vector3.new(3.2, 6.6, 2.6), function(m)
+		standing("Vending", Vector3.new(2.6, 6.4, 3.2), Vector3.new(62.4, 0, 42.2), "Charcoal", m)
+		box("VendingGlass", Vector3.new(0.05, 4.2, 2.2), Vector3.new(61.08, 3.8, 42.2), "ClearGlass", m)
+	end)
+	prop(lounge, "cooler", Vector3.new(10, 0, 42.4), Vector3.new(0, 0, -1), Vector3.new(1.4, 4.4, 1.4), function(m)
+		standing("Cooler", Vector3.new(1.2, 3, 1.2), Vector3.new(10, 0, 42.4), "SoftWhite", m)
+		part({ name = "Bottle", size = Vector3.new(1.2, 0.9, 0.9), cframe = CFrame.new(10, 3.6, 42.4) * BuildUtil.AXIS_Y, surface = "ClearGlass", shape = Enum.PartType.Cylinder, parent = m })
+	end)
 	hangingSign(lounge, "CAFÉ", Vector3.new(50, 18, 36), Vector3.new(0, 0, -1), 8)
 	plant(lounge, Vector3.new(42, 0, 42))
 	plant(lounge, Vector3.new(62, 0, 25), 1.2)
@@ -880,6 +931,13 @@ local function buildTraining(model: Model)
 		local size = 1 + i * 0.2
 		part({ name = "Kettlebell", size = Vector3.one * size, cframe = CFrame.new(-31 + i * 1.6, 0.06 + size / 2, 9), surface = "BlackSteel", shape = Enum.PartType.Ball, collide = true, query = true, parent = corner })
 	end
+	prop(corner, "benchpress", Vector3.new(-21, 0.06, 6), Vector3.new(-1, 0, 0), Vector3.new(4.5, 3.8, 6), function(m)
+		standing("PressBench", Vector3.new(1.2, 1.5, 4), Vector3.new(-21, 0.06, 6), "Upholstery", m)
+		for _, z in { 4, 8 } do
+			standing("Upright", Vector3.new(0.3, 3.6, 0.3), Vector3.new(-21, 0.06, z), "BlackSteel", m)
+		end
+		part({ name = "Bar", size = Vector3.new(6, 0.18, 0.18), cframe = CFrame.new(-21, 3.5, 6) * CFrame.Angles(0, math.rad(90), 0), surface = "Steel", shape = Enum.PartType.Cylinder, parent = m })
+	end)
 	plant(corner, Vector3.new(-18, 0, 10))
 	corner.Parent = model
 end

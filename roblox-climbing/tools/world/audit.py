@@ -21,9 +21,9 @@ import numpy as np
 
 GYM = (-66, 66, -42, 46)  # x0, x1, z0, z1 of the gym footprint (floor y = 0)
 GYM_FLOOR = 0.0
-GROUND = -0.5
+GROUND = 0.0
 # Parts that are meant to go into the floor/ground (foundations, rock, terrain-ish things).
-ALLOWED_SINK = ("Floor", "RockFace", "Plateau", "Mountain", "Ridge", "Snow", "Trunk", "Foundation", "Path", "Wall", "Clad", "Band", "Slat", "Post", "Core", "Mat", "Boulder", "Pad", "StartPad")
+ALLOWED_SINK = ("Floor", "Rock", "Bush", "Stone", "RockFace", "Plateau", "Mountain", "Ridge", "Snow", "Trunk", "Foundation", "Path", "Wall", "Clad", "Band", "Slat", "Post", "Core", "Mat", "Boulder", "Pad", "StartPad")
 
 
 def corners(p):

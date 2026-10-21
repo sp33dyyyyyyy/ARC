@@ -4,8 +4,8 @@
 -- PackColor / ChalkColor attributes) and sends requests.
 --   * Pro shop ("Browse gear" at the shop counter): tabs per slot, a card per item with
 --     what it does, its price and Buy / Equip / Equipped.
---   * Lockers ("Customise bag"): pick an owned pack and the pack and chalk-bag colours,
---     with a turning 3D preview.
+--   * Lockers ("Customise bag"): pick an owned pack, its colour, your chalk bag and your
+--     helmet's colour, from catalog pictures of the real items.
 -- Both close with the X, Escape, or by walking away.
 
 local Players = game:GetService("Players")
@@ -16,7 +16,6 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Gear = require(Shared.Gear)
-local GearModels = require(Shared.GearModels)
 local Remotes = require(Shared.Remotes)
 
 local NAVY = Color3.fromRGB(20, 22, 28)
@@ -38,10 +37,11 @@ local shopGems: TextLabel
 local shopMessage: TextLabel
 local lockerWindow: Frame
 local lockerPacks: Frame
-local lockerPackColors: Frame
-local lockerChalkColors: Frame
-local preview: ViewportFrame
-local previewModel: Model?
+local lockerPackLooks: Frame
+local lockerChalkLooks: Frame
+local lockerHelmetLooks: Frame
+local preview: ImageLabel
+local previewName: TextLabel
 local currentSlot: Gear.Slot = "Shoes"
 local openedAt: Vector3?
 
@@ -134,6 +134,19 @@ local function gems(): number
 	return if type(value) == "number" then value else 0
 end
 
+-- A catalog picture of asset `assetId`.
+local function thumbnail(parent: Instance, assetId: number, position: UDim2, size: number): ImageLabel
+	local image = Instance.new("ImageLabel")
+	image.Position = position
+	image.Size = UDim2.fromOffset(size, size)
+	image.BackgroundColor3 = Color3.fromRGB(28, 30, 36)
+	image.Image = `rbxthumb://type=Asset&id={assetId}&w=150&h=150`
+	image.ScaleType = Enum.ScaleType.Fit
+	corner(image, 8)
+	image.Parent = parent
+	return image
+end
+
 ---------------------------------------------------------------------------------------
 -- Pro shop
 
@@ -159,9 +172,16 @@ function GearUI.refreshShop()
 		card.BackgroundColor3 = CARD
 		corner(card, 10)
 		card.Parent = shopList
-		text(card, { Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -170, 0, 22), TextSize = 18, Text = item.name })
-		text(card, { Position = UDim2.fromOffset(14, 30), Size = UDim2.new(1, -170, 0, 18), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREY, TextTruncate = Enum.TextTruncate.AtEnd, Text = item.description })
-		text(card, { Position = UDim2.fromOffset(14, 50), Size = UDim2.new(1, -170, 0, 18), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREEN, Text = Gear.describeStats(item) })
+		-- Items that are real catalog accessories show their picture.
+		local look = Gear.variant(item, 1)
+		local left = 14
+		if look then
+			thumbnail(card, look.asset, UDim2.fromOffset(8, 6), 64)
+			left = 80
+		end
+		text(card, { Position = UDim2.fromOffset(left, 8), Size = UDim2.new(1, -156 - left, 0, 22), TextSize = 18, Text = item.name })
+		text(card, { Position = UDim2.fromOffset(left, 30), Size = UDim2.new(1, -156 - left, 0, 18), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREY, TextTruncate = Enum.TextTruncate.AtEnd, Text = item.description })
+		text(card, { Position = UDim2.fromOffset(left, 50), Size = UDim2.new(1, -156 - left, 0, 18), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREEN, Text = Gear.describeStats(item) })
 		local action: TextButton
 		if equipped == item.id then
 			action = button(card, "Equipped", Color3.fromRGB(80, 86, 100))
@@ -200,7 +220,7 @@ local function buildShop()
 	for _, slot in Gear.SLOTS do
 		local tab = button(shopTabs, Gear.SLOT_NAMES[slot], CARD)
 		tab.Name = slot
-		tab.Size = UDim2.new(0.2, -7, 1, 0)
+		tab.Size = UDim2.new(1 / #Gear.SLOTS, -7, 1, 0)
 		tab.Activated:Connect(function()
 			currentSlot = slot :: Gear.Slot
 			GearUI.refreshShop()
@@ -225,127 +245,118 @@ end
 ---------------------------------------------------------------------------------------
 -- Lockers
 
-local function updatePreview()
-	if previewModel then
-		previewModel:Destroy()
-		previewModel = nil
-	end
-	local packId = player:GetAttribute("Equip_Pack")
-	local model = GearModels.pack(if type(packId) == "string" then packId else "DayPack", Gear.color(player:GetAttribute("PackColor")))
-	local chalk = GearModels.chalkBag(Gear.color(player:GetAttribute("ChalkColor")))
-	chalk:PivotTo(CFrame.new(0.9, -1.1, 0.4))
-	for _, d in chalk:GetChildren() do
-		d.Parent = model
-	end
-	chalk:Destroy()
-	for _, d in model:GetDescendants() do
-		if d:IsA("BasePart") then
-			d.Anchored = true
-		end
-	end
-	model.Parent = preview
-	previewModel = model
+-- A tile showing look `variant` (its catalog picture), outlined when it's the one worn.
+local function lookTile(parent: Instance, variant: Gear.Variant, selected: boolean, onPick: () -> ())
+	local tile = Instance.new("ImageButton")
+	tile.Size = UDim2.fromOffset(52, 52)
+	tile.BackgroundColor3 = CARD
+	tile.Image = `rbxthumb://type=Asset&id={variant.asset}&w=150&h=150`
+	tile.ScaleType = Enum.ScaleType.Fit
+	corner(tile, 8)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = if selected then ORANGE else variant.color
+	stroke.Thickness = if selected then 3 else 1
+	stroke.Parent = tile
+	tile.Activated:Connect(onPick)
+	tile.Parent = parent
 end
 
-local function swatches(parent: Frame, slot: string, selected: any)
-	for _, child in parent:GetChildren() do
-		if child:IsA("TextButton") then
+local function clearTiles(row: Instance)
+	for _, child in row:GetChildren() do
+		if child:IsA("GuiButton") or child:IsA("TextLabel") then
 			child:Destroy()
 		end
-	end
-	for index, color in Gear.COLORS do
-		local swatch = Instance.new("TextButton")
-		swatch.Text = ""
-		swatch.Size = UDim2.fromOffset(30, 30)
-		swatch.BackgroundColor3 = color
-		corner(swatch, 15)
-		if selected == index then
-			local stroke = Instance.new("UIStroke")
-			stroke.Color = Color3.new(1, 1, 1)
-			stroke.Thickness = 3
-			stroke.Parent = swatch
-		end
-		swatch.Activated:Connect(function()
-			requestRemote:FireServer("Colour", slot, index)
-		end)
-		swatch.Parent = parent
 	end
 end
 
 function GearUI.refreshLocker()
-	for _, child in lockerPacks:GetChildren() do
-		if child:IsA("TextButton") then
-			child:Destroy()
-		end
-	end
+	clearTiles(lockerPacks)
 	local owned = ownedSet()
-	local equipped = player:GetAttribute("Equip_Pack")
+	local equippedPack = Gear.get(player:GetAttribute("Equip_Pack")) or Gear.default("Pack")
 	for _, item in Gear.inSlot("Pack") do
 		local mine = owned[item.id] == true
-		local pick = button(lockerPacks, if mine then item.name else `{item.name} (shop)`, if equipped == item.id then ORANGE elseif mine then CARD else Color3.fromRGB(28, 30, 36))
-		pick.TextColor3 = if equipped == item.id then Color3.fromRGB(14, 16, 22) else (if mine then Color3.new(1, 1, 1) else GREY)
-		pick.Size = UDim2.new(1, 0, 0, 34)
+		local worn = equippedPack.id == item.id
+		local pick = button(lockerPacks, if mine then item.name else `{item.name} (shop)`, if worn then ORANGE elseif mine then CARD else Color3.fromRGB(28, 30, 36))
+		pick.TextColor3 = if worn then Color3.fromRGB(14, 16, 22) else (if mine then Color3.new(1, 1, 1) else GREY)
+		pick.TextSize = 13
 		pick.Activated:Connect(function()
 			if mine then
 				requestRemote:FireServer("Equip", item.id)
 			end
 		end)
 	end
-	swatches(lockerPackColors, "Pack", player:GetAttribute("PackColor"))
-	swatches(lockerChalkColors, "ChalkBag", player:GetAttribute("ChalkColor"))
-	updatePreview()
+	clearTiles(lockerPackLooks)
+	local packIndex = player:GetAttribute("PackColor")
+	local packLooks: { Gear.Variant } = equippedPack.variants or {}
+	for index, variant in packLooks do
+		lookTile(lockerPackLooks, variant, packIndex == index, function()
+			requestRemote:FireServer("Colour", "Pack", index)
+		end)
+	end
+	clearTiles(lockerChalkLooks)
+	local chalkIndex = player:GetAttribute("ChalkColor")
+	for index, variant in Gear.CHALK_BAGS do
+		lookTile(lockerChalkLooks, variant, chalkIndex == index, function()
+			requestRemote:FireServer("Colour", "ChalkBag", index)
+		end)
+	end
+	clearTiles(lockerHelmetLooks)
+	local helmet = Gear.get(player:GetAttribute("Equip_Helmet")) or Gear.default("Helmet")
+	local helmetIndex = player:GetAttribute("HelmetColor")
+	if helmet.variants then
+		for index, variant in helmet.variants do
+			lookTile(lockerHelmetLooks, variant, helmetIndex == index, function()
+				requestRemote:FireServer("Colour", "Helmet", index)
+			end)
+		end
+	else
+		text(lockerHelmetLooks, { Size = UDim2.new(1, 0, 0, 40), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = GREY, TextWrapped = true, Text = "No helmet yet: they're at the pro shop." })
+	end
+	-- The big picture: the pack you're wearing.
+	local look = Gear.variant(equippedPack, packIndex)
+	preview.Image = if look then `rbxthumb://type=Asset&id={look.asset}&w=420&h=420` else ""
+	previewName.Text = if look then `{equippedPack.name} · {look.name}` else equippedPack.name
 end
 
-local function swatchRow(parent: Instance, y: number, title: string): Frame
-	text(parent, { Position = UDim2.fromOffset(250, y), Size = UDim2.fromOffset(280, 20), TextColor3 = GREY, TextSize = 14, Text = title })
+local function tileRow(parent: Instance, y: number, title: string, height: number): Frame
+	text(parent, { Position = UDim2.fromOffset(270, y), Size = UDim2.fromOffset(310, 18), TextColor3 = GREY, TextSize = 14, Text = title })
 	local row = Instance.new("Frame")
 	row.BackgroundTransparency = 1
-	row.Position = UDim2.fromOffset(250, y + 24)
-	row.Size = UDim2.fromOffset(290, 70)
+	row.Position = UDim2.fromOffset(270, y + 22)
+	row.Size = UDim2.fromOffset(316, height)
 	row.Parent = parent
 	local grid = Instance.new("UIGridLayout")
-	grid.CellSize = UDim2.fromOffset(30, 30)
-	grid.CellPadding = UDim2.fromOffset(8, 8)
+	grid.CellSize = UDim2.fromOffset(52, 52)
+	grid.CellPadding = UDim2.fromOffset(6, 6)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = row
 	return row
 end
 
 local function buildLocker()
-	lockerWindow = window("Locker", "YOUR BAG", Vector2.new(560, 420))
-	preview = Instance.new("ViewportFrame")
+	lockerWindow = window("Locker", "YOUR KIT", Vector2.new(600, 470))
+	preview = Instance.new("ImageLabel")
 	preview.Position = UDim2.fromOffset(20, 64)
-	preview.Size = UDim2.fromOffset(210, 220)
+	preview.Size = UDim2.fromOffset(230, 230)
 	preview.BackgroundColor3 = CARD
-	preview.Ambient = Color3.fromRGB(150, 150, 160)
-	preview.LightColor = Color3.fromRGB(255, 250, 240)
-	preview.LightDirection = Vector3.new(-1, -1, -1)
+	preview.ScaleType = Enum.ScaleType.Fit
 	corner(preview, 12)
 	preview.Parent = lockerWindow
-	local camera = Instance.new("Camera")
-	camera.FieldOfView = 40
-	camera.Parent = preview
-	preview.CurrentCamera = camera
-	local angle = 0
-	RunService.RenderStepped:Connect(function(dt: number)
-		if lockerWindow.Visible then
-			angle += dt * 0.8
-			local eye = Vector3.new(math.sin(angle) * 6.5, 1.2, math.cos(angle) * 6.5) + Vector3.new(0, 0, 0.6)
-			camera.CFrame = CFrame.lookAt(eye, Vector3.new(0, -0.2, 0.6))
-		end
-	end)
-	text(lockerWindow, { Position = UDim2.fromOffset(20, 294), Size = UDim2.fromOffset(210, 20), TextColor3 = GREY, TextSize = 14, Text = "PACK" })
+	previewName = text(lockerWindow, { Position = UDim2.fromOffset(20, 298), Size = UDim2.fromOffset(230, 20), TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center, Text = "" })
+	text(lockerWindow, { Position = UDim2.fromOffset(20, 324), Size = UDim2.fromOffset(230, 18), TextColor3 = GREY, TextSize = 14, Text = "PACK" })
 	lockerPacks = Instance.new("Frame")
 	lockerPacks.BackgroundTransparency = 1
-	lockerPacks.Position = UDim2.fromOffset(20, 316)
-	lockerPacks.Size = UDim2.fromOffset(210, 90)
+	lockerPacks.Position = UDim2.fromOffset(20, 346)
+	lockerPacks.Size = UDim2.fromOffset(230, 110)
 	lockerPacks.Parent = lockerWindow
 	local packGrid = Instance.new("UIGridLayout")
-	packGrid.CellSize = UDim2.new(0.5, -4, 0, 38)
+	packGrid.CellSize = UDim2.new(0.5, -4, 0, 30)
 	packGrid.CellPadding = UDim2.fromOffset(6, 6)
 	packGrid.Parent = lockerPacks
-	lockerPackColors = swatchRow(lockerWindow, 70, "PACK COLOUR")
-	lockerChalkColors = swatchRow(lockerWindow, 180, "CHALK BAG COLOUR")
-	text(lockerWindow, { Position = UDim2.fromOffset(250, 294), Size = UDim2.fromOffset(290, 60), TextColor3 = GREY, Font = Enum.Font.GothamMedium, TextSize = 14, TextWrapped = true, Text = "Colours are free. Buy new packs, shoes and other gear at the pro shop." })
+	lockerPackLooks = tileRow(lockerWindow, 64, "PACK COLOUR", 60)
+	lockerChalkLooks = tileRow(lockerWindow, 150, "CHALK BAG", 116)
+	lockerHelmetLooks = tileRow(lockerWindow, 294, "HELMET", 60)
+	text(lockerWindow, { Position = UDim2.fromOffset(270, 384), Size = UDim2.fromOffset(310, 60), TextColor3 = GREY, Font = Enum.Font.GothamMedium, TextSize = 14, TextWrapped = true, Text = "Looks are free. New packs, helmets, shoes and other gear are at the pro shop." })
 end
 
 ---------------------------------------------------------------------------------------
@@ -392,7 +403,7 @@ function GearUI.Start()
 			open(lockerWindow)
 		end
 	end)
-	for _, name in { "Gems", "Owned", "Equip_Shoes", "Equip_ChalkBag", "Equip_Harness", "Equip_Pack", "Equip_Rope", "PackColor", "ChalkColor" } do
+	for _, name in { "Gems", "Owned", "Equip_Shoes", "Equip_ChalkBag", "Equip_Harness", "Equip_Helmet", "Equip_Pack", "Equip_Rope", "PackColor", "ChalkColor", "HelmetColor" } do
 		player:GetAttributeChangedSignal(name):Connect(function()
 			if shopWindow.Visible then
 				GearUI.refreshShop()

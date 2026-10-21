@@ -19,6 +19,8 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared").Config)
 
 local BuildUtil = require(script.Parent.BuildUtil)
 local Face = require(script.Parent.Face)
+local Npc = require(script.Parent.Npc)
+local Props = require(script.Parent.Props)
 local RockWall = require(script.Parent.RockWall)
 
 local part = BuildUtil.part
@@ -165,8 +167,10 @@ local function buildTrees(parent: Instance)
 		local scale = 0.8 + rand() * 0.7
 		local base = Vector3.new(x, GROUND_Y, z)
 		local trunkHeight = 6 * scale
-		local tree = Instance.new("Model")
-		tree.Name = "Pine"
+		-- A Creator Store pine (two kinds); the stand-in is the rounded fir below.
+		local key = if placed % 2 == 0 then "pine_a" else "pine_b"
+		local yaw = rand() * math.pi * 2
+		local tree = Props.slot(forest, key, Props.at(base, Vector3.new(math.cos(yaw), 0, math.sin(yaw))), Vector3.new(14, 26, 14) * scale, nil)
 		part({
 			name = "Trunk",
 			size = Vector3.new(trunkHeight + 2, 1.2 * scale, 1.2 * scale),
@@ -191,9 +195,73 @@ local function buildTrees(parent: Instance)
 				parent = tree,
 			})
 		end
-		tree.Parent = forest
 	end
 	forest.Parent = parent
+end
+
+-- Rocks and bushes around the crags and along the paths, and a camp (tent and campfire)
+-- beside each crag. Creator Store models with simple stand-ins.
+local function buildScatter(parent: Instance)
+	local scatterModel = Instance.new("Model")
+	scatterModel.Name = "Scatter"
+	local rand = scatter(5150)
+	local function rock(position: Vector3, size: number)
+		local keys = { "rock_a", "rock_b", "rock_c" }
+		local yaw = rand() * math.pi * 2
+		Props.slot(scatterModel, keys[math.floor(rand() * 3) + 1], Props.at(position, Vector3.new(math.cos(yaw), 0, math.sin(yaw))), Vector3.new(size, size * 0.7, size), function(m)
+			part({ name = "Rock", size = Vector3.new(size, size * 0.6, size * 0.8), cframe = CFrame.new(position + Vector3.yAxis * size * 0.18) * CFrame.Angles(0, yaw, 0), surface = "RockFace", ellipsoid = true, collide = true, query = true, parent = m })
+		end)
+	end
+	local function bush(position: Vector3, size: number)
+		local key = if rand() < 0.3 then "flowerbush" else "bush"
+		Props.slot(scatterModel, key, Props.at(position, Vector3.new(rand() - 0.5, 0, rand() - 0.5)), Vector3.new(size, size * 0.8, size), function(m)
+			part({ name = "Bush", size = Vector3.new(size, size * 0.7, size), cframe = CFrame.new(position + Vector3.yAxis * size * 0.3), surface = "Leaves", ellipsoid = true, parent = m })
+		end)
+	end
+	for _, wall in WALLS do
+		local half = wall.width / 2
+		for side = -1, 1, 2 do
+			-- Boulders tumbled against the foot of the crag, either side of it.
+			for _ = 1, 4 do
+				local x = wall.origin.X + side * (half + 3 + rand() * 18)
+				rock(Vector3.new(x, GROUND_Y, wall.origin.Z - 2 - rand() * 14), 3 + rand() * 6)
+			end
+			for _ = 1, 3 do
+				bush(Vector3.new(wall.origin.X + side * (half + 6 + rand() * 20), GROUND_Y, wall.origin.Z - 8 - rand() * 20), 3 + rand() * 3)
+			end
+		end
+		-- Camp on the left of the crag: a tent and a campfire.
+		local camp = Vector3.new(wall.origin.X - half - 16, GROUND_Y, wall.origin.Z - 18)
+		Props.slot(scatterModel, "tent", Props.at(camp, Vector3.new(1, 0, -0.4)), Vector3.new(7, 5, 8), function(m)
+			part({ name = "Tent", size = Vector3.new(6, 4.5, 7), cframe = frameAt(camp + Vector3.yAxis * 2.25, Vector3.new(1, 0, 0), Vector3.yAxis), surface = "Tape", color = Color3.fromRGB(240, 120, 50), wedge = true, collide = true, query = true, parent = m })
+		end)
+		-- A climber at camp in full kit (catalog helmet, pack and chalk bag).
+		local kits = {
+			{ hat = 117772364185840, back = 128795521464166, waist = 12765447418 },
+			{ hat = 72372066631368, back = 17817037993, waist = 12765462493 },
+			{ hat = 86458819326502, back = 88149022073624, waist = 12765451822 },
+		}
+		local kit = kits[(math.floor(wall.origin.X) % #kits) + 1]
+		Npc.spawn("Climber", camp + Vector3.new(5, 0, -7), Vector3.new(0, 0, 1), scatterModel, Color3.fromRGB(70, 110, 160), kit)
+		local fire = camp + Vector3.new(7, 0, -3)
+		Props.slot(scatterModel, "campfire", Props.at(fire, Vector3.new(0, 0, 1)), Vector3.new(3.4, 2.6, 3.4), function(m)
+			for i = 0, 5 do
+				local angle = i * math.pi / 3
+				part({ name = "Stone", size = Vector3.new(0.9, 0.6, 0.8), cframe = CFrame.new(fire + Vector3.new(math.cos(angle) * 1.4, 0.25, math.sin(angle) * 1.4)), surface = "RockFace", ellipsoid = true, parent = m })
+			end
+		end)
+	end
+	-- Along the paths.
+	for _ = 1, 26 do
+		local z = 60 + rand() * 440
+		local x = (if rand() < 0.5 then -1 else 1) * (7 + rand() * 10)
+		if rand() < 0.5 then
+			rock(Vector3.new(x, GROUND_Y, z), 1.5 + rand() * 3)
+		else
+			bush(Vector3.new(x, GROUND_Y, z), 2.5 + rand() * 2.5)
+		end
+	end
+	scatterModel.Parent = parent
 end
 
 local function buildMountains(parent: Instance)
@@ -334,6 +402,7 @@ function Outdoors.Build(): Model
 	model.Name = "Outdoors"
 	buildTerrain()
 	buildTrees(model)
+	buildScatter(model)
 	buildMountains(model)
 	buildSignpost(model, Vector3.new(6, GROUND_Y, 98), `<b>CRAGS</b>\n← Wall A  ·  Wall B →\n↑ The Colossus`)
 	for _, wall in Outdoors.WALLS do
@@ -346,7 +415,13 @@ function Outdoors.Build(): Model
 end
 
 function Outdoors.Ensure(): Instance
-	return Outdoors.Find() or Outdoors.Build()
+	local existing = Outdoors.Find()
+	-- Outdoors saved into the place by an older version is rebuilt with the new layout.
+	if existing and existing:GetAttribute("Version") ~= Config.Version then
+		existing:Destroy()
+		existing = nil
+	end
+	return existing or Outdoors.Build()
 end
 
 function Outdoors.Rebuild(): Model

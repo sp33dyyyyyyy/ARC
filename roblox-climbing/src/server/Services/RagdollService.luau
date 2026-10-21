@@ -131,7 +131,10 @@ local function land(state: State, humanoid: Humanoid, root: BasePart, ground: Ra
 	-- Height of the feet at the top of the fall above where they landed.
 	local fall = peak - LimbRig.standingHeight(humanoid, root) - ground.Position.Y
 	character:SetAttribute("LastFall", math.floor(Config.studsToMeters(math.max(0, fall)) * 10 + 0.5) / 10)
-	local lethal = FALLS.LethalHeight * (if isCrashMat(ground.Instance) then FALLS.CrashMatFactor else 1)
+	-- Helmets (ShopService's GearFallBonus) let you survive a bit higher.
+	local player = Players:GetPlayerFromCharacter(character)
+	local helmet = if player then player:GetAttribute("GearFallBonus") else nil
+	local lethal = FALLS.LethalHeight * (if isCrashMat(ground.Instance) then FALLS.CrashMatFactor else 1) * (if type(helmet) == "number" then helmet else 1)
 	if fall >= lethal then
 		kill(character, humanoid, fall)
 	elseif fall >= FALLS.SafeHeight or Ragdoll.isRagdolled(character) then

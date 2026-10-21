@@ -6,10 +6,18 @@
 --   Shoes     less stamina drain while a foot is on a hold
 --   ChalkBag  chalk lasts longer and helps more
 --   Harness   dynos cost less stamina
---   Pack      the bag on your back (looks only; colour it at the lockers)
+--   Helmet    falls from higher up are survivable
+--   Pack      the bag on your back (looks only; pick its colour at the lockers)
 --   Rope      your rope's colour outdoors (looks only)
+--
+-- Packs, helmets and chalk bags are real avatar accessories from the Roblox catalog (any
+-- game may load accessories), worn by players and the gym's NPCs; each pack and helmet
+-- comes in several colours ("variants"). If one can't be loaded, a built-in stand-in
+-- (GearModels) is worn instead.
 
-export type Slot = "Shoes" | "ChalkBag" | "Harness" | "Pack" | "Rope"
+export type Slot = "Shoes" | "ChalkBag" | "Harness" | "Helmet" | "Pack" | "Rope"
+
+export type Variant = { name: string, asset: number, color: Color3 }
 
 export type Stats = {
 	footDrain: number?, -- multiplies stamina drain while at least one foot is on
@@ -17,6 +25,7 @@ export type Stats = {
 	chalkReduction: number?, -- how much slower stamina drains with full chalk
 	dynoCost: number?, -- stamina per dyno
 	ropeColor: Color3?,
+	fallBonus: number?, -- multiplies the height of a fatal fall
 }
 
 export type Item = {
@@ -27,13 +36,18 @@ export type Item = {
 	price: number, -- gems; 0 = owned from the start
 	order: number,
 	stats: Stats,
+	variants: { Variant }?, -- looks to pick from at the lockers (packs, helmets)
 }
 
 local Gear = {}
 
-local SLOTS: { Slot } = { "Shoes", "ChalkBag", "Harness", "Pack", "Rope" }
+local SLOTS: { Slot } = { "Shoes", "ChalkBag", "Harness", "Helmet", "Pack", "Rope" }
 Gear.SLOTS = table.freeze(SLOTS)
-Gear.SLOT_NAMES = table.freeze({ Shoes = "Shoes", ChalkBag = "Chalk", Harness = "Harness", Pack = "Bags", Rope = "Ropes" })
+Gear.SLOT_NAMES = table.freeze({ Shoes = "Shoes", ChalkBag = "Chalk", Harness = "Harness", Helmet = "Helmets", Pack = "Bags", Rope = "Ropes" })
+
+local function v(name: string, asset: number, r: number, g: number, b: number): Variant
+	return { name = name, asset = asset, color = Color3.fromRGB(r, g, b) }
+end
 
 local ITEMS: { Item } = {
 	{ id = "RentalShoes", slot = "Shoes", name = "Rental Shoes", description = "Comfy, flat and a bit slippy.", price = 0, order = 1, stats = { footDrain = 1 } },
@@ -49,10 +63,16 @@ local ITEMS: { Item } = {
 	{ id = "Featherweight", slot = "Harness", name = "Featherweight", description = "A light harness: dynos cost less.", price = 120, order = 2, stats = { dynoCost = 12 } },
 	{ id = "CompHarness", slot = "Harness", name = "Comp Harness", description = "Competition kit. Explosive and light.", price = 400, order = 3, stats = { dynoCost = 9 } },
 
-	{ id = "DayPack", slot = "Pack", name = "Day Pack", description = "A simple everyday pack.", price = 0, order = 1, stats = {} },
-	{ id = "CragPack", slot = "Pack", name = "Crag Pack", description = "A tall pack with a rope strapped under the lid.", price = 50, order = 2, stats = {} },
-	{ id = "Duffel", slot = "Pack", name = "Gym Duffel", description = "A roll duffel slung across your back.", price = 90, order = 3, stats = {} },
-	{ id = "HaulBag", slot = "Pack", name = "Haul Bag", description = "Big-wall haul bag. Serious business.", price = 150, order = 4, stats = {} },
+	{ id = "NoHelmet", slot = "Helmet", name = "No Helmet", description = "Living dangerously.", price = 0, order = 1, stats = { fallBonus = 1 } },
+	{ id = "LecrinRoc", slot = "Helmet", name = "Roc Helmet", description = "A tough, simple climbing helmet.", price = 80, order = 2, stats = { fallBonus = 1.1 }, variants = { v("White", 92040460524357, 236, 236, 232), v("Yellow", 117772364185840, 240, 200, 50), v("Red", 113915587208256, 210, 60, 50) } },
+	{ id = "Aurora", slot = "Helmet", name = "Aurora Helmet", description = "Light, vented and comfy all day.", price = 150, order = 3, stats = { fallBonus = 1.15 }, variants = { v("Black", 133255040917706, 40, 40, 44), v("Red", 72372066631368, 200, 40, 40), v("White", 131199201138008, 236, 236, 232) } },
+	{ id = "BlackMountain", slot = "Helmet", name = "Vapor Helmet", description = "Pro-level protection, barely there.", price = 220, order = 4, stats = { fallBonus = 1.2 }, variants = { v("Black", 91166163405976, 40, 40, 44), v("White", 86458819326502, 236, 236, 232), v("Red", 110614599925052, 180, 50, 50) } },
+
+	{ id = "DayPack", slot = "Pack", name = "Climbing Pack", description = "A lightweight pack with an axe loop.", price = 0, order = 1, stats = {}, variants = { v("Black", 80637156175895, 40, 40, 44), v("Blue", 122440357794609, 60, 90, 140), v("White", 84639929385903, 220, 220, 216), v("Green", 107151537044410, 70, 90, 60) } },
+	{ id = "CragPack", slot = "Pack", name = "Crag Pack", description = "A bright alpine pack with lace-up lid.", price = 50, order = 2, stats = {}, variants = { v("Orange", 128795521464166, 240, 120, 40), v("White", 78858430300558, 230, 230, 226), v("Red", 115859440802120, 210, 50, 50), v("Green", 106838146148140, 40, 140, 60) } },
+	{ id = "Expedition", slot = "Pack", name = "Expedition Pack", description = "Big, strappy, ready for days on the wall.", price = 90, order = 3, stats = {}, variants = { v("Grey", 17817042724, 110, 110, 110), v("Brown", 17817037993, 130, 90, 60), v("Slate", 17817049389, 80, 90, 100), v("Green", 17817045771, 80, 100, 70), v("Red", 17817033951, 150, 60, 50) } },
+	{ id = "HaulBag", slot = "Pack", name = "Big Wall Pack", description = "Loaded for the Colossus. Serious business.", price = 150, order = 4, stats = {}, variants = { v("Black", 88149022073624, 40, 40, 44), v("White", 125700856406959, 220, 220, 216), v("Green", 122154442304706, 80, 100, 60) } },
+	{ id = "BravoPack", slot = "Pack", name = "Bravo DL 30", description = "The pro's pack, with rope and axes strapped on.", price = 220, order = 5, stats = {}, variants = { v("Rope", 119212407294452, 40, 40, 44), v("Clean", 81739000932940, 30, 30, 34) } },
 
 	{ id = "YellowRope", slot = "Rope", name = "Classic Yellow", description = "The standard dynamic rope.", price = 0, order = 1, stats = { ropeColor = Color3.fromRGB(245, 205, 40) } },
 	{ id = "OceanRope", slot = "Rope", name = "Ocean Blue", description = "A blue rope with a dry coating.", price = 30, order = 2, stats = { ropeColor = Color3.fromRGB(40, 140, 240) } },
@@ -60,7 +80,22 @@ local ITEMS: { Item } = {
 	{ id = "StealthRope", slot = "Rope", name = "Stealth Black", description = "A sleek, skinny black line.", price = 60, order = 4, stats = { ropeColor = Color3.fromRGB(32, 32, 36) } },
 }
 
--- Colours for your pack and chalk bag (free, picked at the lockers).
+-- Chalk bag looks (free, picked at the lockers): catalog waist accessories.
+Gear.CHALK_BAGS = table.freeze({
+	v("Orange", 12765457067, 230, 120, 50),
+	v("Blue", 12765420893, 70, 110, 160),
+	v("Green", 12765447418, 60, 140, 70),
+	v("Purple", 12765465213, 110, 80, 150),
+	v("Pink", 12765459982, 200, 110, 140),
+	v("White knit", 12765476571, 220, 220, 216),
+	v("Plaid", 12765462493, 50, 70, 60),
+	v("Leopard", 12765451822, 170, 130, 90),
+	v("Red squares", 12765470708, 190, 70, 50),
+	v("Striped", 12765473510, 40, 50, 50),
+	v("80s knit", 12765417405, 180, 80, 60),
+}) :: { Variant }
+
+-- Colours for stand-ins (GearModels) when a catalog accessory can't be loaded.
 Gear.COLORS = table.freeze({
 	Color3.fromRGB(255, 122, 48), -- Ascent orange
 	Color3.fromRGB(220, 50, 60),
@@ -107,6 +142,21 @@ function Gear.color(index: any): Color3
 	return Gear.COLORS[i]
 end
 
+-- The look `index` of an item with variants (clamped, 1 = first).
+function Gear.variant(item: Item, index: any): Variant?
+	local variants = item.variants
+	if variants == nil or #variants == 0 then
+		return nil
+	end
+	local i = if type(index) == "number" then math.clamp(math.floor(index), 1, #variants) else 1
+	return variants[i]
+end
+
+function Gear.chalkBag(index: any): Variant
+	local i = if type(index) == "number" then math.clamp(math.floor(index), 1, #Gear.CHALK_BAGS) else 1
+	return Gear.CHALK_BAGS[i]
+end
+
 -- A short line describing what an item does, for the shop.
 function Gear.describeStats(item: Item): string
 	local stats = item.stats
@@ -118,8 +168,10 @@ function Gear.describeStats(item: Item): string
 		return `dynos cost {stats.dynoCost} stamina`
 	elseif stats.ropeColor then
 		return "rope colour"
+	elseif stats.fallBonus and stats.fallBonus > 1 then
+		return `survive falls {math.floor((stats.fallBonus - 1) * 100 + 0.5)}% higher · {#(item.variants or {})} colours`
 	elseif item.slot == "Pack" then
-		return "colour it at the lockers"
+		return `{#(item.variants or {})} colours at the lockers`
 	end
 	return ""
 end
