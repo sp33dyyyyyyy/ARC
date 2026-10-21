@@ -97,7 +97,12 @@ local function buildRunCard()
 	ropeLine.Name = "Rope"
 	ropeLine.AnchorPoint = Vector2.new(1, 0)
 	ropeLine.Position = UDim2.new(1, -12, 0, 102)
-	ropeLine.Size = UDim2.fromOffset(240, 26)
+	ropeLine.Size = UDim2.fromOffset(0, 26)
+	ropeLine.AutomaticSize = Enum.AutomaticSize.X
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 12)
+	pad.PaddingRight = UDim.new(0, 12)
+	pad.Parent = ropeLine
 	ropeLine.BackgroundColor3 = C.Panel
 	ropeLine.BackgroundTransparency = 0.06
 	ropeLine.AutoButtonColor = false
@@ -305,11 +310,15 @@ local function update()
 		local tiedRoute = routes and routes:FindFirstChild(tied)
 		local auto = tiedRoute ~= nil and tiedRoute:GetAttribute("AutoBelay") == true
 		local mode = character:GetAttribute("RopeMode")
-		local what = if auto then "AUTO-BELAY" else "TIED IN"
-		local state = if mode == "Lowering" then "lowering you"
-			elseif mode ~= nil then "holding you"
-			elseif character:GetAttribute("Climbing") == true then "R to lower off"
-			else "tap to unclip"
+		local slack = character:GetAttribute("RopeSlack")
+		local what = if auto then "AUTO-BELAY" elseif character:GetAttribute("RopeLead") == true then "LEAD" else "TIED IN"
+		local onTop = tiedRoute ~= nil and root.Position.Y > (tonumber(tiedRoute:GetAttribute("BaseY")) or 0) + 8
+		local state = if mode == "Lowering" then "lowering · Y faster · T stop"
+			elseif mode ~= nil then "holding you · R lower · T haul"
+			elseif character:GetAttribute("Unprotected") == true and character:GetAttribute("Climbing") == true then "no gear in · 3 to clip a quickdraw"
+			elseif character:GetAttribute("Climbing") == true then `slack {if type(slack) == "number" then string.format("%.1f", Config.studsToMeters(slack)) else "?"} m · T/Y`
+			elseif onTop and not auto then "R to rappel · tap to untie"
+			else "tap to untie"
 		ropeLine.Text = `<font color="#4096F0">ROPE</font>   {what}   <font color="#92959C">{state}</font>`
 		ropeLine.Position = UDim2.new(1, -12, 0, if runCard.Visible then 102 else 10)
 		ropeLine.Visible = true

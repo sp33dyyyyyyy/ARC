@@ -15,6 +15,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
+local Pack = require(Shared.Pack)
 local StaminaMath = require(Shared.StaminaMath)
 
 local ClimbService = require(script.Parent.ClimbService)
@@ -69,6 +70,15 @@ function StaminaService.Get(player: Player): number
 	return if state then state.stamina else STAMINA.Max
 end
 
+-- Adds stamina (a drink of water), up to the maximum.
+function StaminaService.Give(player: Player, amount: number)
+	local state = stateFor(player)
+	if state then
+		state.stamina = math.min(STAMINA.Max, state.stamina + amount)
+		state.character:SetAttribute("Stamina", math.floor(state.stamina * 10 + 0.5) / 10)
+	end
+end
+
 function StaminaService.Spend(player: Player, amount: number)
 	local state = stateFor(player)
 	if state then
@@ -113,6 +123,8 @@ local function tick(dt: number)
 			if hasFoot then
 				rate *= gearNumber(player, "GearFootDrain", 1)
 			end
+			-- A heavy pack (PackService) tires you a little faster.
+			rate *= 1 + gearNumber(player, "PackWeight", 0) * Pack.DRAIN_PER_WEIGHT
 		end
 		local chalk = character:GetAttribute("Chalk")
 		if type(chalk) == "number" and chalk > 0 then

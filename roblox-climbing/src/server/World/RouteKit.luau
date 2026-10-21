@@ -8,7 +8,8 @@
 --   StartPad    invisible volume at the base (RouteStart)
 --   Summit      invisible volume at the top (RouteSummit)
 --   Sign        leaderboard board at the base (LeaderboardService writes on it)
---   RopeBag     "Tie in" prompt at the base, for walls you rope up on (RopeService)
+--   Anchor      two-bolt top anchor with a locking carabiner (Hardware), for top ropes;
+--               RopeSpot attribute: where you drop the rope from your pack to tie in
 --   AutoBelay   unit at the top and a "Clip in" carabiner at the base (indoor rope walls)
 --   ChalkBucket "Chalk up" prompt at the base (ChalkService)
 -- The helpers are also used on their own by TestWall and the gym.
@@ -24,6 +25,7 @@ local Tags = require(Shared.Tags)
 
 local BuildUtil = require(script.Parent.BuildUtil)
 local Face = require(script.Parent.Face)
+local Hardware = require(script.Parent.Hardware)
 local HoldModels = require(script.Parent.HoldModels)
 
 local part = BuildUtil.part
@@ -52,7 +54,8 @@ export type RouteSpec = {
 	baseY: number?, -- ground level (defaults to the face's bottom)
 	indoor: boolean?,
 	autoBelay: boolean?, -- letting go lowers you gently (gym walls)
-	rope: boolean?, -- has a rope bag to tie in (outdoor walls)
+	rope: boolean?, -- you can rope up here with the rope from your pack (outdoor walls)
+	lead: boolean?, -- no fixed anchor: you place your own quickdraws as you climb (the Colossus)
 	leaderboard: boolean?,
 	chalk: boolean?,
 	signSide: number?, -- +1 puts the sign right of the route (default), -1 left
@@ -164,40 +167,6 @@ function RouteKit.addSign(route: Instance, position: Vector3, facing: Vector3, t
 	empty.Parent = rows
 
 	sign.Parent = route
-end
-
--- A coiled yellow rope on the ground with a "Tie in" prompt (RopeService handles it).
-function RouteKit.addRopeBag(route: Instance, position: Vector3)
-	local bag = part({
-		name = "RopeBag",
-		size = Vector3.new(0.6, 2.2, 2.2),
-		cframe = CFrame.new(position + Vector3.yAxis * 0.3) * BuildUtil.AXIS_Y,
-		surface = "Tape",
-		color = Color3.fromRGB(240, 205, 40),
-		shape = Enum.PartType.Cylinder,
-		collide = false,
-		query = true,
-		parent = route,
-	})
-	bag.Material = Enum.Material.Fabric
-	for i = 1, 3 do
-		local ring = part({
-			name = "Coil",
-			size = Vector3.new(0.18, 2.2 - i * 0.35, 2.2 - i * 0.35),
-			cframe = CFrame.new(position + Vector3.yAxis * (0.62 + i * 0.12)) * BuildUtil.AXIS_Y,
-			surface = "Tape",
-			color = Color3.fromRGB(250, 220, 60),
-			shape = Enum.PartType.Cylinder,
-			shadow = false,
-			parent = bag,
-		})
-		ring.Material = Enum.Material.Fabric
-	end
-	-- Click the rope to tie in (click again to untie). No prompt: it's optional.
-	local click = Instance.new("ClickDetector")
-	click.Name = "TieIn"
-	click.MaxActivationDistance = 14
-	click.Parent = bag
 end
 
 -- An auto-belay: the orange unit bolted above the top of the wall, its webbing strap, and
@@ -346,6 +315,7 @@ function RouteKit.buildRoute(spec: RouteSpec): Folder
 	route:SetAttribute("Indoor", spec.indoor == true)
 	route:SetAttribute("AutoBelay", spec.autoBelay == true)
 	route:SetAttribute("Rope", spec.rope == true)
+	route:SetAttribute("Lead", spec.lead == true)
 	route:SetAttribute("Leaderboard", spec.leaderboard == true)
 
 	-- Base: where you start, and where "Retry" puts you.
@@ -376,14 +346,20 @@ function RouteKit.buildRoute(spec: RouteSpec): Folder
 	summit.Transparency = 1
 	summit.CanTouch = true
 	CollectionService:AddTag(summit, Tags.RouteSummit)
-	route:SetAttribute("TopAnchor", top + Vector3.yAxis * 1.5 - flat * 0.5)
+	-- Top rope: a two-bolt anchor just under the lip, beside the line (lead routes have none).
+	if spec.rope and not spec.lead then
+		local beside = if topX > spec.lineX then -1.4 else 1.4
+		local _, ringAt = Hardware.topAnchor(route, Face.frame(face, topX + beside, face.height - 0.35))
+		route:SetAttribute("TopAnchor", ringAt)
+	end
 
 	local side = spec.signSide or 1
 	if spec.leaderboard then
 		RouteKit.addSign(route, ground + face.right * (side * 6) + flat * 1, flat, string.upper(spec.name))
 	end
+	-- Where you'd drop your rope bag (PackService ties it to this route).
 	if spec.rope then
-		RouteKit.addRopeBag(route, ground + face.right * (-side * 3) + flat * 0.5)
+		route:SetAttribute("RopeSpot", ground + face.right * (-side * 3) + flat * 0.5)
 	end
 	if spec.autoBelay then
 		RouteKit.addAutoBelay(route, Vector3.new(base.X, baseY, base.Z), top, flat)

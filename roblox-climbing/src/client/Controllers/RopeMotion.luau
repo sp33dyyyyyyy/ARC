@@ -5,12 +5,14 @@
 --
 -- On the rope (the character's "RopeMode" attribute, from RopeService):
 --   Caught    the jolt: arms flail up for the rope, legs swing loose
---   Hanging   sitting back in the harness: one hand high on the rope, the brake hand low,
---             feet braced flat on the wall
---   Lowering  leaning back and walking down the wall, step by step, the brake hand
---             feeding rope
--- The owning client also steers its own body while hanging and lowering: leaning back
--- from the wall at the right distance for the feet to reach it (control()).
+--   Hanging   sitting back in the harness, legs out flat against the wall: the guide
+--             hand on the rope above the harness, the brake hand low behind the hip
+--   Lowering  the rappel position: sat back in an L, legs straight out to the wall,
+--             feet apart, walking down in small steps, the brake hand feeding rope by the
+--             hip, looking down over the shoulder
+-- The owning client also steers its own body while hanging and lowering: sitting back
+-- from the wall at the right distance for the feet to reach it (control()), and walks
+-- you back over the edge when you start a rappel from the top (overEdge()).
 --
 -- Gestures (the "Gesture" attribute, "Name@n", set by the server):
 --   Chalk   a dip into the chalk bag behind each hip, then a clap
@@ -18,6 +20,8 @@
 --   Summit  both arms up, fist-pumping
 --   Mantle  climbing up over an edge: hands on the lip in front, then pushing down
 --   Press   a hand out to press the finish button
+--   Drop    both hands down in front: putting something down or packing it up
+--   Drink   the bottle up to the mouth
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -29,7 +33,7 @@ local ClimbAnimator = require(script.Parent:WaitForChild("ClimbAnimator"))
 
 local RopeMotion = {}
 
-local STEP = 1.7 -- studs of descent per walking step while lowering
+local STEP = 1.25 -- studs of descent per walking step while lowering
 local CAUGHT_FLAIL = 0.9 -- seconds of flailing after a catch
 
 type Wall = { point: Vector3, normal: Vector3, at: number }
@@ -50,7 +54,8 @@ local function watchFor(character: Model): Watch
 	return watch :: Watch
 end
 
--- The route the character is tied in to, and where its rope comes from.
+-- The route the character is tied in to, and where its rope comes from right now (the top
+-- anchor, the auto-belay, or on lead the last quickdraw).
 local function ropeInfo(character: Model): (Instance?, Vector3?)
 	local routeId = character:GetAttribute("TiedIn")
 	local routes = Workspace:FindFirstChild("Routes")
@@ -58,10 +63,10 @@ local function ropeInfo(character: Model): (Instance?, Vector3?)
 	if route == nil then
 		return nil, nil
 	end
-	local unit = route:FindFirstChild("AutoBelay")
-	local housing = unit and unit:FindFirstChild("Unit")
-	if route:GetAttribute("AutoBelay") == true and housing and housing:IsA("BasePart") then
-		return route, housing.Position
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local rope = root and root:FindFirstChild("BelayRope")
+	if rope and rope:IsA("RopeConstraint") and rope.Attachment0 then
+		return route, rope.Attachment0.WorldPosition
 	end
 	local anchor = route:GetAttribute("TopAnchor")
 	return route, if typeof(anchor) == "Vector3" then anchor else nil
@@ -116,6 +121,19 @@ local GESTURES: { [string]: { duration: number, keys: { Key } } } = {
 		keys = {
 			{ from = 0, to = 0.6, hands = { LeftHand = Vector3.new(-0.75, 0.9, -1.2), RightHand = Vector3.new(0.75, 0.9, -1.2) } },
 			{ from = 0.6, to = 1.3, hands = { LeftHand = Vector3.new(-0.75, -0.4, -1.0), RightHand = Vector3.new(0.75, -0.4, -1.0) } },
+		},
+	},
+	Drop = {
+		duration = 0.9,
+		keys = {
+			{ from = 0.05, to = 0.8, hands = { LeftHand = Vector3.new(-0.35, -1.55, -1.05), RightHand = Vector3.new(0.35, -1.55, -1.05) } },
+		},
+	},
+	Drink = {
+		duration = 1.6,
+		keys = {
+			{ from = 0.05, to = 0.35, hands = { RightHand = Vector3.new(0.4, -0.6, -0.5) } },
+			{ from = 0.35, to = 1.4, hands = { RightHand = Vector3.new(0.12, 1.35, -0.55) } },
 		},
 	},
 	Press = {
@@ -197,33 +215,36 @@ local function ropeIntent(character: Model, root: BasePart, mode: string, watch:
 		targets.RightHand = harness + up * 1.4 + right * 0.45 + Vector3.new(math.noise(t * 7 + 5, seed), math.noise(seed + 5, t * 7), 0) * flail * 0.9
 		look = harness + up * 4
 	else
-		-- On the rope: guide hand high, brake hand low by the hip.
-		local feed = if mode == "Lowering" then math.sin(t * 5) * 0.18 else 0
-		targets.LeftHand = harness + up * 1.55 - right * 0.1
-		targets.RightHand = harness + up * (0.5 + feed) + right * 0.28 + normal * 0.1
-		look = if mode == "Lowering" then root.Position - Vector3.yAxis * 6 + normal * 3 else harness + up * 3
+		-- On the rope, sat back in the harness: the guide hand (left) holds the rope just
+		-- above the harness; the brake hand (right) is low beside and behind the hip, and
+		-- slides as it feeds rope through.
+		local descending = mode == "Lowering"
+		local phase = -root.Position.Y / STEP
+		local feed = if descending then math.sin(phase * math.pi * 2) * 0.12 else 0
+		targets.LeftHand = harness + up * 1.05 - right * 0.08 + normal * 0.05
+		targets.RightHand = harness + right * 0.5 + Vector3.yAxis * (-0.35 + feed) + normal * 0.45
+		look = if descending then root.Position - Vector3.yAxis * 7 + normal * 4 + right * 2.5 else harness + up * 3
 		if wall then
-			-- Feet flat on the wall below the hips.
-			local base = Vector3.new(wall.point.X, root.Position.Y, wall.point.Z) + normal * 0.15
-			if mode == "Lowering" then
-				-- Walking down: each foot lifts off, swings down and plants again in turn.
-				local phase = -root.Position.Y / STEP
+			-- The L: legs straight out to the wall, a little below the hips, shoulder-width.
+			local base = Vector3.new(wall.point.X, root.Position.Y, wall.point.Z) + normal * 0.12
+			if descending then
+				-- Walking down: small steps, each foot rolls off, swings down and plants.
 				local feet: { [string]: number } = { LeftFoot = 0, RightFoot = 0.5 }
 				for limb, offset in feet do
 					local p = (phase + offset) % 1
-					local side = if limb == "LeftFoot" then -0.45 else 0.45
+					local side = if limb == "LeftFoot" then -0.55 else 0.55
 					local foot: Vector3
-					if p < 0.35 then
-						local swing = p / 0.35
-						foot = base + right * side + Vector3.yAxis * (-1.0 - swing * 0.9) + normal * (math.sin(swing * math.pi) * 0.7)
+					if p < 0.3 then
+						local swing = p / 0.3
+						foot = base + right * side + Vector3.yAxis * (-0.7 - swing * STEP * 0.6) + normal * (math.sin(swing * math.pi) * 0.45)
 					else
-						foot = base + right * side + Vector3.yAxis * (-1.9 + (p - 0.35) / 0.65 * 0.9)
+						foot = base + right * side + Vector3.yAxis * (-0.7 - STEP * 0.6 + (p - 0.3) / 0.7 * STEP * 0.6)
 					end
 					targets[limb] = foot
 				end
 			else
-				targets.LeftFoot = base - right * 0.5 + Vector3.yAxis * -1.75
-				targets.RightFoot = base + right * 0.5 + Vector3.yAxis * -1.35
+				targets.LeftFoot = base - right * 0.55 + Vector3.yAxis * -0.85
+				targets.RightFoot = base + right * 0.55 + Vector3.yAxis * -0.7
 			end
 		end
 	end
@@ -265,6 +286,10 @@ end
 local lean: AlignOrientation? = nil
 local stand: AlignPosition? = nil
 local active = false
+-- Starting a rappel from the top: the body is walked back to the lip and lowered over it.
+type OverEdge = { at: number, points: { Vector3 }, times: { number }, facing: Vector3 }
+local overEdge: OverEdge? = nil
+local OVER_EDGE_SECONDS = 1.5
 
 local function ensureControls(root: BasePart)
 	if lean and lean.Parent == root and stand and stand.Parent == root then
@@ -297,6 +322,30 @@ local function ensureControls(root: BasePart)
 	lean, stand = orientation, position
 end
 
+-- Standing on the top, tied in, R: walk back to the lip facing the anchor and lower over
+-- it into the rappel position. Returns false when there's no edge to go over.
+function RopeMotion.overEdge(character: Model, root: BasePart): boolean
+	local route, anchor = ropeInfo(character)
+	local start = route and route:GetAttribute("StartPosition")
+	if anchor == nil or typeof(start) ~= "Vector3" then
+		return false
+	end
+	local out = Vector3.new(start.X - anchor.X, 0, start.Z - anchor.Z)
+	if out.Magnitude < 1 or root.Position.Y < anchor.Y - 3 then
+		return false
+	end
+	out = out.Unit
+	local here = root.Position
+	local lip = Vector3.new(anchor.X, here.Y, anchor.Z) - out * 0.3
+	overEdge = {
+		at = os.clock(),
+		points = { here, lip, anchor + out * 2.1 - Vector3.yAxis * 2.2 },
+		times = { 0, OVER_EDGE_SECONDS * 0.5, OVER_EDGE_SECONDS },
+		facing = -out,
+	}
+	return true
+end
+
 -- Called every frame for this player's character. Leans the body back from the wall
 -- while hanging and lowering, with the hips the right distance out for the feet to reach.
 -- Returns true while the rope has the body (the climbing code leaves it alone).
@@ -305,6 +354,35 @@ function RopeMotion.control(character: Model, root: BasePart, humanoid: Humanoid
 	local onRope = type(mode) == "string" and not climbing and humanoid.Health > 0 and character:GetAttribute("Ragdolled") ~= true
 	ensureControls(root)
 	local orientation, position = lean :: AlignOrientation, stand :: AlignPosition
+
+	local edge = overEdge
+	if edge then
+		local t = os.clock() - edge.at
+		if climbing or humanoid.Health <= 0 or t > edge.times[#edge.times] or character:GetAttribute("TiedIn") == nil then
+			overEdge = nil
+			position.MaxAxesForce = Vector3.new(3000, 0, 3000)
+		else
+			local at = edge.points[1]
+			for i = 2, #edge.times do
+				if t <= edge.times[i] then
+					local a = math.clamp((t - edge.times[i - 1]) / (edge.times[i] - edge.times[i - 1]), 0, 1)
+					at = edge.points[i - 1]:Lerp(edge.points[i], a * a * (3 - 2 * a))
+					break
+				end
+			end
+			active = true
+			humanoid.PlatformStand = true
+			-- Sit back more the further over the edge you are.
+			local sit = math.clamp(t / edge.times[#edge.times], 0, 1) * 25
+			position.MaxAxesForce = Vector3.new(30000, 30000, 30000)
+			position.Position = at
+			orientation.CFrame = CFrame.lookAt(at, at + edge.facing) * CFrame.Angles(math.rad(sit), 0, 0)
+			orientation.Enabled = true
+			position.Enabled = true
+			return true
+		end
+	end
+
 	if not onRope then
 		if active then
 			active = false
@@ -326,8 +404,9 @@ function RopeMotion.control(character: Model, root: BasePart, humanoid: Humanoid
 		position.Enabled = false
 		return true
 	end
-	local leanBack = if mode == "Lowering" then 42 else 28
-	local standOff = if mode == "Lowering" then 2.1 else 1.7
+	-- Sat back in an L: hips out from the wall by about a leg's length.
+	local leanBack = if mode == "Lowering" then 30 else 24
+	local standOff = if mode == "Lowering" then 2.1 else 1.95
 	local here = root.Position
 	orientation.CFrame = CFrame.lookAt(here, here - wall.normal) * CFrame.Angles(math.rad(leanBack), 0, 0)
 	position.Position = Vector3.new(wall.point.X, here.Y, wall.point.Z) + wall.normal * standOff

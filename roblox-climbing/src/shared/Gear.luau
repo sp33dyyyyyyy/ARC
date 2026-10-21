@@ -7,7 +7,7 @@
 --   ChalkBag  chalk lasts longer and helps more
 --   Harness   dynos cost less stamina
 --   Helmet    falls from higher up are survivable
---   Pack      the bag on your back (looks only; pick its colour at the lockers)
+--   Pack      the bag on your back: bigger bags carry more (Shared/Pack); colour at the lockers
 --   Rope      your rope's colour outdoors (looks only)
 --
 -- Packs, helmets and chalk bags are real avatar accessories from the Roblox catalog (any
@@ -38,6 +38,8 @@ export type Item = {
 	stats: Stats,
 	variants: { Variant }?, -- looks to pick from at the lockers (packs, helmets)
 }
+
+local Pack = require(script.Parent:WaitForChild("Pack"))
 
 local Gear = {}
 
@@ -171,7 +173,7 @@ function Gear.describeStats(item: Item): string
 	elseif stats.fallBonus and stats.fallBonus > 1 then
 		return `survive falls {math.floor((stats.fallBonus - 1) * 100 + 0.5)}% higher · {#(item.variants or {})} colours`
 	elseif item.slot == "Pack" then
-		return `{#(item.variants or {})} colours at the lockers`
+		return `carries {Pack.capacity(item.id)} · {#(item.variants or {})} colours`
 	end
 	return ""
 end

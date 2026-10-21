@@ -325,6 +325,8 @@ local function onRequest(player: Player, action: any, routeId: any)
 		RopeService.Untie(player)
 	elseif action == "Lower" then
 		RopeService.Lower(player)
+	elseif action == "RopeFeed" then
+		RopeService.Feed(player, if type(routeId) == "number" then routeId else 0)
 	elseif action == "Chalk" then
 		ChalkService.FromBag(player)
 	elseif action == "Retry" then

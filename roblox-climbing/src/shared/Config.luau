@@ -100,6 +100,8 @@ Config.Climb = {
 		CentreWeight = Enum.KeyCode.X, -- puts the sticky weight shift back in the middle
 		Lower = Enum.KeyCode.R, -- tied in: sit back on the rope and get lowered
 		Mantle = Enum.KeyCode.F, -- climb up onto a ledge or the top
+		TakeIn = Enum.KeyCode.T, -- tied in: take rope in (tighter; hanging: haul up)
+		PayOut = Enum.KeyCode.Y, -- tied in: pay rope out (more slack; lowering: faster)
 		Dyno = Enum.KeyCode.Space,
 	},
 
@@ -163,6 +165,17 @@ Config.Rope = {
 	HangSeconds = 1.2, -- dangle this long before being lowered
 	LowerSpeed = 7, -- studs per second
 	TakeSpeed = 12, -- how fast the belayer takes in when you ask to be lowered (R)
+	FeedSpeed = 5, -- studs/s of slack you add (Y) or take in (T) while climbing
+	MinSlack = 0.3, -- tightest the rope gets (T held)
+	MaxSlack = 18, -- most slack you can pay out (Y held)
+	FastLowerSpeed = 15, -- lowering with Y held
+	HaulSpeed = 4, -- hanging on the rope with T held: the belayer hauls you up
+	HoldForce = 80000, -- winch force while the rope holds your weight
+	ClimbForce = 2500, -- while you climb: too weak to drag you about
+	CatchStretch = 0.05, -- a dynamic rope stretches this fraction of the rope out on a catch...
+	CatchStretchMax = 3.5, -- ...up to this many studs
+	StretchSpeed = 7, -- studs/s it gives while stretching (a softer catch)
+	Quickdraws = 12, -- most quickdraws a pack can carry (lead routes, the Colossus)
 	UntieDistance = 30, -- walking this far from the route's base unties you
 	Color = Color3.fromRGB(245, 205, 40),
 	AutoBelayColor = Color3.fromRGB(40, 150, 240),

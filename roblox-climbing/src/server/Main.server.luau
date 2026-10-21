@@ -20,6 +20,7 @@ local SERVICE_ORDER = {
 	"RouteService",
 	"ChalkService",
 	"ShopService",
+	"PackService",
 	"PropService",
 }
 

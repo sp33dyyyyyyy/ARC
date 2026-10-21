@@ -869,6 +869,17 @@ local function buildLockers(model: Model)
 	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = station
+	-- Packing your bag for the crags (PackUI / PackService).
+	local packPrompt = Instance.new("ProximityPrompt")
+	packPrompt.Name = "OpenPack"
+	packPrompt.ActionText = "Pack bag"
+	packPrompt.ObjectText = "Locker"
+	packPrompt.KeyboardKeyCode = Enum.KeyCode.F
+	packPrompt.HoldDuration = 0
+	packPrompt.MaxActivationDistance = 10
+	packPrompt.RequiresLineOfSight = false
+	packPrompt.UIOffset = Vector2.new(0, 80)
+	packPrompt.Parent = station
 	hangingSign(room, "LOCKERS", Vector3.new(-54, 18, 30), Vector3.new(1, 0, 0), 10)
 	plant(room, Vector3.new(-44, 0, 41))
 	room.Parent = model

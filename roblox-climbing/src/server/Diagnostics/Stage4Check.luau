@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Gear = require(Shared.Gear)
+local Pack = require(Shared.Pack)
 local StaminaMath = require(Shared.StaminaMath)
 
 local Services = script.Parent.Parent.Services
@@ -84,9 +85,6 @@ function Stage4Check.Run(): boolean
 		if route:GetAttribute("Leaderboard") == true and route:FindFirstChild("Sign") == nil then
 			table.insert(problems, `{name}: leaderboard route without a sign`)
 		end
-		if route:GetAttribute("Rope") == true and route:FindFirstChild("RopeBag") == nil then
-			table.insert(problems, `{name}: rope route without a rope bag`)
-		end
 		local belay = route:FindFirstChild("AutoBelay")
 		if route:GetAttribute("AutoBelay") == true and (belay == nil or belay:FindFirstChild("ClipIn", true) == nil) then
 			table.insert(problems, `{name}: auto-belay route without a click-to-clip carabiner`)
@@ -153,21 +151,35 @@ function Stage4Check.Run(): boolean
 		"pro shop and lockers are in the gym",
 		gym ~= nil and gym:FindFirstChild("OpenShop", true) ~= nil and gym:FindFirstChild("OpenLocker", true) ~= nil
 	)
-	-- Ropes are optional and work by clicking: rope bags and carabiners have ClickDetectors.
-	local clickable, total = 0, 0
+	-- Ropes: auto-belays clip in with a click; roped crag routes have a top anchor with its
+	-- ring (or are lead routes) and a spot for your rope bag.
+	local ropeOk, ropeTotal, ropeProblems = 0, 0, {}
 	for _, route in (if routes then routes:GetChildren() else {}) do
-		local bag = route:FindFirstChild("RopeBag")
 		local belay = route:FindFirstChild("AutoBelay")
-		for _, thing in { bag, belay } do
-			if thing then
-				total += 1
-				if thing:FindFirstChildWhichIsA("ClickDetector", true) then
-					clickable += 1
-				end
+		if belay then
+			ropeTotal += 1
+			if belay:FindFirstChildWhichIsA("ClickDetector", true) then
+				ropeOk += 1
+			else
+				table.insert(ropeProblems, `{route.Name}: auto-belay without a click`)
+			end
+		elseif route:GetAttribute("Rope") == true then
+			ropeTotal += 1
+			local anchor = route:FindFirstChild("TopAnchorPart", true)
+			local fixed = anchor ~= nil and anchor:FindFirstChild("Ring") ~= nil
+			if (fixed or route:GetAttribute("Lead") == true) and typeof(route:GetAttribute("RopeSpot")) == "Vector3" then
+				ropeOk += 1
+			else
+				table.insert(ropeProblems, `{route.Name}: no anchor or rope spot`)
 			end
 		end
 	end
-	check(`every rope bag and auto-belay clips in with a click ({clickable}/{total})`, total > 0 and clickable == total)
+	check(`every roped route can be climbed on a rope ({ropeOk}/{ropeTotal})`, ropeTotal > 0 and ropeOk == ropeTotal, table.concat(ropeProblems, "; "))
+	local packOk = gym ~= nil and gym:FindFirstChild("OpenPack", true) ~= nil and Workspace:FindFirstChild("PlacedGear") ~= nil
+	for _, item in Pack.ITEMS do
+		packOk = packOk and Pack.sanitize({ [item.id] = 999 })[item.id] == item.max
+	end
+	check("pack: lockers have Pack bag, items are capped, the default fits the smallest bag", packOk and Pack.weight(Pack.DEFAULT) <= Pack.DEFAULT_CAPACITY)
 	check("saving is " .. (if DataService.IsPersistent() then "on" else "in memory only (Studio API access off)"), true)
 
 	print(`[Stage4Check] {passed} passed, {failed} failed`)

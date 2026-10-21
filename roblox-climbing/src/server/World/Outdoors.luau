@@ -7,7 +7,8 @@
 --   * Natural Wall B: a 35 m face with a ledge halfway and an overhang above it.
 --   * The Colossus: a ~280 m granite wall with ledges about every 30 m, a big roof
 --     two thirds up, and a misty summit plateau with a violet glow and a flag.
--- Every route has a rope bag (tie in), a chalk bucket and a leaderboard sign at its base.
+-- Every route has a spot for your rope bag, a chalk bag and a leaderboard sign at its base;
+-- Wall A and Wall B have fixed top anchors, the Colossus you protect yourself.
 --
 -- Built at server start if Workspace.Outdoors is missing, or in edit mode:
 --     require(game.ServerScriptService.Server.World.Outdoors).Rebuild()
@@ -86,6 +87,7 @@ local WALLS: { RockWall.WallDef } = {
 		groundY = GROUND_Y,
 		tint = Color3.fromRGB(110, 108, 106),
 		block = 24,
+		lead = true, -- no fixed anchors: place your own quickdraws as you climb
 		routes = {
 			{ id = "LongWayUp", name = "The Long Way Up", grade = "6a", order = 15, lineX = -40, difficulty = 0.35, seed = 1505, wander = 2.2 },
 			{ id = "SkylineDirect", name = "Skyline Direct", grade = "7a", order = 16, lineX = 40, difficulty = 0.6, seed = 1606, wander = 1.8 },

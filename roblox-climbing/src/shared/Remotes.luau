@@ -18,11 +18,17 @@ local EVENTS = {
 	--                   | ("Notice", text)
 	"RouteEvent",
 	-- client -> server: ("Retry") | ("Travel", routeId) | ("Untie") | ("Lower")
+	--                   | ("RopeFeed", -1 | 0 | 1) | ("Chalk")
 	"RouteRequest",
 	-- client -> server: ("Buy", itemId) | ("Equip", itemId) | ("Colour", "Pack" | "ChalkBag", index)
 	"ShopRequest",
 	-- server -> client: (ok, message)
 	"ShopResult",
+	-- client -> server: ("Set", counts) at the lockers | ("Place", itemId, position, facing)
+	--                   | ("Use", itemId) (quickdraws, water)
+	"PackRequest",
+	-- server -> client: (ok, message)
+	"PackResult",
 }
 
 local Remotes = {}

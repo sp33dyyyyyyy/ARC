@@ -11,7 +11,10 @@
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+
+local Pack = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Pack"))
 
 local STORE_NAME = "PlayerData_v1"
 local LOCK_STALE_SECONDS = 600 -- a lock older than this belongs to a dead server
@@ -30,6 +33,7 @@ export type Data = {
 	packColor: number, -- the equipped pack's look (Gear variant index)
 	chalkColor: number, -- chalk bag look (Gear.CHALK_BAGS index)
 	helmetColor: number, -- the equipped helmet's look
+	pack: { [string]: number }, -- what's packed in your bag (Pack item id -> count)
 }
 
 type Profile = { data: Data, key: string, dirty: boolean, loaded: boolean }
@@ -42,7 +46,7 @@ local memoryOnly = false
 local loadedListeners: { (Player, Data) -> () } = {}
 
 local function defaults(): Data
-	return { gems = 0, xp = 0, summits = 0, totalClimbed = 0, bestTimes = {}, clears = {}, owned = {}, equipped = {}, packColor = 1, chalkColor = 1, helmetColor = 1 }
+	return { gems = 0, xp = 0, summits = 0, totalClimbed = 0, bestTimes = {}, clears = {}, owned = {}, equipped = {}, packColor = 1, chalkColor = 1, helmetColor = 1, pack = table.clone(Pack.DEFAULT) }
 end
 
 -- Fills in anything an older save is missing.

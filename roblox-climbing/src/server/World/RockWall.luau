@@ -2,7 +2,7 @@
 -- RockWall: a natural granite crag. The face is built from big faceted rock blocks along a
 -- Face profile (vertical sections, slabs, overhangs, roofs), with flat ledges to stand and
 -- rest on, a summit plateau, and procedurally generated routes (RouteGenerator) that carry
--- rope bags, chalk buckets and leaderboard signs at their base (RouteKit).
+-- top anchors (unless it's a lead wall), a rope spot, chalk and leaderboard signs (RouteKit).
 --
 -- The rock itself streams as one persistent model, so big walls stay on the skyline from
 -- far away; holds stream in as you get close.
@@ -44,6 +44,7 @@ export type WallDef = {
 	block: number?, -- rock block size
 	groundY: number,
 	tint: Color3?,
+	lead: boolean?, -- no fixed top anchors: climbers place their own quickdraws
 	routes: { RouteDef },
 }
 
@@ -219,6 +220,7 @@ function RockWall.build(def: WallDef): Model
 			style = "rock",
 			baseY = def.groundY,
 			rope = true,
+			lead = def.lead,
 			leaderboard = true,
 			chalk = true,
 		})

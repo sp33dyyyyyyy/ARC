@@ -49,6 +49,8 @@ local ACTION_LET_GO = "ClimbLetGo"
 local ACTION_CENTRE = "ClimbCentre"
 local ACTION_LOWER = "ClimbLower"
 local ACTION_MANTLE = "ClimbMantle"
+local ACTION_TAKE = "RopeTakeIn"
+local ACTION_PAY = "RopePayOut"
 local MAX_RAY = 200
 
 local player = Players.LocalPlayer
@@ -293,14 +295,6 @@ local function bindWallActions()
 	end, true, Enum.ContextActionPriority.High.Value, CLIMB.Keys.CentreWeight, Enum.KeyCode.ButtonY)
 	ContextActionService:SetTitle(ACTION_CENTRE, "Centre")
 
-	-- Tied in: sit back on the rope and get lowered.
-	ContextActionService:BindActionAtPriority(ACTION_LOWER, function(_, state)
-		if state == Enum.UserInputState.Begin and character and character:GetAttribute("TiedIn") ~= nil then
-			Remotes.event("RouteRequest"):FireServer("Lower")
-		end
-		return Enum.ContextActionResult.Sink
-	end, false, Enum.ContextActionPriority.High.Value, CLIMB.Keys.Lower, Enum.KeyCode.ButtonX)
-
 	ContextActionService:BindActionAtPriority(ACTION_MANTLE, function(_, state)
 		if state == Enum.UserInputState.Begin then
 			if ledge == nil then
@@ -337,7 +331,6 @@ local function exitClimb()
 	ContextActionService:UnbindAction(ACTION_DYNO)
 	ContextActionService:UnbindAction(ACTION_LET_GO)
 	ContextActionService:UnbindAction(ACTION_CENTRE)
-	ContextActionService:UnbindAction(ACTION_LOWER)
 	ContextActionService:UnbindAction(ACTION_MANTLE)
 	weightShift = Vector2.zero
 	ledge = nil
@@ -913,7 +906,7 @@ end
 
 local HINT_WALL = "<b>Click a hold</b> to grab it, or <b>drag a hand</b> onto one"
 local HINT_CLIMBING = "<b>Drag</b> hands/feet to holds  ·  <b>WASD</b> shift weight (stays)  ·  <b>X</b> centre  ·  <b>Space</b> dyno  ·  <b>V</b> let go"
-local HINT_ROPED = HINT_CLIMBING .. "  ·  <b>R</b> lower off"
+local HINT_ROPED = HINT_CLIMBING .. "  ·  <b>T</b>/<b>Y</b> rope in/out  ·  <b>R</b> lower off"
 local HINT_LEDGE = "<b>F</b> climb up"
 local HINT_DRAGGING = "Drop on a <font color=\"#5ce65c\">green</font> hold (hands) or <font color=\"#3fd1c9\">teal</font> hold (feet)"
 
@@ -1151,6 +1144,48 @@ function mantleIntent(): ClimbAnimator.Intent?
 	}
 end
 
+---------------------------------------------------------------------------------------
+-- Rope keys, bound while tied in: R lower (or rappel off the top), T take in, Y pay out.
+
+local ropeKeysBound = false
+
+local function bindRopeKeys()
+	local route = Remotes.event("RouteRequest")
+	ContextActionService:BindActionAtPriority(ACTION_LOWER, function(_, state)
+		if state == Enum.UserInputState.Begin and character and root then
+			if not climbing and character:GetAttribute("RopeMode") == nil and mantle == nil then
+				-- Standing on the top: walk back over the edge first.
+				RopeMotion.overEdge(character, root)
+			end
+			route:FireServer("Lower")
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value, CLIMB.Keys.Lower, Enum.KeyCode.ButtonX)
+	for action, info in { [ACTION_TAKE] = { key = CLIMB.Keys.TakeIn, pad = Enum.KeyCode.DPadDown, dir = -1 }, [ACTION_PAY] = { key = CLIMB.Keys.PayOut, pad = Enum.KeyCode.DPadLeft, dir = 1 } } do
+		ContextActionService:BindActionAtPriority(action, function(_, state)
+			if state == Enum.UserInputState.Begin then
+				route:FireServer("RopeFeed", info.dir)
+			elseif state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+				route:FireServer("RopeFeed", 0)
+			end
+			return Enum.ContextActionResult.Sink
+		end, false, Enum.ContextActionPriority.High.Value, info.key, info.pad)
+	end
+end
+
+local function updateRopeKeys()
+	local tied = character ~= nil and character:GetAttribute("TiedIn") ~= nil
+	if tied and not ropeKeysBound then
+		ropeKeysBound = true
+		bindRopeKeys()
+	elseif not tied and ropeKeysBound then
+		ropeKeysBound = false
+		ContextActionService:UnbindAction(ACTION_LOWER)
+		ContextActionService:UnbindAction(ACTION_TAKE)
+		ContextActionService:UnbindAction(ACTION_PAY)
+	end
+end
+
 local function step(dt: number)
 	if character == nil or root == nil or humanoid == nil or humanoid.Health <= 0 then
 		return
@@ -1167,6 +1202,7 @@ local function step(dt: number)
 		end
 	end
 
+	updateRopeKeys()
 	if mantle then
 		updateMantle()
 		updateLedges(root.Position)

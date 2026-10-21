@@ -109,7 +109,7 @@ local function onLeftWall(player: Player, reason: string)
 		state.dynoUntil = os.clock() + FALLS.DynoGrace
 		return
 	end
-	if character:GetAttribute("TiedIn") ~= nil then
+	if character:GetAttribute("TiedIn") ~= nil and character:GetAttribute("Unprotected") ~= true then
 		return -- the rope catches you (RopeService)
 	end
 	if reason == "Exhausted" then
@@ -157,7 +157,7 @@ local function tick()
 		end
 
 		-- On the wall, or tied in (the rope catches and lowers you): no fall to measure.
-		if character:GetAttribute("Climbing") == true or (character:GetAttribute("TiedIn") ~= nil and not Ragdoll.isRagdolled(character)) then
+		if character:GetAttribute("Climbing") == true or (character:GetAttribute("TiedIn") ~= nil and character:GetAttribute("Unprotected") ~= true and not Ragdoll.isRagdolled(character)) then
 			state.airborne = false
 			state.peakY = nil
 			state.dynoUntil = nil
