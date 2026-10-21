@@ -1,10 +1,10 @@
-# [YOUR GAME NAME]: Roblox climbing game
+# Ascent: Roblox climbing game
 
 A skill-based rock climbing game for Roblox: four limbs placed one at a time, stamina, ropes, routes and leaderboards. It is built one stage at a time (see the design doc's Build Order).
 
-**Current build: limb-by-limb climbing with stamina, ragdoll falls and death, plus the world: the gym hub (bouldering, Kilter board, tutorial wall), three outdoor crags up to a ~280 m big wall, timed routes with summit cards, ropes and auto-belays, chalk, gems and levels, saving and leaderboards.**
+**Current build: limb-by-limb climbing with sticky weight shift, stamina, ragdoll falls and death, plus the world: a modern climbing gym (rope walls with auto-belays, bouldering, Kilter board, pro shop, lockers, café), three outdoor crags up to a ~280 m big wall, timed routes with summit cards, mandatory clip-in on every roped wall, gear that changes how you climb, chalk, gems and levels, saving and leaderboards.**
 
-Swap the placeholder name in `src/shared/Config.luau` (`Config.GameName`).
+The name lives in `src/shared/Config.luau` (`Config.GameName`); every sign and the logo use it.
 
 ---
 
@@ -44,6 +44,9 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/server/Services/RouteService.luau` | `ServerScriptService.Server.Services.RouteService` | ModuleScript |
 | `src/server/Services/RopeService.luau` | `ServerScriptService.Server.Services.RopeService` | ModuleScript |
 | `src/server/Services/ChalkService.luau` | `ServerScriptService.Server.Services.ChalkService` | ModuleScript |
+| `src/server/Services/ShopService.luau` | `ServerScriptService.Server.Services.ShopService` | ModuleScript |
+| `src/shared/Gear.luau` | `ReplicatedStorage.Shared.Gear` | ModuleScript |
+| `src/shared/GearModels.luau` | `ReplicatedStorage.Shared.GearModels` | ModuleScript |
 | `src/server/World/Gym.luau` | `ServerScriptService.Server.World.Gym` | ModuleScript |
 | `src/server/World/Outdoors.luau` | `ServerScriptService.Server.World.Outdoors` | ModuleScript |
 | `src/server/World/RockWall.luau` | `ServerScriptService.Server.World.RockWall` | ModuleScript |
@@ -57,6 +60,7 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/client/Controllers/ClimbOverlay.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbOverlay` | ModuleScript |
 | `src/client/Controllers/ClimbAnimator.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbAnimator` | ModuleScript |
 | `src/client/Controllers/RouteHud.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.RouteHud` | ModuleScript |
+| `src/client/Controllers/GearUI.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.GearUI` | ModuleScript |
 
 `Shared`, `Server`, `Services`, `World`, `Physics`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
 
@@ -288,7 +292,11 @@ Landing on a crash mat raises the lethal height by 20%. On the test wall that me
 
 Everything is built by the server on Play if it's missing (`Gym`, `Outdoors`, `Crags`, `Routes` in Workspace). To bake it into the place in edit mode, run in the command bar: `require(game.ServerScriptService.Server.World.Gym).Rebuild()` and `require(game.ServerScriptService.Server.World.Outdoors).Rebuild()`.
 
-**The gym** (you spawn here): reception with a chalk bucket, the big leaderboard wall, the bouldering hall (4 monoliths, 8 colour-coded problems V0 to V5 over round crash mats), the Kilter room (a 40° LED board with a lit problem, "First Light"), and the tutorial wall with an **auto-belay**.
+**The gym** (you spawn on the Ascent logo): a modern gym with a glass front, white walls with charcoal and white oak, steel trusses and soft pendant lights.
+- **Rope walls** at the back: the tutorial wall plus two tall walls (about 9 m, with overhangs) carrying four routes, 5b to 6b. Each route has an orange **auto-belay**.
+- **Bouldering** on the left: 4 monoliths with 8 colour-coded problems (V0 to V5) over wall-to-wall padding.
+- **Kilter room** at the back right: a 40° LED board behind glass with a lit problem, "First Light".
+- **Pro shop**, **lockers**, a **café and lounge**, a training corner, and the freestanding leaderboard screen in the lobby.
 
 **Outdoors**, through the yellow door: grass, paths, a pine forest, snowy mountains and three crags.
 | Crag | Height | Routes |
@@ -300,7 +308,20 @@ Every outdoor route has a rope bag, a chalk bucket and a leaderboard sign at its
 
 **Routes.** Grab a route's low holds and the timer starts (top right, with a progress bar). Reach the top, or hold the finish jug, for a **summit card**: your time, previous best, gems and XP, and your leaderboard rank. The run ends if you fall, get caught by the rope, or end up back on the ground. Outdoors, free soloists climb over onto the summit. **Routes menu** (button bottom left, or **M**): every route with your best time, and **Go** to travel to its base.
 
-**Ropes.** Hold **Tie in** at a rope bag. A yellow rope runs to the anchor at the top. Let go or peel off and the rope catches you, then lowers you to the ground. Not tied in is **free solo**: the badge turns red, and a fall from high up is fatal. Indoors, the tutorial wall's auto-belay clips you in by itself (blue rope). Grab a hold while hanging to climb on.
+**Ropes: clip in to every wall.** Every roped wall must be clipped into before you can grab its holds. Outdoors, hold **Tie in** at the route's rope bag. Indoors, hold **Clip in** at the orange carabiner hanging from the auto-belay. Until you do, the badge (top right) says so and grabs are refused ("Clip in to the auto-belay first"). Let go or peel off and the rope catches you, then lowers you to the ground. Grab a hold while hanging to climb on. Auto-belays unclip you when you're back on the floor. Rope bags untie you when you walk away, or tap the badge. Bouldering problems have no rope: they're low, over padding.
+
+**Gear (pro shop).** Use **Browse gear** at the shop counter. Spend gems on:
+| Slot | Items | Effect |
+|---|---|---|
+| Shoes | Rental, Trail Edge (60), Pro Downturn (250), Velvet Slipper (600) | up to 22% less stamina drain while a foot is on |
+| Chalk | Basic bag, Big Bucket (80), Liquid Chalk Pro (300) | chalk lasts longer and helps more |
+| Harness | Rental, Featherweight (120), Comp Harness (400) | dynos cost 15 → 12 → 9 stamina |
+| Bags | Day Pack, Crag Pack (50), Gym Duffel (90), Haul Bag (150) | looks |
+| Ropes | Yellow, Ocean Blue (30), Hot Pink (30), Stealth Black (60) | your rope's colour outdoors |
+
+Everything is in `src/shared/Gear.luau`. **Lockers:** use **Customise bag** at the bag station to pick your pack and the colours of your pack and chalk bag (free), with a turning 3D preview. Your pack and chalk bag show on your character for everyone.
+
+**Weight shift sticks.** While climbing, WASD moves your weight and it stays where you leave it, so you don't have to hold the keys. **X** puts it back in the middle (gamepad: Y).
 
 **Chalk.** Use any chalk bucket (**Chalk up**). Full chalk makes your stamina drain 25% slower and wears off as you climb (`Config.Chalk`).
 
@@ -314,11 +335,11 @@ All numbers live in `Config.Routes`, `Config.Rope` and `Config.Chalk`.
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 10 passed, 0 failed`** (Stage4Check checks the gym, the crags and that all 16 routes are complete). Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`**, **`[Stage2Check] 14 passed, 0 failed`**, **`[Stage3Check] 4 passed, 0 failed`** and **`[Stage4Check] 13 passed, 0 failed`** (Stage4Check checks the gym, the crags, the shop, clip-in rules and that all 20 routes are complete). Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").
-5. **Weight shift.** Hold W and the body moves up. A/D move it sideways. Holds that were red turn green as you shift towards them.
+5. **Weight shift.** Tap or hold W and the body moves up, and stays there when you let go. A/D move it sideways. X re-centres it. Holds that were red turn green as you shift towards them.
 6. **Select and click.** Press Q (yellow ring on the left hand), then click a hold. Or click a hold with nothing selected, and the nearest limb that can reach it takes it.
 7. **Let a limb go.** Drag a limb off a hold onto empty wall. That limb dangles and the body re-settles.
 8. **Dyno.** Hold Space: the ellipse grows and a dot shows the aim. Point at a hand hold above. The dot is yellow while the charge is too low and turns green when it's enough. Release on green: you arc up, both hands reach for the hold, and one grabs it. Release early and you fall short onto the mat.
@@ -326,8 +347,9 @@ Press **Play** and check:
 10. **Multiplayer view.** Use Test → Clients and Servers → 2 players. Each player sees the other's arms and legs on the holds.
 11. **Server authority.** Rejected requests show "Can't grab: …" and the limb snaps back.
 
-12. **A timed route.** Climb the tutorial wall from the bottom: the timer appears top right. Hold the finish jug: summit card with time, gems and XP. Let go: the auto-belay catches you and lowers you.
-13. **Ropes outdoors.** Walk out the door to Wall A (or press M → Go). Without tying in, the badge says Free solo. Hold **Tie in** at the rope bag, climb a bit and press V: the rope catches you and lowers you.
+12. **Clip in, then a timed route.** Try to grab the tutorial wall: refused, "Clip in to the auto-belay first". Hold **Clip in** at the orange carabiner. Climb from the bottom: the timer appears top right. Hold the finish jug: summit card with time, gems and XP. Let go: the auto-belay catches you and lowers you, then unclips you.
+13. **Ropes outdoors.** Walk out the door to Wall A (or press M → Go). The badge says to tie in. Hold **Tie in** at the rope bag, climb a bit and press V: the rope catches you and lowers you.
+13b. **Shop and lockers.** At the pro shop counter, **Browse gear**: buy something once you have gems, and it's equipped straight away. At the lockers, **Customise bag**: change your pack and colours, and see them on your back.
 14. **Chalk.** Chalk up at a bucket: the chip top left shows Chalk 100% and it wears off as you climb.
 15. **Leaderboards.** After a summit your name appears on the route's sign and on the gym's leaderboard wall within a minute.
 16. **Big wall.** M → Go to The Long Way Up. Climb past the first ledge (you slide past it), let go just above it, and you land on it.
@@ -337,6 +359,16 @@ Run the checks again any time from the server command bar:
 
 ---
 
+## Checking the world without Studio
+
+`tools/world` builds the whole world outside Studio with [Lune](https://lune-org.github.io), by running the real World modules, and checks it:
+```
+rojo build default.project.json -o /tmp/place.rbxlx
+lune run tools/world/build.luau /tmp/place.rbxlx /tmp/world.json
+python3 tools/world/audit.py /tmp/world.json      # parts through the floor, floating, clashing, over-bright lights
+python3 tools/world/render.py /tmp/world.json /tmp/view.png --eye=0,20,60 --at=0,8,0 --terrain
+```
+
 ## Still to come
 
-From the design doc, not built yet: the iPad wall builder, picking problems on the Kilter board, the phone shop with delivery box, the backpack/loadout and gear (cams, nuts, lead clipping), the camera, skills and daily rewards, custom animation assets, sound, and mobile touch controls polish.
+From the design doc, not built yet: the iPad wall builder, picking problems on the Kilter board, the phone shop with delivery box, trad gear (cams, nuts) and lead clipping, the camera, skills and daily rewards, custom animation assets, sound, and mobile touch controls polish.

@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
+local Gear = require(Shared.Gear)
 local StaminaMath = require(Shared.StaminaMath)
 
 local Services = script.Parent.Parent.Services
@@ -81,6 +82,10 @@ function Stage4Check.Run(): boolean
 		if route:GetAttribute("Rope") == true and route:FindFirstChild("RopeBag") == nil then
 			table.insert(problems, `{name}: rope route without a rope bag`)
 		end
+		local belay = route:FindFirstChild("AutoBelay")
+		if route:GetAttribute("AutoBelay") == true and (belay == nil or belay:FindFirstChild("ClipIn", true) == nil) then
+			table.insert(problems, `{name}: auto-belay route without a "Clip in" carabiner`)
+		end
 
 		local holds: { BasePart } = {}
 		local roles = { Start = 0, Finish = 0 }
@@ -112,7 +117,7 @@ function Stage4Check.Run(): boolean
 			end
 		end
 	end
-	check(`every route is complete ({routeCount} routes)`, routeCount >= 15 and #problems == 0, table.concat(problems, "; "))
+	check(`every route is complete ({routeCount} routes)`, routeCount >= 20 and #problems == 0, table.concat(problems, "; "))
 
 	-- Pure rules.
 	local firstGems = RouteService.rewardsFor(10, true, true)
@@ -124,6 +129,37 @@ function Stage4Check.Run(): boolean
 		"chalk slows stamina drain but not recovery",
 		StaminaMath.withChalk(-10, 1, Config.Chalk.DrainReduction) > -10 and StaminaMath.withChalk(5, 1, Config.Chalk.DrainReduction) == 5
 	)
+	-- Gear: every slot has a free item, prices are sane, and the shop and lockers exist.
+	local gearOk = true
+	for _, slot in Gear.SLOTS do
+		local default = Gear.default(slot :: Gear.Slot)
+		if default == nil or default.price ~= 0 then
+			gearOk = false
+		end
+	end
+	for _, item in Gear.ITEMS do
+		if item.price < 0 or (item.stats.footDrain and item.stats.footDrain > 1) then
+			gearOk = false
+		end
+	end
+	check("gear catalog: a free item in every slot, upgrades only help", gearOk)
+	local gym = Workspace:FindFirstChild("Gym")
+	check(
+		"pro shop and lockers are in the gym",
+		gym ~= nil and gym:FindFirstChild("OpenShop", true) ~= nil and gym:FindFirstChild("OpenLocker", true) ~= nil
+	)
+	local placeGuard = require(Services.RopeService).placeGuard
+	local anyRoped: BasePart? = nil
+	for _, route in (if routes then routes:GetChildren() else {}) do
+		local holds = route:FindFirstChild("Holds")
+		local first = holds and holds:FindFirstChildWhichIsA("BasePart")
+		if route:GetAttribute("AutoBelay") == true and first then
+			anyRoped = first
+			break
+		end
+	end
+	local dummyPlayer = Instance.new("Folder") :: any
+	check("roped walls refuse climbers who aren't clipped in", anyRoped ~= nil and placeGuard(dummyPlayer, anyRoped :: BasePart) ~= nil)
 	check("saving is " .. (if DataService.IsPersistent() then "on" else "in memory only (Studio API access off)"), true)
 
 	print(`[Stage4Check] {passed} passed, {failed} failed`)
