@@ -283,6 +283,9 @@ local function buildCrashMat(frame: WallFrame, route: Instance)
 		query = true,
 		parent = mat,
 	})
+	for _, piece in mat:GetChildren() do
+		CollectionService:AddTag(piece, Tags.CrashMat) -- softens falls (RagdollService)
+	end
 	mat.Parent = route
 end
 

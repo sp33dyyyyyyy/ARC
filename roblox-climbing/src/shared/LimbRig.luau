@@ -113,6 +113,15 @@ local function jointsByChild(character: Model): { [BasePart]: Joint }
 	return result
 end
 
+-- Every enabled joint in `character` (ragdolls swap these for ball sockets).
+function LimbRig.allJoints(character: Model): { Joint }
+	local list = {}
+	for _, joint in jointsByChild(character) do
+		table.insert(list, joint)
+	end
+	return list
+end
+
 ---------------------------------------------------------------------------------------
 -- Finding the rig
 

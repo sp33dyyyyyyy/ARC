@@ -235,6 +235,72 @@ test("one-bone limb (R6) points at its target, with Roblox's real R6 shoulder of
 	end
 end)
 
+-- Free limbs, stamina ---------------------------------------------------------
+
+test("free-limb spring swings past its rest point a little, then settles", function()
+	-- Same stiffness/damping as ClimbAnimator: a hand starts 1 stud to the side of where it hangs.
+	local position, velocity = Vector3.new(1, 0, 0), Vector3.zero
+	local rest = Vector3.zero
+	local overshoot = 0
+	for _ = 1, 120 do -- 2 seconds at 60 fps
+		position, velocity = ClimbMath.springStep(position, velocity, rest, 1 / 60, 40, 6.5)
+		overshoot = math.max(overshoot, -position.X)
+	end
+	expect(overshoot > 0.05, `no swing at all (overshoot {overshoot}): too stiff`)
+	expect(overshoot < 0.35, `overshoot {overshoot}: too floppy`)
+	expect(position.Magnitude < 0.01, `still {position.Magnitude} from rest after 2 s`)
+end)
+
+test("spring is stable at low frame rates", function()
+	local position, velocity = Vector3.new(0, 2, 0), Vector3.zero
+	for _ = 1, 40 do
+		position, velocity = ClimbMath.springStep(position, velocity, Vector3.zero, 1 / 10, 40, 6.5)
+	end
+	expect(position.Magnitude < 0.01, `blew up or never settled: {position}`)
+end)
+
+local tuning = Config.Stamina
+local function grips(count: number, holdType: string, quality: number?): { any }
+	local def = HoldTypes.get(holdType)
+	local list = {}
+	for i = 1, count do
+		table.insert(list, { kind = if i <= 2 then "Hand" else "Foot", drain = def.DrainMultiplier, quality = quality or def.DefaultQuality })
+	end
+	return list
+end
+
+test("stamina drains faster with fewer limbs on", function()
+	local three = StaminaMath.rate(grips(3, "Edge"), 0, tuning)
+	local two = StaminaMath.rate(grips(2, "Edge"), 0, tuning)
+	local one = StaminaMath.rate(grips(1, "Edge"), 0, tuning)
+	expect(three < 0 and two < three and one < two, `rates 3/2/1 limbs: {three} {two} {one}`)
+end)
+
+test("stamina drains faster on crimps and slopers than on jugs", function()
+	local jug = StaminaMath.rate(grips(2, "Jug"), 0, tuning)
+	local crimp = StaminaMath.rate(grips(2, "Crimp"), 0, tuning)
+	local sloper = StaminaMath.rate(grips(2, "Sloper"), 0, tuning)
+	expect(crimp < jug and sloper < jug, `jug {jug}, crimp {crimp}, sloper {sloper}`)
+end)
+
+test("resting on all four limbs recovers, but only after RestDelay", function()
+	expect(StaminaMath.rate(grips(4, "Jug"), 0, tuning) == 0, "recovered before settling")
+	expect(StaminaMath.rate(grips(4, "Jug"), tuning.RestDelay + 0.1, tuning) > 0, "no recovery while resting")
+	expect(StaminaMath.rate({}, 0, tuning) == tuning.GroundRecover, "should refill off the wall")
+end)
+
+test("climbing without resting tires you out in a sensible time", function()
+	-- Hanging off two edges with no feet: a full bar lasts about 10-40 seconds.
+	local seconds = StaminaMath.secondsLeft(tuning.Max, StaminaMath.rate(grips(2, "Edge"), 0, tuning))
+	expect(seconds > 10 and seconds < 40, `lasts {seconds} s on two edges`)
+	-- Three limbs on jugs lasts longer than two limbs on crimps.
+	local easy = StaminaMath.secondsLeft(tuning.Max, StaminaMath.rate(grips(3, "Jug"), 0, tuning))
+	local hard = StaminaMath.secondsLeft(tuning.Max, StaminaMath.rate(grips(2, "Crimp"), 0, tuning))
+	expect(easy > hard * 2, `3 jugs {easy} s vs 2 crimps {hard} s`)
+	-- And step() never leaves 0..Max.
+	expect(StaminaMath.step(5, -100, 1, tuning.Max) == 0 and StaminaMath.step(95, 100, 1, tuning.Max) == tuning.Max)
+end)
+
 -- Whole wall ----------------------------------------------------------------
 
 -- Breadth-first search over which hold each limb is on, using the real solver and the

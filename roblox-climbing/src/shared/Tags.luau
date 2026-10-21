@@ -9,4 +9,5 @@ return table.freeze({
 	CrackPlacement = "CrackPlacement", -- spot for cams/nuts (Stage 7d)
 	RouteStart = "RouteStart", -- start pad of a route (Stage 5)
 	RouteSummit = "RouteSummit", -- summit volume of a route (Stage 5)
+	CrashMat = "CrashMat", -- landing on this softens falls (Stage 3)
 })

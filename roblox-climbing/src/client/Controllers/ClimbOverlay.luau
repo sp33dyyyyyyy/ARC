@@ -27,6 +27,11 @@ local heightPill: Frame
 local heightLabel: TextLabel
 local toastLabel: TextLabel
 local hintLabel: TextLabel
+local staminaGui: BillboardGui
+local staminaFill: Frame
+local deathScreen: Frame
+local deathTitle: TextLabel
+local deathSubtitle: TextLabel
 local toastTween: Tween?
 
 local function sphere(name: string): SphereHandleAdornment
@@ -123,6 +128,60 @@ function ClimbOverlay.init()
 	hintLabel.Visible = false
 	hintLabel.Parent = screen
 	rounded(hintLabel, UDim.new(0, 10))
+
+	-- Stamina: a thin vertical bar beside the climber (blue -> orange -> red).
+	staminaGui = Instance.new("BillboardGui")
+	staminaGui.Name = "StaminaBar"
+	staminaGui.Size = UDim2.fromScale(0.32, 2.8) -- studs
+	staminaGui.StudsOffset = Vector3.new(2.3, 0.4, 0) -- to the right on screen
+	staminaGui.AlwaysOnTop = true
+	staminaGui.LightInfluence = 0
+	staminaGui.Enabled = false
+	staminaGui.Parent = folder
+	local track = Instance.new("Frame")
+	track.Size = UDim2.fromScale(1, 1)
+	track.BackgroundColor3 = Color3.fromRGB(16, 24, 42)
+	track.BackgroundTransparency = 0.25
+	track.ClipsDescendants = true
+	track.Parent = staminaGui
+	rounded(track, UDim.new(1, 0))
+	local trackStroke = Instance.new("UIStroke")
+	trackStroke.Color = Color3.new(1, 1, 1)
+	trackStroke.Transparency = 0.6
+	trackStroke.Parent = track
+	staminaFill = Instance.new("Frame")
+	staminaFill.AnchorPoint = Vector2.new(0, 1)
+	staminaFill.Position = UDim2.fromScale(0, 1)
+	staminaFill.Size = UDim2.fromScale(1, 1)
+	staminaFill.BorderSizePixel = 0
+	staminaFill.Parent = track
+	rounded(staminaFill, UDim.new(1, 0))
+
+	-- Death screen: a dark red fade with what happened.
+	deathScreen = Instance.new("Frame")
+	deathScreen.Name = "Death"
+	deathScreen.Size = UDim2.fromScale(1, 1)
+	deathScreen.BackgroundColor3 = Color3.fromRGB(70, 0, 8)
+	deathScreen.BackgroundTransparency = 1
+	deathScreen.Visible = false
+	deathScreen.ZIndex = 10
+	deathScreen.Parent = screen
+	deathTitle = Instance.new("TextLabel")
+	deathTitle.AnchorPoint = Vector2.new(0.5, 0.5)
+	deathTitle.Position = UDim2.fromScale(0.5, 0.45)
+	deathTitle.Size = UDim2.fromOffset(600, 60)
+	deathTitle.BackgroundTransparency = 1
+	deathTitle.Font = Enum.Font.GothamBlack
+	deathTitle.TextSize = 46
+	deathTitle.TextColor3 = Color3.new(1, 1, 1)
+	deathTitle.ZIndex = 11
+	deathTitle.Parent = deathScreen
+	deathSubtitle = deathTitle:Clone()
+	deathSubtitle.Position = UDim2.fromScale(0.5, 0.53)
+	deathSubtitle.Font = Enum.Font.GothamMedium
+	deathSubtitle.TextSize = 20
+	deathSubtitle.TextColor3 = Color3.fromRGB(255, 200, 200)
+	deathSubtitle.Parent = deathScreen
 
 	dragDot = sphere("DragDot")
 	aimDot = sphere("AimDot")
@@ -236,6 +295,37 @@ function ClimbOverlay.setHeight(meters: number?)
 	if meters then
 		heightLabel.Text = string.format("%.2f m", meters)
 	end
+end
+
+-- Stamina bar beside `root` showing `fraction` (0..1). nil root hides it.
+function ClimbOverlay.setStamina(root: BasePart?, fraction: number?)
+	if root == nil or fraction == nil then
+		staminaGui.Enabled = false
+		return
+	end
+	staminaGui.Adornee = root
+	staminaGui.Enabled = true
+	staminaFill.Size = UDim2.fromScale(1, math.clamp(fraction, 0, 1))
+	local blue, orange, red = Color3.fromRGB(80, 170, 255), Color3.fromRGB(255, 160, 50), Color3.fromRGB(235, 60, 60)
+	staminaFill.BackgroundColor3 = if fraction > 0.5 then orange:Lerp(blue, (fraction - 0.5) * 2) else red:Lerp(orange, fraction * 2)
+end
+
+-- Death screen with a title and a subtitle; nil hides it.
+function ClimbOverlay.showDeath(title: string?, subtitle: string?)
+	if title == nil then
+		deathScreen.Visible = false
+		deathScreen.BackgroundTransparency = 1
+		return
+	end
+	deathTitle.Text = title
+	deathSubtitle.Text = subtitle or ""
+	deathTitle.TextTransparency = 1
+	deathSubtitle.TextTransparency = 1
+	deathScreen.Visible = true
+	local info = TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(deathScreen, info, { BackgroundTransparency = 0.35 }):Play()
+	TweenService:Create(deathTitle, info, { TextTransparency = 0 }):Play()
+	TweenService:Create(deathSubtitle, info, { TextTransparency = 0.1 }):Play()
 end
 
 -- Bottom-of-screen hint (rich text). nil hides it.

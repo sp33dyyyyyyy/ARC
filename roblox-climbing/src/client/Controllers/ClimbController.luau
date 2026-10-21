@@ -88,6 +88,7 @@ local dynoCharge: number? = nil
 local flightUntil: number? = nil
 local flightHold: BasePart? = nil -- the hold a dyno is aimed at
 local wallNormal = Vector3.zAxis
+local warnedTired = false
 
 ---------------------------------------------------------------------------------------
 -- Holds
@@ -139,6 +140,19 @@ local function tipPosition(limb: string): Vector3?
 		return tip.WorldPosition
 	end
 	return root and root.Position
+end
+
+-- 0 = fresh, 1 = about to fall off (from the server's "Stamina" attribute).
+local function fatigueOf(someone: Model): number
+	local stamina = someone:GetAttribute("Stamina")
+	if type(stamina) ~= "number" then
+		return 0
+	end
+	return math.clamp(1 - stamina / Config.Stamina.LowWarning, 0, 1)
+end
+
+local function isDown(someone: Model?): boolean
+	return someone ~= nil and someone:GetAttribute("Ragdolled") == true
 end
 
 ---------------------------------------------------------------------------------------
@@ -468,7 +482,7 @@ end
 -- Pointer input
 
 local function beginPointer(input: InputObject)
-	if character == nil or humanoid == nil or humanoid.Health <= 0 then
+	if character == nil or humanoid == nil or humanoid.Health <= 0 or isDown(character) then
 		return
 	end
 	local point = viewportPoint(input)
@@ -664,6 +678,7 @@ local function localIntent(): ClimbAnimator.Intent?
 		direct = direct,
 		look = look,
 		charge = dynoCharge or 0,
+		fatigue = if character then fatigueOf(character) else 0,
 	}
 	return intent
 end
@@ -688,17 +703,24 @@ local function otherIntent(otherCharacter: Model): ClimbAnimator.Intent?
 		return nil
 	end
 	local normal = facing.Unit
-	return { climbing = true, normal = normal, targets = targets, look = lookUpFrom(targets, normal), charge = 0 }
+	return {
+		climbing = true,
+		normal = normal,
+		targets = targets,
+		look = lookUpFrom(targets, normal),
+		charge = 0,
+		fatigue = fatigueOf(otherCharacter),
+	}
 end
 
 -- PreSimulation: pose every climber (runs after Roblox's animations, so the pose wins).
 local function animateAll(dt: number)
-	if character then
+	if character and not isDown(character) then
 		ClimbAnimator.animate(character, localIntent(), dt)
 	end
 	for _, other in Players:GetPlayers() do
 		local otherCharacter = other.Character
-		if other ~= player and otherCharacter then
+		if other ~= player and otherCharacter and not isDown(otherCharacter) then
 			ClimbAnimator.animate(otherCharacter, otherIntent(otherCharacter), dt)
 		end
 	end
@@ -784,6 +806,23 @@ local function updateHint()
 	end
 end
 
+local function updateStamina()
+	if character == nil or root == nil then
+		ClimbOverlay.setStamina(nil)
+		return
+	end
+	local value = character:GetAttribute("Stamina")
+	local stamina = if type(value) == "number" then value else Config.Stamina.Max
+	local fraction = stamina / Config.Stamina.Max
+	ClimbOverlay.setStamina(if climbing or fraction < 0.995 then root else nil, fraction)
+	if climbing and stamina < Config.Stamina.LowWarning and not warnedTired then
+		warnedTired = true
+		ClimbOverlay.toast("Getting tired! Rest with all four limbs on holds")
+	elseif stamina > Config.Stamina.LowWarning + 15 then
+		warnedTired = false
+	end
+end
+
 local function step(dt: number)
 	if character == nil or root == nil or humanoid == nil or humanoid.Health <= 0 then
 		return
@@ -835,6 +874,7 @@ local function step(dt: number)
 	updateRings()
 	updateHeight()
 	updateHint()
+	updateStamina()
 end
 
 ---------------------------------------------------------------------------------------
@@ -862,10 +902,13 @@ local function clearCharacter()
 	ClimbOverlay.setMarkers({})
 	ClimbOverlay.setDragDot(nil)
 	ClimbOverlay.setHint(nil)
+	ClimbOverlay.setStamina(nil)
 end
 
 local function onCharacter(newCharacter: Model)
 	clearCharacter()
+	ClimbOverlay.showDeath(nil)
+	warnedTired = false
 	print("[ClimbController] character spawned, setting up climbing")
 	local newHumanoid = newCharacter:WaitForChild("Humanoid", 10) :: Humanoid?
 	local newRoot = newCharacter:WaitForChild("HumanoidRootPart", 10) :: BasePart?
@@ -950,7 +993,46 @@ local function onCharacter(newCharacter: Model)
 			end
 		end
 	end))
-	table.insert(characterConnections, newHumanoid.Died:Connect(clearCharacter))
+	-- Ragdoll (RagdollService): go limp, then get back up.
+	local function onRagdollChanged()
+		if isDown(newCharacter) then
+			if climbing then
+				exitClimb()
+			end
+			drag, selected, dynoCharge = nil, nil, nil
+			newHumanoid:ChangeState(Enum.HumanoidStateType.Physics)
+			local reason = newCharacter:GetAttribute("FellReason")
+			if newHumanoid.Health > 0 then
+				if reason == "Exhausted" then
+					ClimbOverlay.toast("Too tired - you peeled off the wall!")
+				elseif reason == "MissedDyno" then
+					ClimbOverlay.toast("Missed the dyno!")
+				end
+			end
+		elseif newHumanoid.Health > 0 then
+			newHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+			local fall = newCharacter:GetAttribute("LastFall")
+			if type(fall) == "number" and fall > 0 then
+				ClimbOverlay.toast(`Ouch! {fall} m fall`)
+			end
+		end
+	end
+	table.insert(characterConnections, newCharacter:GetAttributeChangedSignal("Ragdolled"):Connect(onRagdollChanged))
+	if isDown(newCharacter) then
+		onRagdollChanged()
+	end
+
+	table.insert(characterConnections, newHumanoid.Died:Connect(function()
+		local fall = newCharacter:GetAttribute("FallDeath")
+		local reason = newCharacter:GetAttribute("FellReason")
+		local subtitle = if reason == "Exhausted" then "You ran out of grip." else "Respawning..."
+		if type(fall) == "number" then
+			ClimbOverlay.showDeath(`You fell {fall} m`, subtitle)
+		else
+			ClimbOverlay.showDeath("You died", "Respawning...")
+		end
+		clearCharacter()
+	end))
 end
 
 ---------------------------------------------------------------------------------------

@@ -148,6 +148,20 @@ function ClimbMath.ballisticVelocity(from: Vector3, to: Vector3, time: number, g
 	return (to - from) / time + Vector3.yAxis * (0.5 * gravity * (time + ClimbMath.PHYSICS_STEP))
 end
 
+-- Advances a damped spring (a free hand or foot) towards `rest` by `dt` seconds, in small
+-- fixed steps so it stays stable at any frame rate. Returns the new position and velocity.
+function ClimbMath.springStep(position: Vector3, velocity: Vector3, rest: Vector3, dt: number, stiffness: number, damping: number): (Vector3, Vector3)
+	local remaining = math.min(dt, 0.1)
+	while remaining > 1e-6 do
+		local h = math.min(remaining, 1 / 120)
+		local accel = (rest - position) * stiffness - velocity * damping
+		velocity += accel * h
+		position += velocity * h
+		remaining -= h
+	end
+	return position, velocity
+end
+
 -- Point where a ray hits the plane through `planePoint` with normal `normal`, if in front.
 function ClimbMath.rayPlane(origin: Vector3, direction: Vector3, planePoint: Vector3, normal: Vector3): Vector3?
 	local denominator = direction:Dot(normal)

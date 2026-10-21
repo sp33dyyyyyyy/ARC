@@ -62,6 +62,7 @@ def main():
         inline_module("ClimbMath", "src", "shared", "ClimbMath.luau"),
         inline_module("Layout", "src", "server", "World", "TestWallLayout.luau"),
         inline_module("LimbRig", "src", "shared", "LimbRig.luau"),
+        inline_module("StaminaMath", "src", "shared", "StaminaMath.luau"),
         grips_from_hold_models(),
         read("tests", "climbing.luau"),
     ])

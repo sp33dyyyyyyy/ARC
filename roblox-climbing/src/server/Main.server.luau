@@ -1,7 +1,7 @@
 --!strict
 -- Server entry point. The only Script on the server; everything else is a ModuleScript.
 -- Order: rig check -> lighting + missing world pieces -> Init every service -> Start every service.
--- Later stages add their services to SERVICE_ORDER (StaminaService, RopeService, ...).
+-- Later stages add their services to SERVICE_ORDER (RouteService, RopeService, ...).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -13,6 +13,8 @@ local Server = script.Parent
 local SERVICE_ORDER = {
 	"HoldService",
 	"ClimbService",
+	"StaminaService",
+	"RagdollService",
 }
 
 print(`[{Config.GameName}] server v{Config.Version}`)
@@ -98,5 +100,6 @@ if Config.Debug.RunSelfChecksInStudio and RunService:IsStudio() then
 	task.defer(function()
 		require(Server.Diagnostics.Stage1Check).Run()
 		require(Server.Diagnostics.Stage2Check).Run()
+		require(Server.Diagnostics.Stage3Check).Run()
 	end)
 end

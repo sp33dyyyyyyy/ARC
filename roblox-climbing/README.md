@@ -23,6 +23,11 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/shared/RateLimiter.luau` | `ReplicatedStorage.Shared.RateLimiter` | ModuleScript |
 | `src/shared/LimbRig.luau` | `ReplicatedStorage.Shared.LimbRig` | ModuleScript |
 | `src/server/Services/ClimbService.luau` | `ServerScriptService.Server.Services.ClimbService` | ModuleScript |
+| `src/shared/StaminaMath.luau` | `ReplicatedStorage.Shared.StaminaMath` | ModuleScript |
+| `src/server/Services/StaminaService.luau` | `ServerScriptService.Server.Services.StaminaService` | ModuleScript |
+| `src/server/Services/RagdollService.luau` | `ServerScriptService.Server.Services.RagdollService` | ModuleScript |
+| `src/server/Physics/Ragdoll.luau` | `ServerScriptService.Server.Physics.Ragdoll` | ModuleScript |
+| `src/server/Diagnostics/Stage3Check.luau` | `ServerScriptService.Server.Diagnostics.Stage3Check` | ModuleScript |
 | `src/server/Main.server.luau` | `ServerScriptService.Server.Main` | **Script** |
 | `src/server/Services/HoldService.luau` | `ServerScriptService.Server.Services.HoldService` | ModuleScript |
 | `src/server/World/TestWall.luau` | `ServerScriptService.Server.World.TestWall` | ModuleScript |
@@ -39,7 +44,7 @@ The project is set up for [Rojo](https://rojo.space) (7.4+), which syncs these f
 | `src/client/Controllers/ClimbOverlay.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbOverlay` | ModuleScript |
 | `src/client/Controllers/ClimbAnimator.luau` | `StarterPlayer.StarterPlayerScripts.Client.Controllers.ClimbAnimator` | ModuleScript |
 
-`Shared`, `Server`, `Services`, `World`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
+`Shared`, `Server`, `Services`, `World`, `Physics`, `Diagnostics`, `Client` and `Controllers` are plain **Folders**.
 
 Each side has exactly one entry script (`Server.Main` and `Client.Main`). Everything else is a ModuleScript with `Init()` and `Start()`, loaded in the order listed at the top of the entry script. Later stages add services (`ClimbService`, `StaminaService`, `RopeService`, `RouteService`, `LeaderboardService`, `DataService`) and controllers (`ClimbController`, `UIController`) the same way.
 
@@ -178,10 +183,12 @@ python3 tests/run.py          # or: LUAU=/path/to/luau python3 tests/run.py
 ```
 
 - `tests/unit.luau` (15 tests) covers hold types, the wall layout and the rate limiter.
-- `tests/climbing.luau` (16 tests) runs the **real** `Config`, `ClimbMath` and wall-layout code with stand-ins for Roblox's `Vector3`/`Vector2` (`tests/mocks.luau`). It covers:
+- `tests/climbing.luau` (22 tests) runs the **real** `Config`, `ClimbMath` and wall-layout code with stand-ins for Roblox's `Vector3`/`Vector2` (`tests/mocks.luau`). It covers:
   - the body solver: resting poses, weight shift, never leaving a limb behind;
   - the floor clamp;
   - the dyno, including a 240 Hz physics integration check that the jump lands where it's aimed under Roblox gravity;
+  - the free-limb spring (swings a little, then settles, and stays stable at low frame rates);
+  - stamina (fewer limbs and worse holds drain faster, resting recovers, sensible times);
   - two-bone IK: hands land exactly on targets, elbows bend towards the pole, the arm straightens towards out-of-reach targets, and R6 single-bone limbs with real shoulder offsets;
   - a search over every limb/hold/shift combination proving the test wall can be climbed from the mat to the finish.
 
@@ -236,11 +243,38 @@ The height above the floor shows in a pill at the top centre while you climb.
 
 The offline tests run the real solver over every limb, hold and WASD shift, and prove the test wall can be climbed from the mat to the finish jug with every hold reachable.
 
+## Stamina, ragdoll and falls (Stage 3)
+
+**Getting tired.** You have a grip stamina bar, the thin vertical bar beside your climber (blue → orange → red).
+- It drains while you climb: faster with fewer limbs on (1 limb drains fast, 3 limbs slowly) and on worse holds (jugs are easy, crimps and slopers are hard).
+- It **only refills when you rest**: all four limbs on holds, without moving one, for a moment. It refills faster on good holds, and quickly once you're off the wall.
+- Each dyno costs 15.
+- Below 25 your hands start to shake, you breathe harder, and you get a warning.
+- **At zero you peel off the wall and fall.**
+
+Stamina is worked out by the server (`StaminaService`), so it can't be cheated. All numbers are in `Config.Stamina`. Hanging off two edges with no feet lasts about 14 seconds; three limbs on jugs lasts much longer.
+
+**Ragdoll.** You go limp (a real physics ragdoll; every joint becomes a limited ball socket so nothing bends backwards) when:
+- you run out of stamina,
+- a dyno misses,
+- you let go more than about 1.7 m up.
+
+**Falls** are measured from the top of the fall to where your feet land:
+| Fall | What happens |
+|---|---|
+| under 2.5 m (9 studs) | nothing, like a normal jump |
+| up to 4.2 m (15 studs) | knocked down, back up after about 2 seconds ("Ouch! 3.1 m fall") |
+| 4.2 m or more | **dead**: the ragdoll crumples, the screen fades red with "You fell 5.6 m", respawn after 4 seconds |
+
+Landing on a crash mat raises the lethal height by 20%. On the test wall that means falls from the top holds kill you, and falls from mid-wall knock you down.
+
+**Free limbs** now hang on damped springs. They lag behind and swing when your body moves, then settle: a bit floppier than before, but not rag-doll floppy. All of this works on R6 and R15, with both kinds of joints. All tuning is in `Config.Falls`.
+
 ## Stage 2 test checklist
 
 Press **Play** and check:
 
-1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 14 passed, 0 failed`**. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
+1. Output ends with **`[Stage1Check] 11 passed, 0 failed`** and **`[Stage2Check] 14 passed, 0 failed`** and **`[Stage3Check] 4 passed, 0 failed`**. Stage2Check tests the remotes, the limb rig and IK on both an R15 and an R6 test dummy (it names the joint type it found), the limb collision group, 8 server reach/type cases and the body solver. You should also see `[ClimbController] ready: … 4/4 limbs` from the client.
 2. **Get on the wall.** Walk onto the green start box. White/grey rings appear on your hands and feet. Drag your right hand onto a start jug (the green one with tape under it). The arm reaches for it and the body lifts into a hang.
 3. **Feet.** Drag a foot onto a dark foothold below. Teal markers show which footholds that foot can reach. Your body settles between hands and feet.
 4. **Reach rules.** Drag a hand towards the top jug. Its marker is red and dropping it shows "Out of reach". Drag a hand onto a foothold: no marker, and it's refused ("That hold is for feet").

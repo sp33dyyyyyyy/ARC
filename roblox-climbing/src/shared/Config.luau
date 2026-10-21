@@ -6,7 +6,7 @@
 local Config = {}
 
 Config.GameName = "[YOUR GAME NAME]"
-Config.Version = "0.4.0-stage2"
+Config.Version = "0.5.0-stage3"
 
 Config.METERS_PER_STUD = 0.28
 
@@ -99,6 +99,31 @@ Config.Climb = {
 		Attached = Color3.fromRGB(255, 255, 255),
 		Free = Color3.fromRGB(160, 168, 184),
 	},
+}
+
+-- Grip stamina (StaminaMath). Climb without resting and you get tired and fall off.
+Config.Stamina = {
+	Max = 100,
+	DrainByLimbs = { 18, 9, 4 }, -- per second with 1 / 2 / 3 limbs on (x hold type x quality)
+	FeetOnlyDrain = 1.5,
+	RestDelay = 0.6, -- all four limbs on, unmoved, this long before recovery starts
+	RestRecover = 22, -- per second while resting (more on jugs)
+	GroundRecover = 35,
+	DynoCost = 15, -- every dyno costs this much
+	LowWarning = 25, -- below this the hands shake and the bar turns red
+	TickSeconds = 0.1, -- server update rate
+}
+
+-- Falls, ragdoll and death (RagdollService). Heights are of the feet above the landing
+-- spot, in studs (1 stud = 0.28 m).
+Config.Falls = {
+	SafeHeight = 9, -- falls up to this are shrugged off (a normal jump is about 7)
+	LethalHeight = 15, -- falls from this high are fatal (about 4.2 m)...
+	CrashMatFactor = 1.2, -- ...landing on a crash mat raises that by 20%
+	RagdollOnLetGoAbove = 6, -- letting go higher than this above the ground ragdolls you
+	KnockdownSeconds = 2.2, -- lying on the floor after a hard (non-fatal) landing
+	DynoGrace = 1.6, -- after a missed dyno, how long before you go limp
+	RespawnSeconds = 4,
 }
 
 Config.Debug = {

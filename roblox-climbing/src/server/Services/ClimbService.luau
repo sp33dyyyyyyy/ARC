@@ -9,6 +9,9 @@
 --    right limb type, within reach of the HumanoidRootPart) and tells the client when it
 --    refuses one.
 --  * Watchdog: a body that stays impossibly far from its holds is taken off the wall.
+--  * Tells other services when someone leaves the wall and why (OnLeftWall: "Release",
+--    "LetGo", "Dyno", "Exhausted", "Watchdog", "HoldGone", "Died"), and lets them force a
+--    climber off (ForceOff, e.g. StaminaService when grip runs out).
 --
 -- The body itself is moved by the owning client (it owns its character's physics);
 -- the server only checks that it stays plausible.
@@ -36,6 +39,7 @@ local WATCHDOG_INTERVAL = 0.25
 local ClimbService = {}
 
 type Rig = {
+	player: Player,
 	character: Model,
 	humanoid: Humanoid,
 	root: BasePart,
@@ -46,6 +50,8 @@ type Rig = {
 local rigs: { [Player]: Rig } = {}
 local limiter = RateLimiter.new(CLIMB.RequestsPerSecond, CLIMB.RequestBurst)
 local rejectedEvent: RemoteEvent
+local leftWallListeners: { (Player, string) -> () } = {}
+local dynoListeners: { (Player) -> () } = {}
 
 function ClimbService.attributeName(limb: string): string
 	return ATTRIBUTE_PREFIX .. limb
@@ -63,16 +69,33 @@ local function heldHolds(rig: Rig): { [string]: BasePart }
 	return held
 end
 
-local function setLimb(rig: Rig, limb: string, hold: BasePart?)
+local function setLimb(rig: Rig, limb: string, hold: BasePart?, reason: string?)
+	local wasClimbing = rig.character:GetAttribute("Climbing") == true
 	rig.character:SetAttribute(ClimbService.attributeName(limb), if hold then hold:GetAttribute("HoldId") else nil)
-	rig.character:SetAttribute("Climbing", next(heldHolds(rig)) ~= nil)
+	local climbing = next(heldHolds(rig)) ~= nil
+	rig.character:SetAttribute("Climbing", climbing)
+	if wasClimbing and not climbing then
+		for _, listener in leftWallListeners do
+			task.spawn(listener, rig.player, reason or "Release")
+		end
+	end
 end
 
-local function releaseAll(rig: Rig)
+local function releaseAll(rig: Rig, reason: string)
 	for _, limb in Config.LimbOrder do
-		setLimb(rig, limb, nil)
+		setLimb(rig, limb, nil, reason)
 	end
 	rig.farFor = 0
+end
+
+-- `listener(player, reason)` runs whenever a climber stops holding anything.
+function ClimbService.OnLeftWall(listener: (Player, string) -> ())
+	table.insert(leftWallListeners, listener)
+end
+
+-- `listener(player)` runs when a climber launches a dyno.
+function ClimbService.OnDyno(listener: (Player) -> ())
+	table.insert(dynoListeners, listener)
 end
 
 export type PlaceCheck = { ok: boolean, reason: string?, hold: BasePart? }
@@ -126,14 +149,22 @@ local function rigFor(player: Player): Rig?
 			end
 		end
 	end
-	local rig: Rig = { character = character, humanoid = humanoid, root = root, farFor = 0, dynoUntil = 0 }
+	local rig: Rig = { player = player, character = character, humanoid = humanoid, root = root, farFor = 0, dynoUntil = 0 }
 	rigs[player] = rig
 	humanoid.Died:Connect(function()
 		if rigs[player] == rig then
-			releaseAll(rig)
+			releaseAll(rig, "Died")
 		end
 	end)
 	return rig
+end
+
+-- Takes a climber off the wall (every limb lets go) for `reason`.
+function ClimbService.ForceOff(player: Player, reason: string)
+	local rig = rigFor(player)
+	if rig then
+		releaseAll(rig, reason)
+	end
 end
 
 local function onRequest(player: Player, action: any, limb: any, holdId: any)
@@ -151,6 +182,10 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 	end
 
 	if action == "Place" then
+		if rig.character:GetAttribute("Ragdolled") == true then
+			rejectedEvent:FireClient(player, if type(limb) == "string" then limb else "", "you're down")
+			return
+		end
 		local extra = if os.clock() < rig.dynoUntil then DYNO.ServerExtraTolerance else 0
 		local result = ClimbService.CheckPlace(rig.root.Position, limb, holdId, extra)
 		if result.ok then
@@ -160,12 +195,17 @@ local function onRequest(player: Player, action: any, limb: any, holdId: any)
 		end
 	elseif action == "Release" then
 		if type(limb) == "string" and Config.Limbs[limb] then
-			setLimb(rig, limb, nil)
+			setLimb(rig, limb, nil, "Release")
 		end
 	elseif action == "LetGo" then
-		releaseAll(rig)
+		releaseAll(rig, "LetGo")
 	elseif action == "Dyno" then
-		releaseAll(rig)
+		if rig.character:GetAttribute("Climbing") == true then
+			for _, listener in dynoListeners do
+				task.spawn(listener, player)
+			end
+		end
+		releaseAll(rig, "Dyno")
 		rig.dynoUntil = os.clock() + DYNO.ServerGrace
 	end
 end
@@ -195,7 +235,7 @@ local function watchdog(dt: number)
 			end
 			local hold = HoldService.GetHold(id)
 			if hold == nil then
-				setLimb(rig, limb, nil)
+				setLimb(rig, limb, nil, "HoldGone")
 				continue
 			end
 			local reach = Config.Limbs[limb].Reach + CLIMB.WatchdogExtra
@@ -206,7 +246,7 @@ local function watchdog(dt: number)
 		rig.farFor = if far then rig.farFor + dt else 0
 		if rig.farFor >= CLIMB.WatchdogSeconds then
 			warn(`[ClimbService] {player.Name} was too far from their holds; taken off the wall`)
-			releaseAll(rig)
+			releaseAll(rig, "Watchdog")
 		end
 	end
 end
