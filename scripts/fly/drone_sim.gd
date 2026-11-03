@@ -46,6 +46,15 @@ var angle_max := deg_to_rad(55.0)
 var angle_gain := 7.0          # rad/s of rate setpoint per rad of angle error
 var rx_link := true
 var video_link := true
+## Beginner assist: the throttle stick commands climb rate (centre = hold altitude).
+var alt_assist := false
+var _alt_i := 0.0
+var motor_health: Array = [1.0, 1.0, 1.0, 1.0]
+var crash_speed := CRASH_SPEED
+## Wind (m/s, world) plus filtered gusts.
+var wind := Vector3.ZERO
+var gust_strength := 0.0
+var _gust := Vector3.ZERO
 
 # pilot input
 var stick_throttle := 0.0
@@ -89,6 +98,7 @@ var air_time := 0.0
 # world hooks
 var ground_height: Callable      # (x, z) -> float
 var obstacles: Callable          # (x, z) -> Array of [cx, cz, base_y]   (trees near the point)
+var boxes: Callable              # (x, z) -> Array of [cx, cy, cz, hx, hy, hz, yaw]   (buildings)
 var water_level := -1000.0
 var water_test: Callable         # (x, z) -> bool  (is there lake here?)
 
@@ -122,7 +132,9 @@ func setup(p_stats: Dictionary, p_cfg: Dictionary) -> void:
 		motor_spin.append(1.0 if Parts.MOTOR_SPIN[i] == "CW" else -1.0)
 	_rng.seed = 4242
 	r_int = 0.030 * pow(1500.0 / capacity_mah, 0.8) * (cells / 4.0)
-	current_limit = 60.0 * capacity_mah * 0.001
+	current_limit = 60.0 * capacity_mah * 0.001 * float(stats.get("current_mult", 1.0))
+	motor_health = stats.get("motor_health", [1.0, 1.0, 1.0, 1.0]).duplicate()
+	crash_speed = float(stats.get("crash_speed", CRASH_SPEED))
 	reset()
 
 
@@ -187,6 +199,27 @@ func step(dt: float) -> void:
 	# --- controller ---
 	var thr := stick_throttle if live else 0.0
 	var base := lerpf(FlightMath.IDLE, 1.0, thr) if live else 0.0
+	if alt_assist and live:
+		# stick 0.5 = hold height; above climbs up to 4 m/s, below descends up to 3 m/s
+		var st := stick_throttle - 0.5
+		var vz_t := 0.0
+		if absf(st) > 0.06:
+			vz_t = (st - 0.06 * signf(st)) / 0.44 * (4.0 if st > 0.0 else 3.0)
+		if on_ground and vz_t <= 0.2:
+			base = FlightMath.IDLE
+			_alt_i = 0.0
+			thr = 0.0
+		else:
+			var err_v := vz_t - vel.y
+			_alt_i = clampf(_alt_i + err_v * dt * 0.8, -3.0, 3.0)
+			var a_up := G + err_v * 2.6 + _alt_i
+			var tilt_c := clampf(basis.y.y, 0.55, 1.0)
+			var f_need := mass * a_up / tilt_c
+			var vfac0 := clampf(v_term / (V_FULL_CELL * cells), 0.3, 1.0)
+			var hmean: float = (motor_health[0] + motor_health[1] + motor_health[2] + motor_health[3]) * 0.25
+			var w_need := sqrt(clampf(f_need / (4.0 * thrust_full * hmean), 0.0, 1.0)) / vfac0
+			base = clampf(w_need, FlightMath.IDLE, 1.0)
+			thr = maxf(base, 0.05)
 	var deltas := [0.0, 0.0, 0.0, 0.0]
 	mix_out = Vector3.ZERO
 	var pid_active := live and thr > 0.04
@@ -264,7 +297,7 @@ func step(dt: float) -> void:
 		w[i] += (target - w[i]) * lag
 		if w[i] < 0.0005:
 			w[i] = 0.0
-		var t: float = thrust_full * w[i] * w[i]
+		var t: float = thrust_full * w[i] * w[i] * float(motor_health[i])
 		thrust[i] = t
 		var pw: float = amps_full * pow(w[i], 2.2) / maxf(vfac, 0.25)
 		amps[i] = IDLE_A + pw
@@ -279,14 +312,19 @@ func step(dt: float) -> void:
 	# --- rigid body ---
 	var up := basis.y
 	var force := up * f_total + Vector3(0, -mass * G, 0)
-	var v_len := vel.length()
-	force -= vel * (0.012 + drag_k2 * v_len)
+	if gust_strength > 0.0:
+		var gt := Vector3(_rng.randfn(0.0, gust_strength), _rng.randfn(0.0, gust_strength * 0.3), _rng.randfn(0.0, gust_strength))
+		_gust += (gt - _gust) * minf(dt / 1.2, 1.0)
+	var air := wind + _gust if pos.y > 0.0 else Vector3.ZERO
+	var rel := vel - (air if not on_ground else Vector3.ZERO)
+	var v_len := rel.length()
+	force -= rel * (0.012 + drag_k2 * v_len)
 	var acc := force / mass
 	var alpha := Vector3(tau_x / inertia.x, tau_y / inertia.y, tau_z / inertia.z)
 	alpha -= omega * 0.18
 	if not on_ground:
 		# prop-wash style disturbance: makes under-damped tunes visibly ring
-		var sig := 7.0 * (0.3 + _avg_w())
+		var sig := 7.0 * (0.3 + _avg_w()) + gust_strength * 2.5
 		turb += (Vector3(_rng.randfn(0.0, sig), _rng.randfn(0.0, sig * 0.4), _rng.randfn(0.0, sig)) - turb) * minf(dt / 0.006, 1.0)
 		alpha += turb
 	omega += alpha * dt
@@ -341,7 +379,7 @@ func _collide(dt: float) -> void:
 		on_ground = true
 		if vn < 0.0:
 			var spd := -vn
-			if spd > CRASH_SPEED:
+			if spd > crash_speed:
 				_hit("ground", n, spd, Vector3(pos.x, gh, pos.z))
 				return
 			vel -= n * vn * 1.15
@@ -373,13 +411,47 @@ func _collide(dt: float) -> void:
 				var n2 := Vector3(d.x, 0.15, d.y).normalized() if dist > 0.001 else Vector3.RIGHT
 				var vn2 := vel.dot(n2)
 				if vn2 < 0.0:
-					if -vn2 > CRASH_SPEED * 0.8:
+					if -vn2 > crash_speed * 0.8:
 						_hit("tree", n2, -vn2, pos)
 						return
 					vel -= n2 * vn2 * 1.3
 				var push := (rad + DRONE_RADIUS - dist)
 				pos += Vector3(n2.x, 0, n2.z) * push
 				omega *= 0.8
+
+
+	# buildings (oriented boxes)
+	if boxes.is_valid():
+		for b in boxes.call(pos.x, pos.z):
+			var c := Vector3(b[0], b[1], b[2])
+			var he := Vector3(b[3], b[4], b[5]) + Vector3.ONE * DRONE_RADIUS
+			var rb := Basis(Vector3.UP, b[6])
+			var l := rb.inverse() * (pos - c)
+			if absf(l.x) < he.x and absf(l.y) < he.y and absf(l.z) < he.z:
+				# push out along the axis of least penetration
+				var pen := Vector3(he.x - absf(l.x), he.y - absf(l.y), he.z - absf(l.z))
+				var nl := Vector3.ZERO
+				if pen.y <= pen.x and pen.y <= pen.z:
+					nl = Vector3(0, signf(l.y), 0)
+				elif pen.x <= pen.z:
+					nl = Vector3(signf(l.x), 0, 0)
+				else:
+					nl = Vector3(0, 0, signf(l.z))
+				var nw := rb * nl
+				var vn3 := vel.dot(nw)
+				if vn3 < 0.0:
+					if -vn3 > crash_speed * (1.0 if nl.y > 0.5 else 0.85):
+						_hit("building", nw, -vn3, pos)
+						return
+					vel -= nw * vn3 * (1.15 if nl.y > 0.5 else 1.3)
+				pos += nw * pen.dot(nl.abs())
+				if nl.y > 0.5:
+					on_ground = true
+					var tang := vel - nw * vel.dot(nw)
+					vel -= tang * minf(6.0 * dt, 1.0)
+					omega *= exp(-10.0 * dt)
+				else:
+					omega *= 0.8
 
 
 func f_up_lt_weight() -> bool:

@@ -323,9 +323,14 @@ func _click_pad(wr: WireStage, pid: String) -> void:
 func _setup_fly(mission: String) -> FlyStage:
 	Game.placed = full_build()
 	Game.broken = {}
+	Game.cond = {}
+	Game.loose = {}
+	Game.bench_charge = 1.0
 	Game.wires = all_wires()
 	Game.cfg = FlightMath.default_cfg()
 	Game.mission = mission
+	Game.flight = {}
+	Settings.assist = 2            # the checks below drive the raw acro model
 	Game.goto("fly")
 	await _frames(60)
 	return _fly_node()
@@ -564,3 +569,394 @@ func fly_low() -> void:
 
 func fly_medium() -> void:
 	await fly_preset(1)
+
+
+# --- garage / career (new) ---------------------------------------------------------------------
+func _garage() -> Garage:
+	for c in main.get_children():
+		if c is Garage:
+			return c
+	return null
+
+
+func _fresh_career_with_drone() -> String:
+	Career.new_career()
+	Career.open_parcel("starter")
+	var placed := full_build()
+	for slot in placed:
+		Career.take(placed[slot])
+	Game.placed = placed
+	Game.broken = {}
+	Game.cond = {}
+	Game.loose = {}
+	Game.wires = all_wires()
+	Game.cfg = FlightMath.default_cfg()
+	var d := Career.store_bench_drone("Wasp-01")
+	d["certified"] = true
+	return d["id"]
+
+
+func garage() -> void:
+	_fresh_career_with_drone()
+	Game.goto("garage", {"spawn": "door"})
+	await _frames(50)
+	var g := _garage()
+	g.player.yaw = deg_to_rad(180)
+	g.player.pitch = deg_to_rad(-12)
+	await _frames(10)
+	await shot("garage_back")
+	g.player.yaw = deg_to_rad(90)
+	await _frames(6)
+	await shot("garage_left")
+	g.player.yaw = deg_to_rad(-90)
+	await _frames(6)
+	await shot("garage_right")
+	g.toggle_door()
+	await _frames(200)
+	g.player.yaw = 0.0
+	g.player.pitch = deg_to_rad(-5)
+	await _frames(10)
+	await shot("garage_door_open")
+	print("CHECK garage door open: ", g.door_open)
+
+
+func garage_interact() -> void:
+	Career.new_career()
+	Game.goto("garage", {"spawn": "bench"})
+	await _frames(50)
+	var g := _garage()
+	# look at the cupboard door and open it
+	g.player.position = Garage.BENCH_POS + Vector3(-0.8, 0, 1.3)
+	g.player.yaw = 0.0
+	g.player.pitch = deg_to_rad(-55)
+	g.player.crouched = false
+	await _frames(12)
+	print("CHECK hover: ", g.player.hovered.title if g.player.hovered is Interactable else str(g.player.hovered))
+	g._do_use()
+	await _frames(40)
+	await shot("garage_cupboard_open")
+	await _frames(6)
+	g.player.crouched = true
+	g.player.pitch = deg_to_rad(-25)
+	await _frames(30)
+	print("CHECK hover after open (crouched): ", g.player.hovered.title if g.player.hovered != null and "title" in g.player.hovered else str(g.player.hovered))
+	g._do_pickup()
+	await _frames(20)
+	print("CHECK holding starter kit: ", g.player.held != null and g.player.held.kind == "parcel")
+	g._do_use()
+	await _frames(140)
+	print("CHECK starter kit opened -> inventory: ", Career.stock("frame_5"), " flag ", Career.flag("starter_opened"))
+	await shot("garage_unpacked")
+
+
+func garage_os() -> void:
+	_fresh_career_with_drone()
+	Game.goto("garage", {"spawn": "door"})
+	await _frames(40)
+	var g := _garage()
+	g.open_computer()
+	await _frames(20)
+	await shot("os_desktop")
+	for app in ["market", "drones", "factory", "deploy", "inventory", "diag", "finance", "upgrades"]:
+		var os: WorkshopOS = g.overlay
+		os.open_app(app)
+		await _frames(12)
+		await shot("os_" + app)
+	g.close_overlay()
+
+
+func garage_delivery() -> void:
+	_fresh_career_with_drone()
+	var err := Career.place_order({"prop_5143_cw": 2, "prop_5143_ccw": 2})
+	print("CHECK order placed: '", err, "' orders=", Career.data["orders"].size())
+	Career.data["orders"][0]["eta"] = Career.data["playtime"] - 1.0
+	Game.goto("garage", {"spawn": "outside"})
+	await _frames(30)
+	var g := _garage()
+	g.player.yaw = deg_to_rad(200)
+	await _frames(400)
+	await shot("garage_delivery")
+	print("CHECK parcel dropped: parcels=", Career.data["parcels"].size(), " orders=", Career.data["orders"].size())
+
+
+func _fly_career(mission: String) -> FlyStage:
+	var id := _fresh_career_with_drone()
+	var d := Career.get_drone(id)
+	d["placed"]["payload"] = "pod_twin"
+	Settings.assist = 2
+	Game.flight = {"source": "roster", "drone_id": id, "mission": mission}
+	Game.mission = mission
+	Game.goto("fly")
+	for i in 900:
+		await get_tree().process_frame
+		var f := _fly_node()
+		if f != null and f.state != FlyStage.S.LOADING:
+			break
+	return _fly_node()
+
+
+func fly_rural() -> void:
+	var fs := await _fly_career("convoy")
+	await _frames(20)
+	await shot("fly_intro")
+	fs._end_intro()
+	await _frames(10)
+	var t: CombatTarget = null
+	for x in fs.runner.targets:
+		if x.objective:
+			t = x
+	print("CHECK convoy targets: ", fs.runner.targets.size(), " objective=", t.title)
+	fs.debug_freeze = true
+	fs.sim.pos = t.global_position + Vector3(0, 30, 45)
+	fs.sim.vel = Vector3.ZERO
+	fs.sim.basis = Basis.looking_at(t.center() - fs.sim.pos, Vector3.UP) * Basis(Vector3.RIGHT, deg_to_rad(-20))
+	fs.sim.armed = false
+	await _frames(30)
+	await shot("fly_rural_targets")
+	fs.cam_mode = 1
+	await _frames(30)
+	await shot("fly_rural_chase")
+	fs.cam_mode = 0
+	fs.runner.detonate(t.center(), 200.0, 5.0, t)
+	await _frames(20)
+	print("CHECK objective destroyed: ", t.dead, " state=", fs.state, " phase=", fs.runner.phase)
+	await shot("fly_cinematic")
+	await _frames(240)
+	print("CHECK cinematic over -> flying: ", fs.state == FlyStage.S.FLYING, " credits=", Career.credits())
+	await shot("fly_after")
+
+
+func fly_industrial() -> void:
+	var fs := await _fly_career("rotor_hunt")
+	fs._end_intro()
+	await _frames(10)
+	var h: CombatTarget = fs.runner.targets[0]
+	print("CHECK heli state: ", h.state, " at ", h.global_position)
+	fs.debug_freeze = true
+	fs.sim.pos = h.global_position + Vector3(20, 14, 30)
+	fs.sim.basis = Basis.looking_at(h.center() - fs.sim.pos, Vector3.UP) * Basis(Vector3.RIGHT, deg_to_rad(-20))
+	fs.sim.armed = false
+	await _frames(20)
+	await shot("fly_industrial_heli")
+	h.alert = true
+	for i in 600:
+		await get_tree().physics_frame
+	print("CHECK heli took off: ", h.state, " alt=", h.global_position.y - fs.world.height(h.global_position.x, h.global_position.z))
+	fs.sim.pos = h.global_position + Vector3(0, 6, 28)
+	fs.sim.basis = Basis.looking_at(h.center() - fs.sim.pos, Vector3.UP) * Basis(Vector3.RIGHT, deg_to_rad(-20))
+	await _frames(6)
+	await shot("fly_industrial_air")
+	h.damage(1000.0)
+	for i in 900:
+		await get_tree().physics_frame
+		if h.dead:
+			break
+	print("CHECK heli crashed: ", h.dead, " state=", h.state)
+	fs.sim.pos = h.global_position + Vector3(12, 8, 16)
+	fs.sim.basis = Basis.looking_at(h.center() - fs.sim.pos, Vector3.UP) * Basis(Vector3.RIGHT, deg_to_rad(-20))
+	fs.state = FlyStage.S.FLYING
+	await _frames(40)
+	await shot("fly_industrial_wreck")
+
+
+func fly_strike_loss() -> void:
+	var fs := await _fly_career("convoy")
+	fs._end_intro()
+	await _frames(5)
+	var t: CombatTarget = fs.runner.targets[0]
+	fs.sim.pos = t.center() + Vector3(0, 0, -0.2)
+	fs.sim.vel = Vector3(0, -5, -12)
+	fs.sim.armed = true
+	for i in 1200:
+		await get_tree().process_frame
+		if fs.state == FlyStage.S.RESULT:
+			break
+	print("CHECK impact strike ends flight: ", fs.state == FlyStage.S.RESULT, " roster=", Career.roster().size(), " lost=", Career.data["stats"]["drones_lost"])
+	await shot("fly_strike_result")
+
+
+func dbg_os() -> void:
+	_fresh_career_with_drone()
+	Game.goto("garage", {"spawn": "door"})
+	await _frames(30)
+	var g := _garage()
+	g.open_computer()
+	await _frames(5)
+	var os: Control = g.overlay
+	print("DBG os size=", os.size, " pos=", os.position, " anchors=", os.anchor_right, " child0=", os.get_child(0), " size0=", (os.get_child(0) as Control).size)
+	g._context_menu("t", [])
+	await _frames(5)
+	print("DBG cm size=", g.overlay.size, " root=", g._overlay_root.size, " ui=", g.ui.size, " vp=", g.get_viewport().get_visible_rect())
+
+
+
+func bench_new() -> void:
+	Career.new_career()
+	Career.open_parcel("starter")
+	Game.reset_build()
+	Game.goto("workshop", {"stage": "build"})
+	await _frames(40)
+	var ws: Workshop = null
+	for c in main.get_children():
+		if c is Workshop:
+			ws = c
+	# install the frame and two motors through the real code path
+	var b := ws.build
+	b._begin_hold("frame_5", "", Vector2(960, 500))
+	b.held_step = 0
+	b._install("frame", Parts.slot_by_name("frame_5", "frame"))
+	for i in 4:
+		var dir: String = Parts.MOTOR_SPIN[i].to_lower()
+		b._begin_hold("motor_2306_%s" % dir, "", Vector2(960, 500))
+		b._install("motor_%d" % (i + 1), Parts.slot_by_name("frame_5", "motor_%d" % (i + 1)))
+	await _frames(20)
+	print("CHECK bench: placed=", Game.placed.size(), " loose=", Game.loose, " stock frame=", Career.stock("frame_5"), " motors left=", Career.stock("motor_2306_cw"))
+	await shot("bench_screws")
+	b._fasten("motor_1")
+	b._fasten("motor_1")
+	b._fasten("motor_1")
+	b._fasten("motor_1")
+	print("CHECK motor 1 secured: ", not Game.loose.has("motor_1"))
+	b.show_category("rx")
+	await _frames(10)
+	await shot("bench_tray_rx")
+
+
+## The whole first-playable loop, driven through the real game code (works headless).
+func e2e() -> void:
+	Career.new_career()
+	Settings.assist = 2
+	Game.goto("garage", {"spawn": "bench"})
+	await _frames(30)
+	var g := _garage()
+	# 1-3: starter kit out of the cupboard, opened inside
+	var kit: Pickable = null
+	for p in g.pickables:
+		if p.kind == "parcel":
+			kit = p
+	g._take(kit)
+	g._open_parcel(kit)
+	await _frames(5)
+	print("CHECK e2e starter parts in storage: ", Career.stock("frame_5") == 1 and Career.stock("motor_2306_cw") == 2)
+	# 4: assemble at the bench through the build stage (consumes storage, adds screws)
+	g._use_bench()
+	await get_tree().create_timer(1.5).timeout
+	await _frames(10)
+	var ws: Workshop = null
+	for c in main.get_children():
+		if c is Workshop:
+			ws = c
+	var b := ws.build
+	var plan := full_build()
+	var order := ["frame", "motor_1", "motor_2", "motor_3", "motor_4", "prop_1", "prop_2", "prop_3", "prop_4", "esc", "fc", "rx", "vtx", "antenna", "cam_mount", "cam", "battery"]
+	for slot in order:
+		var id: String = plan[slot]
+		b._begin_hold(id, "", Vector2(960, 500))
+		b.held_step = 0
+		var s := Parts.slot_by_name("frame_5", slot)
+		var err := Parts.check_place(Game.placed, s, id)
+		if err != "":
+			print("CHECK e2e place error ", slot, ": ", err)
+		b._install(slot, s)
+	for slot in Game.loose.keys():
+		for k in 6:
+			b._fasten(slot)
+	print("CHECK e2e build complete & secured: ", Game.stats()["complete"], " loose=", Game.loose.size(), " storage props left=", Career.stock("prop_5143_cw"))
+	Game.wires = all_wires()
+	print("CHECK e2e ready to fly: ", Game.ready_to_fly())
+	# 5: save to the rack
+	var d := Career.store_bench_drone("E2E-1")
+	print("CHECK e2e saved: roster=", Career.roster().size(), " certified=", d["certified"])
+	# 6: diagnostics on the test station
+	Game.goto("garage", {"spawn": "rack"})
+	await _frames(30)
+	g = _garage()
+	d["location"] = "test"
+	g._open_diagnostics(d["id"], true)
+	var dp: DiagnosticsPanel = g.overlay
+	dp.run()
+	await get_tree().create_timer(6.0).timeout
+	print("CHECK e2e certified by diagnostics: ", d.get("certified", false))
+	g.close_overlay()
+	d["location"] = "rack"
+	# 7-8: shakedown test flight, then home
+	var credits0 := Career.credits()
+	g.launch("shakedown", d["id"])
+	for i in 900:
+		await get_tree().process_frame
+		var f := _fly_node()
+		if f != null and f.state != FlyStage.S.LOADING:
+			break
+	var fs := _fly_node()
+	fs._end_intro()
+	await get_tree().create_timer(4.0).timeout
+	for gt in fs.gates:
+		fs.sim.pos = gt["pos"] - gt["normal"] * 0.5
+		fs.sim.vel = gt["normal"] * 240.0
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+	fs.sim.vel = Vector3.ZERO
+	fs.sim.pos = fs.world.start_position() + Vector3(0, 0.1, 0)
+	fs.sim.basis = Basis.IDENTITY
+	fs.sim.armed = false
+	for i in 600:
+		await get_tree().physics_frame
+		if fs.state == FlyStage.S.RESULT:
+			break
+	print("CHECK e2e shakedown complete: ", fs.state == FlyStage.S.RESULT, " paid=", Career.credits() - credits0, " done=", Career.mission_count("shakedown"), " charge=", snappedf(float(d["charge"]), 0.01))
+	fs._go_garage("back")
+	await _frames(30)
+	# 9-12: training range strike with recovery
+	d["placed"]["payload"] = "pod_s"
+	Career.take("pod_s")
+	g = _garage()
+	credits0 = Career.credits()
+	g.launch("range_static", d["id"])
+	for i in 900:
+		await get_tree().process_frame
+		var f := _fly_node()
+		if f != null and f.state != FlyStage.S.LOADING:
+			break
+	fs = _fly_node()
+	fs._end_intro()
+	for t in fs.runner.targets:
+		fs.runner.detonate(t.center(), 200.0, 3.0, t)
+		await _frames(2)
+		fs._cine_t = 99.0
+		await _frames(2)
+	print("CHECK e2e range targets destroyed: ", fs.runner.kills, " phase=", fs.runner.phase)
+	fs.sim.vel = Vector3.ZERO
+	fs.sim.pos = fs.world.start_position() + Vector3(0, 0.1, 0)
+	fs.sim.basis = Basis.IDENTITY
+	for i in 600:
+		await get_tree().physics_frame
+		if fs.state == FlyStage.S.RESULT:
+			break
+	print("CHECK e2e range complete: ", fs.state == FlyStage.S.RESULT, " paid=", Career.credits() - credits0, " rep=", Career.data["rep"])
+	fs._go_garage("back")
+	await _frames(30)
+	# 13-15: buy parts, deliver, repair
+	var err2 := Career.place_order({"prop_5143_cw": 2})
+	Career.data["orders"][0]["eta"] = 0.0
+	g = _garage()
+	for i in 60:
+		await get_tree().create_timer(0.5).timeout
+		if not Career.data["parcels"].is_empty():
+			break
+	print("CHECK e2e market order delivered: '", err2, "' parcels=", Career.data["parcels"].size())
+	d["cond"]["motor_2"] = 0.5
+	Career.move_to_bench(d["id"])
+	Game.goto("workshop", {"stage": "build"})
+	await _frames(40)
+	for c in main.get_children():
+		if c is Workshop:
+			ws = c
+	var credits1 := Career.credits()
+	ws.build._repair_slot = "motor_2"
+	ws.build._finish_repair()
+	print("CHECK e2e repaired motor: cond=", Game.cond.get("motor_2", 1.0), " cost=", credits1 - Career.credits())
+	# 16: persistence
+	Career.save()
+	var saved_credits := Career.credits()
+	Career.load_career()
+	print("CHECK e2e career persists: ", Career.credits() == saved_credits, " roster=", Career.roster().size(), " missions=", Career.data["missions_done"].keys())

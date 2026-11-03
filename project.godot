@@ -6,8 +6,8 @@ config_version=5
 
 [application]
 
-config/name="Propwash Workshop"
-config/description="First-person FPV drone sim: build, wire, set up and fly a quadcopter."
+config/name="Frontline FPV - Garage Warfare"
+config/description="Garage drone-factory and FPV combat sim: build, test, maintain and deploy your own drones against fictional targets."
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.svg"
@@ -19,6 +19,8 @@ Settings="*res://scripts/autoload/settings.gd"
 SaveData="*res://scripts/autoload/save_data.gd"
 Audio="*res://scripts/autoload/audio.gd"
 Game="*res://scripts/autoload/game.gd"
+Career="*res://scripts/autoload/career.gd"
+Pad="*res://scripts/autoload/pad.gd"
 
 [display]
 

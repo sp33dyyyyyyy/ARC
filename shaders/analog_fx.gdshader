@@ -7,6 +7,8 @@ uniform float degrade : hint_range(0.0, 1.0) = 0.0;
 uniform float static_only : hint_range(0.0, 1.0) = 0.0;
 uniform float tcount = 0.0;
 uniform float intensity : hint_range(0.0, 1.0) = 1.0;
+uniform float digital : hint_range(0.0, 1.0) = 0.0;   // 1 = digital link: clean, then blocky breakup
+uniform float cam_noise : hint_range(0.0, 1.0) = 0.0; // damaged camera
 
 float hash21(vec2 p) {
 	p = fract(p * vec2(443.897, 441.423));
@@ -18,6 +20,22 @@ void fragment() {
 	vec2 uv = SCREEN_UV;
 	float d = clamp(degrade, 0.0, 1.0) * intensity;
 	float t = tcount;
+	if (digital > 0.5 && static_only < 0.5) {
+		// digital link: sharp until it isn't - macroblocks, stutter and a grey freeze when lost
+		float dd = smoothstep(0.35, 1.0, d);
+		float bs = mix(1.0, 48.0, dd * dd);
+		vec2 px = vec2(1920.0, 1080.0) / bs;
+		vec2 buv = (floor(uv * px) + 0.5) / px;
+		float blockh = hash21(floor(uv * px) + floor(t * 8.0));
+		vec2 suv = mix(uv, buv, step(0.02, dd));
+		suv.x += (step(1.0 - dd * 0.5, blockh) * (hash21(floor(uv * px) * 1.7) - 0.5) * 0.08 * dd);
+		vec3 dc = texture(screen_tex, suv).rgb;
+		dc = mix(dc, floor(dc * mix(64.0, 6.0, dd)) / mix(64.0, 6.0, dd), dd);
+		float lost = step(0.97, d) * step(0.4, hash21(vec2(floor(t * 3.0), 1.0)));
+		dc = mix(dc, vec3(0.35), lost);
+		dc += (hash21(uv * 900.0 + t) - 0.5) * cam_noise * 0.4;
+		COLOR = vec4(dc, 1.0);
+	} else {
 
 	// idle analog softness even when the link is good
 	float base = 0.035 * intensity;
@@ -47,7 +65,7 @@ void fragment() {
 	// noise grain
 	vec2 np = floor(uv * vec2(560.0, 300.0));
 	float n = hash21(np + vec2(floor(t * 60.0) * 17.0, floor(t * 60.0) * 31.0));
-	float grain = (0.015 + 0.9 * d * d) * intensity;
+	float grain = (0.015 + 0.9 * d * d + cam_noise * 0.3) * intensity;
 	col = mix(col, vec3(n), clamp(grain, 0.0, 0.97));
 	col += (n - 0.5) * 0.05 * intensity;
 
@@ -66,4 +84,5 @@ void fragment() {
 		col = vec3(sn * 0.8 + 0.1 * tear);
 	}
 	COLOR = vec4(col, 1.0);
+	}
 }

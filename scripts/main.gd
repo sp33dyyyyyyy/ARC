@@ -11,6 +11,8 @@ func _ready() -> void:
 
 func _on_screen(screen: String, args: Dictionary) -> void:
 	if _current != null:
+		if _current.has_method("before_exit"):
+			_current.before_exit()
 		_current.queue_free()
 		_current = null
 	get_tree().paused = false
@@ -19,6 +21,10 @@ func _on_screen(screen: String, args: Dictionary) -> void:
 	match screen:
 		"menu":
 			_current = MainMenu.new()
+		"garage":
+			_current = Garage.new()
+			_current.spawn = args.get("spawn", "door")
+			_current.message = args.get("message", "")
 		"workshop":
 			_current = Workshop.new()
 			_current.start_stage = args.get("stage", Game.workshop_stage)
@@ -28,7 +34,10 @@ func _on_screen(screen: String, args: Dictionary) -> void:
 		_:
 			push_error("Unknown screen %s" % screen)
 			return
+	Game.screen = screen
+	Pad.cursor_enabled = screen == "workshop"
 	Engine.physics_ticks_per_second = 240 if screen == "fly" else 60   # the 240 Hz flight sim is only needed while flying
 	add_child(_current)
 	Audio.set_music(screen != "fly")
 	Audio.motor_level = 0.0
+	Audio.engine_level = 0.0

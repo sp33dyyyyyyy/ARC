@@ -124,7 +124,7 @@ static func button(text: String, callback: Callable = Callable(), min_size: Vect
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = min_size
-	b.focus_mode = Control.FOCUS_NONE
+	b.focus_mode = Control.FOCUS_ALL
 	if callback.is_valid():
 		b.pressed.connect(callback)
 	b.pressed.connect(func(): Audio.play("click"))
@@ -150,6 +150,6 @@ static func slider(min_v: float, max_v: float, step: float, value: float) -> HSl
 	s.step = step
 	s.value = value
 	s.custom_minimum_size = Vector2(220, 28)
-	s.focus_mode = Control.FOCUS_NONE
+	s.focus_mode = Control.FOCUS_ALL
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return s

@@ -617,6 +617,8 @@ func set_active(on: bool) -> void:
 	if on:
 		_pull_cfg()
 		_gyro.rebuild()
+		if not MISSIONS.has(Game.mission):
+			Game.mission = "free_flight"
 		_mission_opt.select(maxi(MISSIONS.find(Game.mission), 0))
 		_update_mission_info()
 		Audio.motor_level = 0.0
@@ -628,7 +630,7 @@ func set_active(on: bool) -> void:
 
 
 func _update_mission_info() -> void:
-	_mission_info.text = MISSION_BLURB[Game.mission]
+	_mission_info.text = MISSION_BLURB.get(Game.mission, "") + "\n(Test flights on the testing grounds. Career missions are launched from the garage computer.)"
 
 
 func save_and_fly() -> void:
@@ -646,4 +648,5 @@ func save_and_fly() -> void:
 	if warn != "":
 		ws.say(warn, false, 2.5)
 	Audio.play("arm")
+	Game.flight = {"source": "bench", "drone_id": "", "mission": Game.mission}
 	Game.goto("fly")

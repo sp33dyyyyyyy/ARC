@@ -47,6 +47,15 @@ var _line_mat: StandardMaterial3D
 var _yellow_mat: StandardMaterial3D
 var _t := 0.0
 var _rng := RandomNumberGenerator.new()
+var held_cond := 1.0            # condition of a part lifted off the drone
+var repair_mode := false
+var _repair_btn: Button
+var _paint_btn: Button
+var _fasten_slot := ""
+var _fasten_t := 0.0
+var _repair_slot := ""
+var _repair_t := 0.0
+var _screw_mat: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -62,6 +71,7 @@ func _ready() -> void:
 	_yellow_mat = StandardMaterial3D.new()
 	_yellow_mat.albedo_color = Color(1.0, 0.9, 0.1)
 	_yellow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_screw_mat = MeshFactory.mat(Color(1.0, 0.8, 0.2), 0.9, 0.25, 1.2)
 	_build_ui()
 	_build_tray()
 	_restore_from_game()
@@ -90,7 +100,7 @@ func _build_ui() -> void:
 		var l := UITheme.label("", 20)
 		_check_labels[c] = l
 		cv.add_child(l)
-	var help := UITheme.label("Drag or click a part,\nthen a glowing slot.\nR  rotate held part\nRight-drag  orbit\nWheel  zoom\nClick an installed\npart to remove it.", 16, UITheme.MUTED)
+	var help := UITheme.label("Drag or click a part,\nthen a glowing slot.\nR / R1  rotate held part\nGlowing screws: click\n(hold) the part to\ntighten them.\nRight-drag / R-stick orbit\nWheel / triggers zoom\nClick a tight part to\nremove it.", 15, UITheme.MUTED)
 	cv.add_child(help)
 
 	# info (right)
@@ -108,14 +118,15 @@ func _build_ui() -> void:
 	# category buttons above the tray
 	var cb := HBoxContainer.new()
 	cb.add_theme_constant_override("separation", 8)
-	cb.position = Vector2(300, 1080 - TRAY_H - 54)
+	cb.position = Vector2(24, 1080 - TRAY_H - 54)
 	_ui.add_child(cb)
 	for c in Parts.CATEGORIES:
 		var b := Button.new()
 		b.text = Parts.CAT_NAMES[c]
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(124, 42)
+		b.custom_minimum_size = Vector2(112, 42)
+		b.add_theme_font_size_override("font_size", 16)
 		b.pressed.connect(func():
 			Audio.play("click")
 			show_category(c))
@@ -130,9 +141,16 @@ func _build_ui() -> void:
 
 	var rb := HBoxContainer.new()
 	rb.add_theme_constant_override("separation", 10)
-	rb.position = Vector2(1920 - 520, 1080 - TRAY_H - 62)
+	rb.position = Vector2(1920 - 900, 1080 - TRAY_H - 172)
 	_ui.add_child(rb)
-	_reset_btn = UITheme.button("Clear build", _on_reset, Vector2(160, 48))
+	_repair_btn = UITheme.button("Repair tool: OFF", func():
+		repair_mode = not repair_mode
+		_repair_btn.text = "Repair tool: %s" % ("ON" if repair_mode else "OFF")
+		_set_hint("Repair tool: click and hold a damaged part to restore it (costs credits)." if repair_mode else "", UITheme.ACCENT), Vector2(210, 48))
+	rb.add_child(_repair_btn)
+	_paint_btn = UITheme.button("Paint frame", _paint_next, Vector2(170, 48))
+	rb.add_child(_paint_btn)
+	_reset_btn = UITheme.button("Strip build", _on_reset, Vector2(160, 48))
 	rb.add_child(_reset_btn)
 	_next_btn = UITheme.accent_button("NEXT: WIRE  >>", func(): ws.switch_stage("wire"), Vector2(230, 48))
 	rb.add_child(_next_btn)
@@ -144,17 +162,51 @@ func _on_reset() -> void:
 		_reset_btn.text = "Really clear?"
 		get_tree().create_timer(2.0).timeout.connect(func():
 			_reset_armed = false
-			_reset_btn.text = "Clear build")
+			_reset_btn.text = "Strip build")
 		return
 	_reset_armed = false
-	_reset_btn.text = "Clear build"
+	_reset_btn.text = "Strip build"
 	cancel_hold()
+	for slot in Game.placed.keys():
+		_stash(Game.placed[slot], 0.0 if Game.broken.get(slot, false) else float(Game.cond.get(slot, 1.0)))
+	if Career.data["bench_drone"] != "":
+		Career.remove_drone(Career.data["bench_drone"])
+		Career.data["bench_drone"] = ""
 	Game.reset_build()
 	_restore_from_game()
 	_rebuild_markers()
 	_auto_category()
 	refresh()
-	say("Build cleared.", true)
+	say("Build stripped - parts are back in storage (damaged ones in the salvage bin).", true)
+
+
+## Puts a part back into garage storage (or the salvage bin when damaged).
+func _stash(id: String, c: float) -> void:
+	if c >= 0.9:
+		Career.give(id)
+	else:
+		Career.add_salvage(id, c)
+
+
+func _paint_next() -> void:
+	if not Game.placed.has("frame"):
+		say("Install a frame first.")
+		return
+	var idx := 0
+	for i in Campaign.PAINTS.size():
+		if Game.paint.is_equal_approx(Campaign.PAINTS[i]["color"]):
+			idx = i
+	var nxt: Dictionary = Campaign.PAINTS[(idx + 1) % Campaign.PAINTS.size()]
+	if not Career.spend(5, "Frame paint: %s" % nxt["name"]):
+		say("Not enough credits for paint (5 cr).")
+		return
+	var pc: Color = nxt["color"]
+	Game.paint = Color(pc.r, pc.g, pc.b, 1.0)
+	_restore_from_game()
+	_rebuild_markers()
+	Audio.play("printer", 1.6)
+	say("Frame painted %s." % nxt["name"], true)
+	Game.save_drone()
 
 
 func say(t: String, good: bool = false) -> void:
@@ -220,21 +272,8 @@ func _build_tray() -> void:
 	show_category(category)
 
 
-func quota(id: String) -> int:
-	var cat: String = Parts.part(id)["cat"]
-	return 2 if cat in ["motor", "prop"] else 1
-
-
-func used(id: String) -> int:
-	var n := 0
-	for slot in Game.placed:
-		if Game.placed[slot] == id and not Game.broken.get(slot, false):
-			n += 1
-	return n
-
-
 func remaining(id: String) -> int:
-	var r := quota(id) - used(id)
+	var r := Career.stock(id)
 	if hold_mode != 0 and held_from == "" and held_id == id:
 		r -= 1
 	return maxi(r, 0)
@@ -271,7 +310,7 @@ func show_category(cat: String) -> void:
 		holder.add_child(model)
 		holder.scale = Vector3.ONE * sc
 		holder.rotation_degrees = Vector3({"frame": 50.0, "motor": 25.0, "prop": 62.0, "esc": 55.0, "fc": 55.0, "vtx": 55.0, "cam": 20.0, "battery": 38.0}.get(p["cat"], 30.0), 0, 0)
-		var locked := not SaveData.is_unlocked(id)
+		var locked := false
 		if locked:
 			var ov := StandardMaterial3D.new()
 			ov.albedo_color = Color(0.04, 0.04, 0.06, 0.72)
@@ -310,7 +349,7 @@ func _update_tray_labels() -> void:
 			cl.custom_minimum_size = Vector2(100, 0)
 		else:
 			var r := remaining(it["id"])
-			cl.text = "x%d" % r
+			cl.text = "x%d" % r if r > 0 else "none"
 			cl.add_theme_color_override("font_color", UITheme.ACCENT if r > 0 else UITheme.MUTED)
 		var dim: bool = it["locked"] or remaining(it["id"]) == 0
 		it["holder"].visible = true
@@ -342,7 +381,92 @@ func _spawn_installed(slot_name: String, id: String) -> Node3D:
 	ws.drone_root.add_child(n)
 	_hide_pad_labels(n)
 	part_nodes[slot_name] = n
+	DroneVisual.apply_condition(n, float(Game.cond.get(slot_name, 1.0)), slot_name.hash())
+	if slot_name == "frame" and Game.paint.a > 0.0:
+		DroneVisual.apply_paint(ws.drone_root, Game.paint)
+	if slot_name == "cam" and Game.placed.has("cam_mount"):
+		DroneVisual.set_cam_tilt(ws.drone_root, float(Parts.part(Game.placed["cam_mount"]).get("tilt", 20.0)))
+	_refresh_screws(slot_name)
 	return n
+
+
+## Local screw positions for a part category (cm).
+func _screw_points(slot_name: String) -> Array:
+	var id: String = Game.placed.get(slot_name, "")
+	var cat: String = Parts.part(id).get("cat", "")
+	var out: Array = []
+	match cat:
+		"motor":
+			for k in 4:
+				var a := PI * 0.25 + k * PI * 0.5
+				out.append(Vector3(cos(a) * 1.7, 0.1, sin(a) * 1.7))
+		"prop": out.append(Vector3(0, 0.8, 0))
+		"esc", "fc":
+			for sx in [-1, 1]:
+				for sz in [-1, 1]:
+					out.append(Vector3(1.525 * sx, 0.3, 1.525 * sz))
+		"vtx": out = [Vector3(-1.0, 0.3, -1.0), Vector3(1.0, 0.3, 1.0)]
+		"antenna": out.append(Vector3(0, 0.0, 0.2))
+		"cam_mount": out = [Vector3(-0.85, 0.28, 0.3), Vector3(0.85, 0.28, 0.3)]
+		"cam": out = [Vector3(-1.25, 1.0, 0), Vector3(1.25, 1.0, 0)]
+		"battery": out.append(Vector3(0, 3.0, 1.8))
+		"payload": out = [Vector3(-1.4, 0.05, 0), Vector3(1.4, 0.05, 0)]
+		"guard":
+			var o: float = Parts.part(_frame_id()).get("arm", 7.95)
+			for i in 4:
+				var sg: Vector2 = Parts.MOTOR_SIGNS[i]
+				out.append(Vector3(o * sg.x * 0.55, 0.6, o * sg.y * 0.55))
+	return out
+
+
+func _refresh_screws(slot_name: String) -> void:
+	var n: Node3D = part_nodes.get(slot_name)
+	if n == null:
+		return
+	for c in n.get_children():
+		if c.name.begins_with("Screw"):
+			c.queue_free()
+	var left := int(Game.loose.get(slot_name, 0))
+	if left <= 0:
+		return
+	var pts := _screw_points(slot_name)
+	var first := pts.size() - left
+	for k in range(maxi(first, 0), pts.size()):
+		var sc := MeshFactory.cyl(n, 0.32, 0.25, pts[k] + Vector3(0, 0.55, 0), _screw_mat, Vector3.ZERO, 8)
+		sc.name = "Screw%d" % k
+		var slot := MeshFactory.box(sc, Vector3(0.5, 0.06, 0.1), Vector3(0, 0.13, 0), MeshFactory.mat(Color(0.1, 0.1, 0.1)))
+		slot.name = "Slot"
+
+
+## Drives the next loose screw of a part (with a quick screwdriver animation).
+func _fasten(slot_name: String) -> void:
+	var left := int(Game.loose.get(slot_name, 0))
+	if left <= 0:
+		return
+	var n: Node3D = part_nodes.get(slot_name)
+	var pts := _screw_points(slot_name)
+	var count := left if Career.has_upgrade("power_driver") else 1
+	for i in count:
+		var k := pts.size() - left + i
+		var sc: Node3D = n.get_node_or_null("Screw%d" % k) if n else null
+		if sc:
+			sc.name = "Driven%d" % k
+			var tw := create_tween()
+			tw.tween_property(sc, "position:y", sc.position.y - 0.5, 0.16).set_trans(Tween.TRANS_SINE)
+			tw.parallel().tween_property(sc, "rotation:y", sc.rotation.y + TAU * 2.0, 0.16)
+			tw.tween_callback(sc.queue_free)
+	left -= count
+	Audio.play("screw", randf_range(0.95, 1.1))
+	Pad.rumble(0.25, 0.05, 0.07)
+	if left <= 0:
+		Game.loose.erase(slot_name)
+		Audio.play("snap", 1.3)
+		say("%s secured." % Parts.part(Game.placed[slot_name])["name"], true)
+		if Game.loose.is_empty() and Game.stats()["complete"]:
+			_set_hint("All parts secured - continue to WIRE.", UITheme.GOOD)
+	else:
+		Game.loose[slot_name] = left
+	Game.save_drone()
 
 
 func _hide_pad_labels(n: Node) -> void:
@@ -500,9 +624,10 @@ func refresh() -> void:
 				have += 1
 		var need: int = Parts.CAT_QUOTA[c]
 		var l: Label = _check_labels[c]
-		l.text = "%s   %d / %d" % [Parts.CAT_NAMES[c], have, need]
-		l.add_theme_color_override("font_color", UITheme.GOOD if have >= need else UITheme.TEXT)
-	_next_btn.disabled = not (s["complete"] and s["broken_props"] == 0)
+		var opt: bool = c in Parts.OPTIONAL_CATS
+		l.text = "%s   %d / %d%s" % [Parts.CAT_NAMES[c], have, need, "  (opt.)" if opt else ""]
+		l.add_theme_color_override("font_color", UITheme.GOOD if have >= need else (UITheme.MUTED if opt else UITheme.TEXT))
+	_next_btn.disabled = not (s["complete"] and s["broken_props"] == 0 and Game.loose.is_empty())
 	_update_tray_labels()
 	_update_marker_visibility()
 
@@ -516,7 +641,7 @@ func _auto_category() -> void:
 		for slot in Game.placed:
 			if Parts.part(Game.placed[slot])["cat"] == c and not Game.broken.get(slot, false):
 				have += 1
-		if have < Parts.CAT_QUOTA[c]:
+		if have < Parts.CAT_QUOTA[c] and not (c in Parts.OPTIONAL_CATS):
 			show_category(c)
 			return
 	show_category(category)
@@ -562,17 +687,29 @@ func _on_press() -> void:
 			Audio.play("error")
 			return
 		if remaining(it["id"]) <= 0:
-			say("None left in the tray - remove an installed one first.")
+			say("None in storage - order more in the PARTS MARKET (garage computer).")
 			Audio.play("error")
 			return
 		_begin_hold(it["id"], "", mp)
 		return
 	var slot_name := _installed_at(mp)
 	if slot_name != "":
+		if repair_mode:
+			_begin_repair(slot_name)
+			return
+		if int(Game.loose.get(slot_name, 0)) > 0:
+			_fasten_slot = slot_name
+			_fasten_t = 0.0
+			_fasten(slot_name)
+			return
 		_pick_installed(slot_name, mp)
 
 
 func _on_release() -> void:
+	_fasten_slot = ""
+	if _repair_slot != "":
+		_repair_slot = ""
+		_set_hint("Repair interrupted.", UITheme.MUTED)
 	if held == null or hold_mode != 1:
 		return
 	var mp := _mouse()
@@ -586,6 +723,9 @@ func _on_release() -> void:
 func cancel_hold() -> bool:
 	if held == null:
 		return false
+	if held_from != "":
+		_stash(held_id, held_cond)
+		held_from = ""
 	held.queue_free()
 	held = null
 	held_id = ""
@@ -622,19 +762,26 @@ func _begin_hold(id: String, from_slot: String, mp: Vector2) -> void:
 func _pick_installed(slot_name: String, mp: Vector2) -> void:
 	var id: String = Game.placed[slot_name]
 	var was_broken: bool = Game.broken.get(slot_name, false)
+	var c := float(Game.cond.get(slot_name, 1.0))
 	var gone: Array = Parts.dependents(Game.placed, slot_name)
-	if slot_name == "frame" or not gone.is_empty():
-		pass
 	for g in gone:
+		_stash(Game.placed[g], 0.0 if Game.broken.get(g, false) else float(Game.cond.get(g, 1.0)))
 		_remove_installed(g)
 	_remove_installed(slot_name)
+	Audio.play("screw", 0.8)
 	if was_broken:
-		say("Broken prop scrapped. Drop a fresh one on the glowing slot.", true)
+		Career.add_salvage(id, 0.0)
+		Career.set_flag("repaired")
+		say("Broken prop scrapped into the salvage bin. Drop a fresh one on the glowing slot.", true)
 		Audio.play("snap", 0.7)
 	else:
 		_begin_hold(id, slot_name, mp)
+		held_cond = c
+		if c < 0.9:
+			Career.set_flag("repaired")
+			say("Damaged part removed (%d %%) - put it back, or drop it in the tray to send it to the salvage bin." % int(c * 100.0))
 		if not gone.is_empty():
-			say("%d dependent part(s) returned to the tray." % gone.size())
+			say("%d dependent part(s) went back into storage." % gone.size())
 	Game.save_drone()
 	_update_marker_visibility()
 	refresh()
@@ -646,6 +793,8 @@ func _remove_installed(slot_name: String) -> void:
 		part_nodes.erase(slot_name)
 	Game.placed.erase(slot_name)
 	Game.broken.erase(slot_name)
+	Game.cond.erase(slot_name)
+	Game.loose.erase(slot_name)
 	if slot_name == "frame":
 		Game.wires.clear()
 	elif slot_name in ["esc", "fc", "vtx", "cam", "battery"]:
@@ -683,6 +832,20 @@ func _process(dt: float) -> void:
 		var it: Dictionary = _tray_items[i]
 		it["pivot"].rotation.y += dt * 0.6
 	_update_tray_labels()
+	if _fasten_slot != "" and Input.is_action_pressed("interact"):
+		_fasten_t += dt
+		if _fasten_t > 0.22:
+			_fasten_t = 0.0
+			_fasten(_fasten_slot)
+			if not Game.loose.has(_fasten_slot):
+				_fasten_slot = ""
+	if _repair_slot != "":
+		_repair_t += dt
+		_set_hint("Repairing %s...  %d %%" % [Parts.part(Game.placed.get(_repair_slot, ""))["name"], int(_repair_t / 1.4 * 100.0)], UITheme.ACCENT)
+		if Engine.get_process_frames() % 14 == 0:
+			Audio.play("screw", 1.3)
+		if _repair_t >= 1.4:
+			_finish_repair()
 	var mp := _mouse()
 	if held != null:
 		_place_held(mp)
@@ -710,7 +873,9 @@ func _update_hover_info(mp: Vector2) -> void:
 		var sn := _installed_at(mp)
 		if sn != "":
 			id = Game.placed[sn]
-			extra = "\n\nInstalled at %s.%s" % [sn, "  BROKEN" if Game.broken.get(sn, false) else "  Click to remove."]
+			var cnd := float(Game.cond.get(sn, 1.0))
+			var state := "BROKEN - click to scrap" if Game.broken.get(sn, false) else ("%d loose screw(s) - click to tighten" % int(Game.loose[sn]) if Game.loose.has(sn) else "Click to remove.")
+			extra = "\n\nInstalled at %s.  %s\nCondition %d %%%s" % [sn, state, int(cnd * 100.0), "" if cnd >= 0.999 or Game.broken.get(sn, false) else "  -  repair %d cr (Repair tool)" % Career.repair_cost(id, cnd)]
 	if id == "":
 		_info.text = "Hover a part for details."
 		_info.add_theme_color_override("font_color", UITheme.MUTED)
@@ -728,6 +893,7 @@ func _info_text(id: String) -> String:
 		"motor": t += "\nKV: %d\nSpin: %s" % [p["kv"], p["spin"]]
 		"prop": t += "\nBlades: %d   Diameter: %.1f\"\nSpin: %s" % [p["blades"], p["diam"], p["spin"]]
 		"battery": t += "\nCapacity: %d mAh (4S)" % int(p["mah"])
+	t += "\nPrice %d cr  •  in storage %d" % [int(p.get("price", 0)), Career.stock(id)]
 	return t
 
 
@@ -824,7 +990,9 @@ func _drop_held(mp: Vector2) -> void:
 
 func _return_to_tray() -> void:
 	if held_from != "":
-		say("%s returned to the tray." % Parts.part(held_id)["name"])
+		_stash(held_id, held_cond)
+		say("%s returned to %s." % [Parts.part(held_id)["name"], "storage" if held_cond >= 0.9 else "the salvage bin"])
+		held_from = ""
 	var n := held
 	held = null
 	held_id = ""
@@ -840,6 +1008,9 @@ func _return_to_tray() -> void:
 func _bounce(msg: String) -> void:
 	Audio.play("error")
 	say(msg)
+	if held_from != "":
+		_stash(held_id, held_cond)
+		held_from = ""
 	_set_hint(msg, UITheme.BAD)
 	var n := held
 	held = null
@@ -872,8 +1043,30 @@ func _install(slot_name: String, s: Dictionary) -> void:
 	held_id = ""
 	hold_mode = 0
 	n.queue_free()
+	if held_from == "":
+		if not Career.take(id):
+			say("That part is no longer in storage.")
+			refresh()
+			return
+		Game.cond.erase(slot_name)
+		if cat == "battery":
+			Game.bench_charge = 1.0
+	else:
+		if held_cond < 0.999:
+			Game.cond[slot_name] = held_cond
+		else:
+			Game.cond.erase(slot_name)
+	held_cond = 1.0
+	held_from = ""
+	if Game.broken.get(slot_name, false):
+		Career.add_salvage(Game.placed[slot_name], 0.0)
 	Game.placed[slot_name] = id
 	Game.broken.erase(slot_name)
+	var screws := int(Parts.SCREWS.get(cat, 0))
+	if screws > 0:
+		Game.loose[slot_name] = screws
+	if cat == "cam_mount":
+		Game.cfg["cam_angle"] = float(Parts.part(id).get("tilt", 20.0))
 	var node := _spawn_installed(slot_name, id)
 	if node:
 		node.scale = Vector3.ONE * 1.18
@@ -886,8 +1079,10 @@ func _install(slot_name: String, s: Dictionary) -> void:
 	refresh()
 	_advance_if_done()
 	var st := Game.stats()
-	if st["complete"] and st["broken_props"] == 0:
-		_set_hint("Build complete!  Continue to WIRE.", UITheme.GOOD)
+	if screws > 0:
+		_set_hint("Click (or hold) the %s to drive its %d glowing screw%s." % [Parts.part(id)["name"], screws, "" if screws == 1 else "s"], UITheme.ACCENT)
+	if st["complete"] and st["broken_props"] == 0 and Game.loose.is_empty():
+		_set_hint("Build complete and secured!  Continue to WIRE.", UITheme.GOOD)
 		say("Build complete - on to WIRE!", true)
 
 
@@ -898,3 +1093,44 @@ func _advance_if_done() -> void:
 			have += 1
 	if have >= Parts.CAT_QUOTA[category]:
 		_auto_category()
+
+
+# --- repair tool --------------------------------------------------------------------------
+func _begin_repair(slot_name: String) -> void:
+	var id: String = Game.placed[slot_name]
+	if Game.broken.get(slot_name, false):
+		say("Broken props can't be repaired - turn the Repair tool off, scrap it and fit a new one.")
+		Audio.play("error")
+		return
+	var c := float(Game.cond.get(slot_name, 1.0))
+	if c >= 0.999:
+		say("%s is in perfect condition." % Parts.part(id)["name"])
+		return
+	if Career.credits() < Career.repair_cost(id, c):
+		say("Repair needs %d cr." % Career.repair_cost(id, c))
+		Audio.play("error")
+		return
+	_repair_slot = slot_name
+	_repair_t = 0.0
+
+
+func _finish_repair() -> void:
+	var slot_name := _repair_slot
+	_repair_slot = ""
+	var id: String = Game.placed.get(slot_name, "")
+	if id == "":
+		return
+	var c := float(Game.cond.get(slot_name, 1.0))
+	if not Career.spend(Career.repair_cost(id, c), "Bench repair: %s" % Parts.part(id)["name"]):
+		return
+	Game.cond.erase(slot_name)
+	Career.set_flag("repaired")
+	if part_nodes.has(slot_name):
+		part_nodes[slot_name].queue_free()
+		part_nodes.erase(slot_name)
+	_spawn_installed(slot_name, id)
+	Audio.play("success")
+	Pad.rumble(0.3, 0.1, 0.15)
+	say("%s repaired to 100 %%." % Parts.part(id)["name"], true)
+	_set_hint("")
+	Game.save_drone()

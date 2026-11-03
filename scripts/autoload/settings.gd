@@ -25,6 +25,13 @@ var vsync: bool = true
 var master_vol: float = 0.8
 var music_vol: float = 0.5
 var sfx_vol: float = 0.8
+var look_sens: float = 1.0
+var invert_y: bool = false
+var rumble: bool = true
+var pad_glyphs: int = 0             # 0 PlayStation, 1 Xbox
+var pad_throttle_abs: bool = true   # gamepad throttle: stick position (centre = 50 %) instead of rate
+var assist: int = 0                 # default flight assist: 0 Beginner, 1 Intermediate, 2 Acro
+var osd: Dictionary = {"speed": true, "altitude": true, "battery": true, "amps": true, "mission": true, "crosshair": true, "compass": true, "markers": true}
 
 ## action id -> {"kb": "key:87", "pad": "joyaxis:1:-1"}   ("" = unbound)
 var bindings: Dictionary = {}
@@ -51,14 +58,34 @@ func action_table() -> Array:
 		{"id": "mouse_stick", "label": "Toggle mouse stick mode", "group": "Flight", "kb": "key:%d" % KEY_M, "pad": ""},
 		{"id": "toggle_hud", "label": "Toggle HUD", "group": "Flight", "kb": "key:%d" % KEY_H, "pad": "joybtn:%d" % JOY_BUTTON_Y},
 		{"id": "restart", "label": "Restart mission", "group": "Flight", "kb": "key:%d" % KEY_F5, "pad": "joybtn:%d" % JOY_BUTTON_BACK},
+		{"id": "payload", "label": "Release module / payload", "group": "Flight", "kb": "key:%d" % KEY_F, "pad": "joyaxis:5:1"},
+		{"id": "camera_mode", "label": "Camera: FPV / chase / spectator", "group": "Flight", "kb": "key:%d" % KEY_C, "pad": "joybtn:%d" % JOY_BUTTON_LEFT_SHOULDER},
+		{"id": "flight_assist", "label": "Cycle Beginner / Intermediate / Acro", "group": "Flight", "kb": "key:%d" % KEY_B, "pad": "joybtn:%d" % JOY_BUTTON_RIGHT_SHOULDER},
+		{"id": "move_forward", "label": "Walk forward", "group": "Garage", "kb": "key:%d" % KEY_W, "pad": "joyaxis:1:-1"},
+		{"id": "move_back", "label": "Walk back", "group": "Garage", "kb": "key:%d" % KEY_S, "pad": "joyaxis:1:1"},
+		{"id": "move_left", "label": "Strafe left", "group": "Garage", "kb": "key:%d" % KEY_A, "pad": "joyaxis:0:-1"},
+		{"id": "move_right", "label": "Strafe right", "group": "Garage", "kb": "key:%d" % KEY_D, "pad": "joyaxis:0:1"},
+		{"id": "look_left", "label": "Look left (stick)", "group": "Garage", "kb": "", "pad": "joyaxis:2:-1"},
+		{"id": "look_right", "label": "Look right (stick)", "group": "Garage", "kb": "", "pad": "joyaxis:2:1"},
+		{"id": "look_up", "label": "Look up (stick)", "group": "Garage", "kb": "", "pad": "joyaxis:3:-1"},
+		{"id": "look_down", "label": "Look down (stick)", "group": "Garage", "kb": "", "pad": "joyaxis:3:1"},
+		{"id": "use", "label": "Interact", "group": "Garage", "kb": "key:%d" % KEY_E, "pad": "joybtn:%d" % JOY_BUTTON_A},
+		{"id": "pickup", "label": "Pick up / put down", "group": "Garage", "kb": "key:%d" % KEY_F, "pad": "joybtn:%d" % JOY_BUTTON_X},
+		{"id": "place", "label": "Place held item", "group": "Garage", "kb": "mouse:%d" % MOUSE_BUTTON_LEFT, "pad": ""},
+		{"id": "secondary", "label": "Secondary action / inspect", "group": "Garage", "kb": "mouse:%d" % MOUSE_BUTTON_RIGHT, "pad": "joyaxis:4:1"},
+		{"id": "sprint", "label": "Sprint (hold)", "group": "Garage", "kb": "key:%d" % KEY_SHIFT, "pad": "joybtn:%d" % JOY_BUTTON_LEFT_STICK},
+		{"id": "crouch", "label": "Crouch (toggle)", "group": "Garage", "kb": "key:%d" % KEY_CTRL, "pad": "joybtn:%d" % JOY_BUTTON_RIGHT_STICK},
+		{"id": "inventory", "label": "Inventory", "group": "Garage", "kb": "key:%d" % KEY_TAB, "pad": "joybtn:%d" % JOY_BUTTON_Y},
+		{"id": "rotate_item", "label": "Rotate held item (hold + look)", "group": "Garage", "kb": "key:%d" % KEY_R, "pad": "joybtn:%d" % JOY_BUTTON_RIGHT_SHOULDER},
+		{"id": "tablet", "label": "Workshop tablet", "group": "Garage", "kb": "key:%d" % KEY_Q, "pad": "joybtn:%d" % JOY_BUTTON_TOUCHPAD},
 		{"id": "pause", "label": "Pause / back", "group": "General", "kb": "key:%d" % KEY_ESCAPE, "pad": "joybtn:%d" % JOY_BUTTON_START},
 		{"id": "fullscreen", "label": "Toggle fullscreen", "group": "General", "kb": "key:%d" % KEY_F11, "pad": ""},
 		{"id": "debug_stats", "label": "Show FPS / performance overlay", "group": "General", "kb": "key:%d" % KEY_F3, "pad": ""},
 		{"id": "interact", "label": "Grab / place / select", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_LEFT, "pad": ""},
-		{"id": "build_rotate", "label": "Rotate held part", "group": "Workshop", "kb": "key:%d" % KEY_R, "pad": ""},
+		{"id": "build_rotate", "label": "Rotate held part", "group": "Workshop", "kb": "key:%d" % KEY_R, "pad": "joybtn:%d" % JOY_BUTTON_RIGHT_SHOULDER},
 		{"id": "cam_orbit", "label": "Orbit camera (hold)", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_RIGHT, "pad": ""},
-		{"id": "cam_zoom_in", "label": "Zoom in", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_WHEEL_UP, "pad": ""},
-		{"id": "cam_zoom_out", "label": "Zoom out", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_WHEEL_DOWN, "pad": ""},
+		{"id": "cam_zoom_in", "label": "Zoom in", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_WHEEL_UP, "pad": "joyaxis:5:1"},
+		{"id": "cam_zoom_out", "label": "Zoom out", "group": "Workshop", "kb": "mouse:%d" % MOUSE_BUTTON_WHEEL_DOWN, "pad": "joyaxis:4:1"},
 		{"id": "motor_test_1", "label": "Motor test M1 (hold)", "group": "Setup", "kb": "key:%d" % KEY_1, "pad": ""},
 		{"id": "motor_test_2", "label": "Motor test M2 (hold)", "group": "Setup", "kb": "key:%d" % KEY_2, "pad": ""},
 		{"id": "motor_test_3", "label": "Motor test M3 (hold)", "group": "Setup", "kb": "key:%d" % KEY_3, "pad": ""},
@@ -177,6 +204,8 @@ func event_to_binding(ev: InputEvent, slot: String) -> String:
 
 
 const AXIS_NAMES := ["Left stick X", "Left stick Y", "Right stick X", "Right stick Y", "Left trigger", "Right trigger"]
+const PS_BUTTONS := ["Cross", "Circle", "Square", "Triangle", "Create", "PS", "Options", "L3", "R3", "L1", "R1", "D-Up", "D-Down", "D-Left", "D-Right", "Mic", "P1", "P2", "P3", "P4", "Touchpad"]
+const XBOX_BUTTONS := ["A", "B", "X", "Y", "Back", "Guide", "Start", "L-Stick", "R-Stick", "LB", "RB", "D-Up", "D-Down", "D-Left", "D-Right", "Misc", "P1", "P2", "P3", "P4", "Touchpad"]
 
 
 func binding_text(s: String) -> String:
@@ -197,12 +226,14 @@ func binding_text(s: String) -> String:
 				MOUSE_BUTTON_WHEEL_DOWN: return "Wheel Down"
 				_: return "Mouse %s" % parts[1]
 		"joybtn":
-			var names := ["A", "B", "X", "Y", "Back", "Guide", "Start", "L-Stick", "R-Stick", "LB", "RB", "D-Up", "D-Down", "D-Left", "D-Right"]
 			var i := int(parts[1])
-			return "Pad " + (names[i] if i < names.size() else str(i))
+			var names: Array = PS_BUTTONS if pad_glyphs == 0 else XBOX_BUTTONS
+			return ("" if pad_glyphs == 0 else "Pad ") + (names[i] if i < names.size() else str(i))
 		"joyaxis":
 			var ax := int(parts[1])
 			var nm: String = AXIS_NAMES[ax] if ax < AXIS_NAMES.size() else "Axis %d" % ax
+			if ax >= 4 and pad_glyphs == 0:
+				return ["L2", "R2"][ax - 4]
 			return "%s %s" % [nm, "+" if int(parts[2]) > 0 else "−"]
 	return s
 
@@ -210,13 +241,28 @@ func binding_text(s: String) -> String:
 ## Sets a binding. Any other action using the same input in the same slot is unbound.
 func set_binding(action: String, slot: String, value: String) -> void:
 	if value != "":
+		var g := _group_of(action)
 		for id in bindings:
-			if id != action and bindings[id][slot] == value:
+			if id != action and bindings[id][slot] == value and _groups_clash(g, _group_of(id)):
 				bindings[id][slot] = ""
 	bindings[action][slot] = value
 	rebuild_input_map()
 	save_settings()
 	settings_changed.emit()
+
+
+func _group_of(action: String) -> String:
+	for a in action_table():
+		if a["id"] == action:
+			return a["group"]
+	return "General"
+
+
+## Actions only steal each other's inputs when they can be active at the same time.
+func _groups_clash(a: String, b: String) -> bool:
+	if a == b or a == "General" or b == "General":
+		return true
+	return (a == "Workshop" and b == "Setup") or (a == "Setup" and b == "Workshop")
 
 
 func rebuild_input_map() -> void:
@@ -248,6 +294,14 @@ func load_settings() -> void:
 	master_vol = clampf(_getf(cfg, "audio", "master", master_vol), 0.0, 1.0)
 	music_vol = clampf(_getf(cfg, "audio", "music", music_vol), 0.0, 1.0)
 	sfx_vol = clampf(_getf(cfg, "audio", "sfx", sfx_vol), 0.0, 1.0)
+	look_sens = clampf(_getf(cfg, "controls", "look_sens", look_sens), 0.2, 3.0)
+	invert_y = _getb(cfg, "controls", "invert_y", invert_y)
+	rumble = _getb(cfg, "controls", "rumble", rumble)
+	pad_glyphs = clampi(_geti(cfg, "controls", "pad_glyphs", pad_glyphs), 0, 1)
+	pad_throttle_abs = _getb(cfg, "controls", "pad_throttle_abs", pad_throttle_abs)
+	assist = clampi(_geti(cfg, "controls", "assist", assist), 0, 2)
+	for k in osd:
+		osd[k] = _getb(cfg, "osd", k, osd[k])
 	for a in action_table():
 		var id: String = a["id"]
 		for slot in ["kb", "pad"]:
@@ -270,6 +324,14 @@ func save_settings() -> void:
 	cfg.set_value("audio", "master", master_vol)
 	cfg.set_value("audio", "music", music_vol)
 	cfg.set_value("audio", "sfx", sfx_vol)
+	cfg.set_value("controls", "look_sens", look_sens)
+	cfg.set_value("controls", "invert_y", invert_y)
+	cfg.set_value("controls", "rumble", rumble)
+	cfg.set_value("controls", "pad_glyphs", pad_glyphs)
+	cfg.set_value("controls", "pad_throttle_abs", pad_throttle_abs)
+	cfg.set_value("controls", "assist", assist)
+	for k in osd:
+		cfg.set_value("osd", k, osd[k])
 	for id in bindings:
 		for slot in ["kb", "pad"]:
 			cfg.set_value("keys", "%s_%s" % [id, slot], bindings[id][slot])

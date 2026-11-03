@@ -55,3 +55,24 @@ static func battery_route(world: FlyWorld) -> Dictionary:
 	# the last point is "home": come back down near the pad
 	pts[pts.size() - 1] = world.start_position() + Vector3(0, 6.0, 0)
 	return {"points": pts, "radius": 12.0, "length": length}
+
+
+const SHAKEDOWN_XZ := [Vector2(25, -35), Vector2(60, -85), Vector2(35, -140), Vector2(-25, -135), Vector2(-60, -80), Vector2(-30, -30)]
+
+
+## Six easy gates close to the garage for the first test flight.
+static func shakedown(world: FlyWorld) -> Dictionary:
+	var gates: Array = []
+	var pts: Array = []
+	for xz in SHAKEDOWN_XZ:
+		pts.append(Vector3(xz.x, maxf(world.height(xz.x, xz.y), FlyWorld.WATER_LEVEL) + 4.5, xz.y))
+	var prev := world.start_position()
+	var length := 0.0
+	for i in pts.size():
+		var nxt: Vector3 = pts[i + 1] if i + 1 < pts.size() else world.start_position() + Vector3(0, 3, 0)
+		var dir: Vector3 = nxt - prev
+		dir.y *= 0.2
+		gates.append({"pos": pts[i], "normal": dir.normalized()})
+		length += prev.distance_to(pts[i])
+		prev = pts[i]
+	return {"gates": gates, "radius": 4.0, "par": length / 10.0, "limit": length / 2.0, "length": length}

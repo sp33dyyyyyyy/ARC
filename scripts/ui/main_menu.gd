@@ -51,38 +51,41 @@ func _ready() -> void:
 	left.position = Vector2(110, 120)
 	left.add_theme_constant_override("separation", 14)
 	ui.add_child(left)
-	left.add_child(UITheme.label("PROPWASH", 96, Color.WHITE))
-	var sub := UITheme.label("W O R K S H O P", 44, UITheme.ACCENT)
+	left.add_child(UITheme.label("FRONTLINE FPV", 92, Color.WHITE))
+	var sub := UITheme.label("G A R A G E   W A R F A R E", 38, UITheme.ACCENT)
 	left.add_child(sub)
-	left.add_child(UITheme.label("Build.  Wire.  Tune.  Fly.", 24, UITheme.MUTED))
+	left.add_child(UITheme.label("Build.  Test.  Maintain.  Deploy.", 24, UITheme.MUTED))
 	var sp := Control.new()
 	sp.custom_minimum_size = Vector2(0, 30)
 	left.add_child(sp)
 
-	var has_build: bool = Game.placed.has("frame")
-	left.add_child(UITheme.accent_button("ENTER WORKSHOP" if not has_build else "CONTINUE WORKSHOP", func(): Game.goto("workshop", {"stage": "build"}), Vector2(420, 62)))
-	var ready: Dictionary = Game.ready_to_fly()
-	var fly := UITheme.button("QUICK TO SETUP & FLY", func(): Game.goto("workshop", {"stage": "setup"}), Vector2(420, 54))
-	fly.disabled = not ready["ok"]
-	if not ready["ok"]:
-		fly.tooltip_text = ready["reason"]
-	left.add_child(fly)
-	left.add_child(UITheme.button("NEW DRONE (clear build)", func():
-		Game.reset_build()
-		Game.cfg = Game.default_cfg()
-		Game.save_drone()
-		Game.goto("menu"), Vector2(420, 54)))
-	left.add_child(UITheme.button("OPTIONS", _open_options, Vector2(420, 54)))
-	left.add_child(UITheme.button("QUIT", func(): get_tree().quit(), Vector2(420, 54)))
+	var started: bool = FileAccess.file_exists(Career.PATH) or not Career.roster().is_empty()
+	var cont := UITheme.accent_button("CONTINUE CAREER" if started else "START CAREER", func():
+		if not started:
+			Career.new_career()
+		Game.goto("garage", {"spawn": "door"}), Vector2(440, 62))
+	left.add_child(cont)
+	var newc := UITheme.button("NEW CAREER", Callable(), Vector2(440, 54))
+	newc.pressed.connect(func():
+		if started and newc.text != "REALLY START OVER?":
+			newc.text = "REALLY START OVER?"
+			return
+		Career.new_career()
+		Game.goto("garage", {"spawn": "door"}))
+	left.add_child(newc)
+	left.add_child(UITheme.button("WORKBENCH (current build)", func(): Game.goto("workshop", {"stage": "build"}), Vector2(440, 54)))
+	left.add_child(UITheme.button("OPTIONS", _open_options, Vector2(440, 54)))
+	left.add_child(UITheme.button("QUIT", func(): get_tree().quit(), Vector2(440, 54)))
+	Pad.focus_first(left, true)
 
 	_status = UITheme.label(_status_text(), 20, UITheme.MUTED)
 	_status.position = Vector2(110, 900)
 	ui.add_child(_status)
-	var hint := UITheme.label("F11 fullscreen   •   All controls are rebindable in OPTIONS", 18, UITheme.MUTED)
+	var hint := UITheme.label("Keyboard & mouse or DualSense  •  F11 fullscreen  •  all controls rebindable in OPTIONS", 18, UITheme.MUTED)
 	hint.position = Vector2(110, 1020)
 	ui.add_child(hint)
 
-	# Records panel
+	# business panel
 	var panel := PanelContainer.new()
 	panel.position = Vector2(1330, 90)
 	panel.custom_minimum_size = Vector2(500, 0)
@@ -90,14 +93,15 @@ func _ready() -> void:
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 8)
 	panel.add_child(pv)
-	pv.add_child(UITheme.label("PILOT LOG", 26, UITheme.ACCENT))
+	pv.add_child(UITheme.label("WORKSHOP LOG", 26, UITheme.ACCENT))
+	pv.add_child(UITheme.label("Garage Level %d - %s" % [Career.level(), Career.level_info()["name"]], 20))
+	pv.add_child(UITheme.label("Credits %d   •   Reputation %d   •   Day %d" % [Career.credits(), int(Career.data["rep"]), int(Career.data["day"])], 20))
+	pv.add_child(UITheme.label("Drones on the roster   %d" % Career.roster().size(), 20))
+	pv.add_child(UITheme.label("Missions completed   %d" % Career.data["missions_done"].size(), 20))
 	for m in ["gate_race", "battery_challenge"]:
 		var bt := SaveData.best_time(m)
-		pv.add_child(UITheme.label("%s   %s" % [Parts.MISSION_NAMES[m], "—" if bt <= 0.0 else _fmt(bt)], 21))
-	pv.add_child(UITheme.label("Top speed   %.0f km/h" % float(SaveData.data["top_speed_kmh"]), 21))
-	var total := Parts.db().size()
-	pv.add_child(UITheme.label("Parts unlocked   %d / %d" % [SaveData.data["unlocked"].size(), total], 21))
-	var tip := UITheme.label("Finish Gate Race: 3\" whoop, 2207 motors, 5040 props, 2200 mAh pack.\nFinish Battery Challenge: 7\" frame, 2806 motors.", 17, UITheme.MUTED)
+		pv.add_child(UITheme.label("%s best   %s" % [Parts.MISSION_NAMES[m], "—" if bt <= 0.0 else _fmt(bt)], 19, UITheme.MUTED))
+	var tip := UITheme.label("You run a small garage drone workshop for the %s. Build drones part by part, certify them on the test station and fly them against fictional %s equipment." % [Campaign.FACTION_PLAYER, Campaign.FACTION_ENEMY], 17, UITheme.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tip.custom_minimum_size = Vector2(470, 0)
 	pv.add_child(tip)
@@ -110,7 +114,7 @@ func _fmt(t: float) -> String:
 func _status_text() -> String:
 	var s: Dictionary = Game.stats()
 	if not Game.placed.has("frame"):
-		return "No drone yet - head to the workshop bench."
+		return "Workbench empty." + ("  Next: " + Career.guide_text() if Career.guide_text() != "" else "")
 	if not s["complete"]:
 		return "Drone in progress: missing %s." % s["missing_text"]
 	var r: Dictionary = Game.ready_to_fly()

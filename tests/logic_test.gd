@@ -23,6 +23,8 @@ func _ready() -> void:
 
 
 func _main_phase() -> void:   # async (waits a frame for buffered input)
+	Settings._reset_bindings()     # start from the default bindings (a previous run leaves a rebinding behind)
+	Settings.rebuild_input_map()
 	print("== build rules ==")
 	var placed := {"frame": "frame_5"}
 	var m1 := Parts.slot_by_name("frame_5", "motor_1")        # M1 is CCW

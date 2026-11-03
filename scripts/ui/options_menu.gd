@@ -13,7 +13,7 @@ var _toast: Label
 
 func _ready() -> void:
 	theme = UITheme.get_theme()
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
@@ -39,6 +39,7 @@ func _ready() -> void:
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vb.add_child(tabs)
 	tabs.add_child(_build_game_tab())
+	tabs.add_child(_build_flight_tab())
 	tabs.add_child(_build_audio_tab())
 	tabs.add_child(_build_controls_tab())
 
@@ -143,6 +144,45 @@ func _build_game_tab() -> Control:
 		SaveData.unlock_all()
 		_say("All parts unlocked."), Vector2(300, 44))
 	_row(g, "Progress", ua)
+	var cr := UITheme.button("+5000 credits (testing)", func():
+		Career.earn(5000, "Testing grant")
+		_say("+5000 credits."), Vector2(300, 44))
+	_row(g, "Career", cr)
+	return r[0]
+
+
+func _check_row(g: GridContainer, text: String, value: bool, cb: Callable) -> void:
+	var c := CheckButton.new()
+	c.button_pressed = value
+	c.focus_mode = Control.FOCUS_ALL
+	c.toggled.connect(cb)
+	_row(g, text, c)
+
+
+func _build_flight_tab() -> Control:
+	var r := _scroll_grid("Flight & Pad", 2)
+	var g: GridContainer = r[1]
+	var ob := OptionButton.new()
+	for n in ["Beginner (self-level + altitude hold)", "Intermediate (self-level)", "Acro (rate mode)"]:
+		ob.add_item(n)
+	ob.select(Settings.assist)
+	ob.item_selected.connect(func(i: int): Settings.assist = i)
+	_row(g, "Default flight mode", ob)
+	_check_row(g, "Gamepad throttle = stick position (centre 50 %)", Settings.pad_throttle_abs, func(on: bool): Settings.pad_throttle_abs = on)
+	_slider_row(g, "Look sensitivity (garage)", 0.2, 3.0, 0.05, Settings.look_sens, "%.2f", func(x: float): Settings.look_sens = x)
+	_check_row(g, "Invert look Y", Settings.invert_y, func(on: bool): Settings.invert_y = on)
+	_check_row(g, "Controller vibration", Settings.rumble, func(on: bool): Settings.rumble = on)
+	var gl := OptionButton.new()
+	gl.add_item("PlayStation (Cross / Circle / Square / Triangle)")
+	gl.add_item("Xbox (A / B / X / Y)")
+	gl.select(Settings.pad_glyphs)
+	gl.item_selected.connect(func(i: int):
+		Settings.pad_glyphs = i
+		_refresh_binds())
+	_row(g, "Button names", gl)
+	for k in Settings.osd:
+		var key: String = k
+		_check_row(g, "OSD: %s" % key.capitalize(), Settings.osd[key], func(on: bool): Settings.osd[key] = on)
 	return r[0]
 
 

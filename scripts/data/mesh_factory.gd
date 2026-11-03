@@ -214,6 +214,11 @@ static func make_part(id: String, frame_id: String = "frame_5", broken: bool = f
 		"vtx": root = make_vtx()
 		"cam": root = make_cam()
 		"battery": root = make_battery(id)
+		"rx": root = make_rx(id)
+		"antenna": root = make_antenna(id)
+		"cam_mount": root = make_cam_mount(id)
+		"guard": root = make_guard(id, frame_id)
+		"payload": root = make_payload(id)
 		_: root = Node3D.new()
 	root.set_meta("part_id", id)
 	return root
@@ -230,6 +235,11 @@ static func bounds(id: String) -> Dictionary:
 		"vtx": return {"r": 3.9, "c": Vector3(0, 0.4, 1.4)}
 		"cam": return {"r": 2.0, "c": Vector3(0, 1.0, 0)}
 		"battery": return {"r": 5.2, "c": Vector3(0, 1.4, 0.6)}
+		"rx": return {"r": 1.6, "c": Vector3(0, 0.3, 0.5)}
+		"antenna": return {"r": 3.0, "c": Vector3(0, 0.8, 2.0)}
+		"cam_mount": return {"r": 1.8, "c": Vector3(0, 0.8, 0)}
+		"guard": return {"r": 14.0, "c": Vector3(0, 1.5, 0)}
+		"payload": return {"r": 4.0, "c": Vector3(0, -1.2, 0)}
 	return {"r": 3.0, "c": Vector3.ZERO}
 
 
@@ -250,8 +260,14 @@ static func make_frame(id: String) -> Node3D:
 	var root := Node3D.new()
 	var carbon := mat(CARBON, 0.45, 0.4)
 	var sc: float = clampf(o / 7.95, 0.82, 1.35)
+	var armoured: bool = f.get("durability", 1.0) > 1.5
+	if armoured:
+		carbon = mat(Color(0.2, 0.22, 0.2), 0.5, 0.55)
 	var plate := Vector3(5.0 * sc, 0.35, 9.0 * sc)
 	box(root, plate, Vector3(0, 0.175, 0), carbon)
+	if armoured:
+		for sx in [-1, 1]:
+			box(root, Vector3(0.5, 0.9, 8.6 * sc), Vector3(2.35 * sc * sx, 0.45, 0), carbon)
 	for i in 4:
 		var sg: Vector2 = Parts.MOTOR_SIGNS[i]
 		var tip := Vector3(o * sg.x, 0, o * sg.y)
@@ -394,10 +410,6 @@ static func make_vtx() -> Node3D:
 	_pcb(root, 2.6, 2.6, Color(0.14, 0.03, 0.2))
 	box(root, Vector3(1.4, 0.45, 1.4), Vector3(0.15, 0.48, -0.1), mat(Color(0.8, 0.8, 0.85), 0.95, 0.25))
 	cyl(root, 0.22, 0.6, Vector3(0, 0.45, 1.4), mat(GOLD, 0.9, 0.3), Vector3(90, 0, 0), 8)
-	var dir := Vector3(0, sin(deg_to_rad(20.0)), cos(deg_to_rad(20.0)))
-	var pivot := Vector3(0, 0.45, 1.7)
-	cyl(root, 0.09, 5.0, pivot + dir * 2.5, mat(Color(0.03, 0.03, 0.03), 0.2, 0.5), Vector3(70, 0, 0), 8)
-	cyl(root, 0.17, 0.8, pivot + dir * 5.0, mat(Color(0.9, 0.9, 0.9), 0.0, 0.6), Vector3(70, 0, 0), 8)
 	for pid in Parts.PADS:
 		if Parts.PADS[pid]["cat"] == "vtx":
 			_pad(root, pid)
@@ -412,13 +424,12 @@ static func make_cam() -> Node3D:
 	var tilt := Node3D.new()
 	tilt.position = Vector3(0, 1.0, 0)
 	tilt.rotation_degrees = Vector3(20, 0, 0)
+	tilt.name = "Tilt"
 	root.add_child(tilt)
 	var plastic := mat(Color(0.05, 0.05, 0.06), 0.2, 0.5)
 	box(tilt, Vector3(2.0, 2.0, 1.4), Vector3.ZERO, plastic)
 	cyl(tilt, 0.7, 0.8, Vector3(0, 0, -1.0), mat(Color(0.12, 0.12, 0.14), 0.6, 0.3), Vector3(90, 0, 0), 16)
 	cyl(tilt, 0.55, 0.05, Vector3(0, 0, -1.43), mat(Color(0.1, 0.25, 0.55), 0.0, 0.1, 0.6), Vector3(90, 0, 0), 16)
-	for sx in [-1, 1]:
-		box(root, Vector3(0.2, 1.7, 1.2), Vector3(1.1 * sx, 1.0, 0), mat(Color(1.0, 0.4, 0.05), 0.8, 0.3))
 	for pid in Parts.PADS:
 		if Parts.PADS[pid]["cat"] == "cam":
 			_pad(root, pid)
@@ -450,6 +461,136 @@ static func make_battery(id: String) -> Node3D:
 		_pad(root, pid)
 	var arrow := flat_arrow(1.2, 1.0, Color(1, 1, 1), 0.3)
 	arrow.position = Vector3(0, 2.86, -2.6 * len_scale)
+	root.add_child(arrow)
+	return root
+
+
+static func make_rx(id: String) -> Node3D:
+	var root := Node3D.new()
+	var lr: bool = id == "rx_lr"
+	box(root, Vector3(1.3, 0.3, 1.7), Vector3(0, 0.15, 0), mat(Color(0.05, 0.25, 0.12) if not lr else Color(0.25, 0.08, 0.05), 0.2, 0.5))
+	box(root, Vector3(0.7, 0.18, 0.7), Vector3(0, 0.39, -0.2), mat(Color(0.02, 0.02, 0.02), 0.3, 0.4))
+	sphere(root, 0.08, Vector3(0.4, 0.36, 0.6), mat(Color(0.2, 1.0, 0.3), 0.0, 0.5, 2.0))
+	var wire := mat(Color(0.05, 0.05, 0.05), 0.2, 0.6)
+	var tip := mat(Color(0.95, 0.95, 0.95), 0.0, 0.6)
+	for sx in [-1, 1]:
+		var ln := 3.2 if not lr else 4.2
+		cyl(root, 0.05, ln, Vector3(0.4 * sx + sx * ln * 0.25, 0.4, 0.85 + ln * 0.4), wire, Vector3(60, 30 * sx, 0), 6)
+		cyl(root, 0.08, 0.9, Vector3(0.4 * sx + sx * ln * 0.5, 0.45, 0.85 + ln * 0.78), tip, Vector3(60, 30 * sx, 0), 6)
+	var arrow := flat_arrow(0.7, 0.6, Color(1, 1, 1), 0.4)
+	arrow.position = Vector3(0, 0.49, 0.4)
+	root.add_child(arrow)
+	return root
+
+
+static func make_antenna(id: String) -> Node3D:
+	var root := Node3D.new()
+	var p: Dictionary = Parts.part(id)
+	cyl(root, 0.24, 0.5, Vector3(0, 0.0, -0.1), mat(GOLD, 0.9, 0.3), Vector3(90, 0, 0), 8)
+	var dir := Vector3(0, sin(deg_to_rad(20.0)), cos(deg_to_rad(20.0)))
+	var black := mat(Color(0.03, 0.03, 0.03), 0.2, 0.5)
+	match id:
+		"ant_stub":
+			cyl(root, 0.32, 1.6, dir * 0.8, black, Vector3(70, 0, 0), 10)
+		"ant_patch":
+			cyl(root, 0.09, 2.2, dir * 1.1, black, Vector3(70, 0, 0), 8)
+			box(root, Vector3(2.4, 2.4, 0.4), dir * 2.4, mat(Color(0.85, 0.85, 0.88), 0.0, 0.6), Vector3(-20, 0, 0))
+		_:
+			cyl(root, 0.09, 5.0, dir * 2.5, black, Vector3(70, 0, 0), 8)
+			cyl(root, 0.42 if p.get("gain", 1.0) >= 1.0 else 0.17, 0.8, dir * 5.0, mat(Color(0.9, 0.9, 0.9), 0.0, 0.6), Vector3(70, 0, 0), 10)
+	return root
+
+
+static func make_cam_mount(id: String) -> Node3D:
+	var root := Node3D.new()
+	var col := Color(1.0, 0.4, 0.05)
+	if id == "mount_35":
+		col = Color(0.1, 0.75, 0.9)
+	elif id == "mount_damp":
+		col = Color(0.15, 0.15, 0.17)
+	var m := mat(col, 0.1, 0.7)
+	box(root, Vector3(2.4, 0.25, 1.4), Vector3(0, 0.12, 0), m)
+	for sx in [-1, 1]:
+		box(root, Vector3(0.22, 1.9, 1.3), Vector3(1.12 * sx, 1.1, 0), m)
+		if id == "mount_damp":
+			for sz in [-0.4, 0.4]:
+				sphere(root, 0.22, Vector3(1.12 * sx, 0.35, sz), mat(Color(0.9, 0.2, 0.2), 0.0, 0.9))
+	var arrow := flat_arrow(0.8, 0.7, Color(1, 1, 1), 0.4)
+	arrow.position = Vector3(0, 0.26, 0.2)
+	root.add_child(arrow)
+	return root
+
+
+static func make_guard(id: String, frame_id: String = "frame_5") -> Node3D:
+	var root := Node3D.new()
+	var f: Dictionary = Parts.part(frame_id)
+	var o: float = f.get("arm", 7.95)
+	var sc: float = clampf(o / 7.95, 0.82, 1.35)
+	if id == "guard_plate":
+		var steel := mat(Color(0.36, 0.38, 0.34), 0.7, 0.5)
+		for i in 4:
+			var sg: Vector2 = Parts.MOTOR_SIGNS[i]
+			var tip := Vector3(o * sg.x, 0, o * sg.y)
+			var dir := tip.normalized()
+			var plate := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(1.4 * sc, 0.18, tip.length() * 0.6)
+			plate.mesh = bm
+			plate.material_override = steel
+			plate.transform = Transform3D(Basis.looking_at(dir, Vector3.UP), tip * 0.42 + Vector3(0, 0.5, 0))
+			root.add_child(plate)
+		box(root, Vector3(5.6 * sc, 0.2, 2.2), Vector3(0, 0.45, -o * 0.45), steel)
+		return root
+	var radius: float = 5.1 * 2.54 * 0.5 * f.get("prop_in", 5.0) / 5.0 + 0.6
+	var tm := TorusMesh.new()
+	tm.inner_radius = radius - 0.35
+	tm.outer_radius = radius
+	tm.rings = 28
+	tm.ring_segments = 6
+	var pm := mat(Color(0.1, 0.1, 0.11), 0.0, 0.7)
+	for i in 4:
+		var sg: Vector2 = Parts.MOTOR_SIGNS[i]
+		var ring := MeshInstance3D.new()
+		ring.mesh = tm
+		ring.material_override = pm
+		ring.position = Vector3(o * sg.x, 3.1, o * sg.y)
+		ring.scale = Vector3(1, 3.0, 1)
+		root.add_child(ring)
+		for k in 3:
+			var a := TAU * k / 3.0 + 0.5
+			cyl(root, 0.15, 2.8, Vector3(o * sg.x + cos(a) * (radius - 0.2), 1.7, o * sg.y + sin(a) * (radius - 0.2)), pm, Vector3.ZERO, 6)
+	return root
+
+
+static func make_payload(id: String) -> Node3D:
+	var root := Node3D.new()
+	var p: Dictionary = Parts.part(id)
+	var olive := mat(Color(0.3, 0.34, 0.22), 0.2, 0.7)
+	var dark := mat(Color(0.1, 0.1, 0.11), 0.5, 0.4)
+	var orange := mat(Color(1.0, 0.45, 0.05), 0.0, 0.5, 0.2)
+	box(root, Vector3(3.2, 0.35, 1.4), Vector3(0, -0.18, 0), dark)   # release rail
+	if p.get("kind", "") == "scan":
+		cyl(root, 1.3, 1.6, Vector3(0, -1.2, 0), mat(Color(0.75, 0.76, 0.78), 0.4, 0.4), Vector3.ZERO, 16)
+		sphere(root, 1.0, Vector3(0, -2.0, 0), mat(Color(0.08, 0.12, 0.2), 0.3, 0.1, 0.4))
+		return root
+	var n: int = int(p.get("charges", 1))
+	var big: bool = p.get("big", false)
+	var r := 1.35 if big else 0.95
+	var ln := 6.5 if big else 4.6
+	for k in n:
+		var x := 0.0 if n == 1 else (-1.2 + 2.4 * k)
+		var pod := Node3D.new()
+		pod.name = "Pod%d" % k
+		pod.position = Vector3(x, -0.4 - r, 0)
+		root.add_child(pod)
+		cyl(pod, r, ln, Vector3.ZERO, olive, Vector3(90, 0, 0), 14)
+		sphere(pod, r, Vector3(0, 0, -ln * 0.5), olive)
+		cyl(pod, r * 0.98, 0.4, Vector3(0, 0, -ln * 0.15), orange, Vector3(90, 0, 0), 14)
+		for fin in 4:
+			var fa := fin * 90.0 + 45.0
+			box(pod, Vector3(0.12, r * 1.6, 1.3), Vector3(cos(deg_to_rad(fa)) * r * 0.6, sin(deg_to_rad(fa)) * r * 0.6, ln * 0.5 - 0.3), dark, Vector3(0, 0, fa))
+	var arrow := flat_arrow(1.0, 0.8, Color(1, 1, 1), 0.4)
+	arrow.position = Vector3(0, 0.01, -0.5)
 	root.add_child(arrow)
 	return root
 

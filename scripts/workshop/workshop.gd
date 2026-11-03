@@ -27,6 +27,8 @@ var _bar: PanelContainer
 var _toast_tween: Tween
 var _menu: Control = null
 var _sun: DirectionalLight3D
+var _name_lbl: Label
+var _credits_lbl: Label
 
 
 func _ready() -> void:
@@ -109,8 +111,14 @@ func _build_world() -> void:
 	for i in 8:
 		MeshFactory.cyl(world, 0.35, 0.6, Vector3(-39.5 + (i % 4) * 1.6, 2.3, -14 + (i / 4) * 2.4), MeshFactory.mat(Color(0.85, 0.85, 0.9), 0.9, 0.3), Vector3(90, 0, 0), 8)
 
+	# build stand: the drone sits 4 cm up so under-slung modules clear the mat
+	var stand_m := MeshFactory.mat(Color(0.15, 0.15, 0.17), 0.6, 0.4)
+	for sx in [-3.6, 3.6]:
+		MeshFactory.box(world, Vector3(1.6, 4.0, 7.0), Vector3(sx, 2.0, 0), stand_m)
+		MeshFactory.box(world, Vector3(2.2, 0.3, 7.6), Vector3(sx, 0.15, 0), MeshFactory.mat(Color(0.9, 0.5, 0.08), 0.3, 0.5))
 	drone_root = Node3D.new()
 	drone_root.name = "Drone"
+	drone_root.position = Vector3(0, 4.0, 0)
 	world.add_child(drone_root)
 
 	camera = Camera3D.new()
@@ -150,7 +158,9 @@ func _build_ui() -> void:
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 14)
 	bar.add_child(hb)
-	hb.add_child(UITheme.label("PROPWASH WORKSHOP", 24, UITheme.ACCENT))
+	hb.add_child(UITheme.button("<  GARAGE", _back_to_garage, Vector2(150, 46)))
+	_name_lbl = UITheme.label("WORKBENCH", 22, UITheme.ACCENT)
+	hb.add_child(_name_lbl)
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hb.add_child(sp)
@@ -166,11 +176,14 @@ func _build_ui() -> void:
 			switch_stage(s))
 		_stage_buttons[s] = b
 		hb.add_child(b)
-	var fly := UITheme.accent_button("4  FLY", func(): setup.save_and_fly(), Vector2(150, 46))
+	var fly := UITheme.button("TEST FLY", func(): setup.save_and_fly(), Vector2(150, 46))
 	hb.add_child(fly)
+	hb.add_child(UITheme.accent_button("SAVE DRONE", _save_dialog, Vector2(190, 46)))
 	var sp2 := Control.new()
 	sp2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hb.add_child(sp2)
+	_credits_lbl = UITheme.label("", 20)
+	hb.add_child(_credits_lbl)
 	hb.add_child(UITheme.button("Menu (Esc)", _show_menu, Vector2(150, 46)))
 
 	_toast = UITheme.label("", 24, Color.WHITE)
@@ -210,6 +223,8 @@ func can_enter(target: String) -> String:
 				return "Finish the build first - missing: %s." % s["missing_text"]
 			if s["broken_props"] > 0:
 				return "%d broken prop(s) - scrap them and fit fresh ones first." % s["broken_props"]
+			if not Game.loose.is_empty():
+				return "Tighten the loose screws first (click the part): %s." % Game.loose_text()
 		"setup":
 			var w: String = can_enter("wire")
 			if w != "":
@@ -305,10 +320,105 @@ func _show_menu() -> void:
 	v.add_child(UITheme.button("Options", func():
 		var o := OptionsMenu.new()
 		layer.add_child(o), Vector2(340, 52)))
-	v.add_child(UITheme.button("Main menu", func():
+	v.add_child(UITheme.button("Back to the garage", func():
+		_back_to_garage(), Vector2(340, 52)))
+	v.add_child(UITheme.button("Save & main menu", func():
 		Game.save_drone()
+		Career.save()
 		Game.goto("menu"), Vector2(340, 52)))
+	Pad.focus_first(root)
 
 
 func _exit_tree() -> void:
 	Game.save_drone()
+
+
+func _process(_dt: float) -> void:
+	if _credits_lbl:
+		_credits_lbl.text = "%d cr" % Career.credits()
+	if _name_lbl:
+		_name_lbl.text = "WORKBENCH  -  %s" % (Game.bench_name if Game.bench_name != "" else "new build")
+	# gamepad: right stick orbits the camera
+	if Pad.using_pad and (stage == "build" or stage == "wire") and _menu == null:
+		var rx := Input.get_joy_axis(0, JOY_AXIS_RIGHT_X)
+		var ry := Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y)
+		if absf(rx) > 0.15 or absf(ry) > 0.15:
+			cam_yaw -= rx * 2.2 * _dt
+			cam_pitch = clampf(cam_pitch - ry * 1.6 * _dt, deg_to_rad(-86.0), deg_to_rad(-6.0))
+			_update_camera()
+		if Input.is_action_pressed("cam_zoom_in"):
+			cam_dist = clampf(cam_dist * (1.0 - _dt), 8.0, 80.0)
+			_update_camera()
+		elif Input.is_action_pressed("cam_zoom_out"):
+			cam_dist = clampf(cam_dist * (1.0 + _dt), 8.0, 80.0)
+			_update_camera()
+
+
+func _back_to_garage() -> void:
+	build.cancel_hold()
+	Game.save_drone()
+	Career.save()
+	Game.goto("garage", {"spawn": "bench"})
+
+
+## SAVE DRONE: name it and put it on the rack.
+func _save_dialog() -> void:
+	var r := Game.ready_to_fly()
+	if not r["ok"]:
+		say(r["reason"])
+		Audio.play("error")
+		return
+	if _menu != null:
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 40
+	add_child(layer)
+	var root := UITheme.root_control()
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(root)
+	_menu = root
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dim)
+	var c := CenterContainer.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(c)
+	var p := PanelContainer.new()
+	c.add_child(p)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	p.add_child(v)
+	v.add_child(UITheme.label("SAVE DRONE", 32, UITheme.ACCENT))
+	var st := Game.stats()
+	v.add_child(UITheme.label("%s  •  %d g  •  TWR %.1f  •  ~%.1f min  •  %d cr of parts" % [st["frame_name"], int(st["mass_g"]), st["twr"], st["endurance_min"], st["cost"]], 18, UITheme.MUTED))
+	var le := LineEdit.new()
+	le.text = Game.bench_name if Game.bench_name != "" else Career.drone_name_suggestion()
+	le.custom_minimum_size = Vector2(520, 46)
+	le.max_length = 24
+	v.add_child(le)
+	var preset := CheckButton.new()
+	preset.text = "Also save this build as a production preset"
+	v.add_child(preset)
+	var close := func():
+		_menu = null
+		layer.queue_free()
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	v.add_child(h)
+	h.add_child(UITheme.button("Random name", func(): le.text = Career.drone_name_suggestion() if le.text != Career.drone_name_suggestion() else "Drone %d" % randi_range(10, 99), Vector2(170, 48)))
+	h.add_child(UITheme.button("Cancel", close, Vector2(140, 48)))
+	h.add_child(UITheme.accent_button("SAVE TO RACK", func():
+		if Career.rack_drones().size() >= int(Career.level_info()["rack"]) and Career.data["bench_drone"] == "":
+			say("The drone rack is full - upgrade the garage or disassemble a drone.")
+			return
+		if preset.button_pressed:
+			Career.save_preset(le.text + " build", Game.placed, Game.cfg)
+		var d := Career.store_bench_drone(le.text)
+		Career.credit_manual_job(d)
+		Audio.play("success")
+		close.call()
+		Game.goto("garage", {"spawn": "rack", "message": "%s is on the rack. Connect it to the TEST STATION to certify it." % d["name"]}), Vector2(220, 48)))
+	Pad.focus_first(v, true)
