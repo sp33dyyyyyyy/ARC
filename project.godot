@@ -30,6 +30,9 @@ window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/vsync/vsync_mode=1
 window/size/mode=0
+window/size/initial_position_type=1
+window/size/window_width_override=1600
+window/size/window_height_override=900
 
 [physics]
 

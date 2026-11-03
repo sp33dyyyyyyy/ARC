@@ -104,6 +104,8 @@ func _ready() -> void:
 	rebuild_input_map()
 	apply_all()
 	_make_stats_overlay()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.call_deferred("window_move_to_foreground")
 
 
 func _input(event: InputEvent) -> void:
@@ -374,14 +376,26 @@ func apply_display() -> void:
 	else:
 		if mode != DisplayServer.WINDOW_MODE_WINDOWED:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-		var screen := DisplayServer.screen_get_size()
-		var want := Vector2i(1920, 1080)
-		if screen.x < want.x + 40 or screen.y < want.y + 80:
-			want = Vector2i(int(screen.x * 0.9), int(screen.y * 0.9))
-		# only touch the window when it is not already the right size (avoids a needless resize at start-up)
-		if DisplayServer.window_get_size() != want:
-			DisplayServer.window_set_size(want)
-			DisplayServer.window_set_position((screen - want) / 2)
+		_fit_window()
+
+
+## Leaves the window where the OS put it unless it is too small or outside the usable area of its
+## screen; then it is resized to fit and centred on that screen (multi-monitor / display-scaling safe).
+func _fit_window() -> void:
+	var scr := DisplayServer.window_get_current_screen()
+	var usable := DisplayServer.screen_get_usable_rect(scr)
+	if usable.size.x < 320 or usable.size.y < 240:
+		return   # the OS reported nonsense - don't make things worse
+	var size := DisplayServer.window_get_size()
+	var pos := DisplayServer.window_get_position()
+	var visible_part := usable.intersection(Rect2i(pos, size))
+	var ok := size.x >= 640 and size.y >= 360 and size.x <= usable.size.x and size.y <= usable.size.y \
+		and visible_part.size.x >= size.x * 0.8 and visible_part.size.y >= size.y * 0.8
+	if ok:
+		return
+	var want := Vector2i(mini(1600, int(usable.size.x * 0.9)), mini(900, int(usable.size.y * 0.9)))
+	DisplayServer.window_set_size(want)
+	DisplayServer.window_set_position(usable.position + (usable.size - want) / 2)
 
 
 func _ensure_bus(bus_name: String) -> int:
