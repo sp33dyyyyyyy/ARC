@@ -100,6 +100,9 @@ var _rain: CPUParticles3D
 var _spectator := Vector3.ZERO
 ## Test hook: holds the drone still (targets and effects keep running).
 var debug_freeze := false
+var _school: PanelContainer
+var _school_lbl: RichTextLabel
+var _school_armed_t := 0.0
 
 
 func _ready() -> void:
@@ -231,7 +234,8 @@ func _build_all() -> void:   # coroutine
 	else:
 		state = S.COUNTDOWN
 		countdown = 3.4
-	_toast("%s arm  •  throttle W/S or left stick  •  %s flight mode (%s)  •  %s camera" % [Pad.glyph("arm"), Pad.glyph("flight_assist"), ASSIST_NAMES[assist], Pad.glyph("camera_mode")], 7.0, Hud.WHITE)
+	if not _school.visible:
+		_toast("%s arm  •  throttle W/S or left stick  •  %s flight mode (%s)  •  %s camera  •  %s flight school" % [Pad.glyph("arm"), Pad.glyph("flight_assist"), ASSIST_NAMES[assist], Pad.glyph("camera_mode"), Pad.glyph("help")], 7.0, Hud.WHITE)
 
 
 func _apply_assist() -> void:
@@ -285,6 +289,30 @@ func _build_overlay_ui() -> void:
 	hud = Hud.new()
 	hud.show_hud = Settings.hud_on
 	l2.add_child(hud)
+	# flight school card (tutorial)
+	var l3 := CanvasLayer.new()
+	l3.layer = 3
+	add_child(l3)
+	var root := UITheme.root_control()
+	l3.add_child(root)
+	_school = PanelContainer.new()
+	_school.position = Vector2(1440, 250)
+	_school.custom_minimum_size = Vector2(450, 0)
+	var st := UITheme.flat(Color(0.04, 0.05, 0.06, 0.82), 8, Color(UITheme.ACCENT2, 0.6), 1, 14)
+	st.border_width_left = 6
+	_school.add_theme_stylebox_override("panel", st)
+	_school.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_school)
+	_school_lbl = RichTextLabel.new()
+	_school_lbl.bbcode_enabled = true
+	_school_lbl.fit_content = true
+	_school_lbl.scroll_active = false
+	_school_lbl.custom_minimum_size = Vector2(420, 0)
+	_school_lbl.add_theme_font_size_override("normal_font_size", 19)
+	_school_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_school.add_child(_school_lbl)
+	var flights := int(Career.data["stats"].get("flights", 0))
+	_school.visible = Settings.opt.get("tutorial_hints", true) and (flights <= 3 or mission == "shakedown" or source == "bench" and SaveData.best_time("gate_race") <= 0.0)
 
 
 # --- missions ------------------------------------------------------------------------------------
@@ -430,6 +458,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			thr_stick = 0.5 if sim.armed else 0.0
 		_toast("%s flight mode%s" % [ASSIST_NAMES[assist], ["  - self-level + altitude hold (throttle centre = hover)", "  - self-level, manual throttle", "  - rate mode, no self-level"][assist]], 3.0, Hud.GREEN)
 		Audio.play("beep")
+	elif event.is_action_pressed("help"):
+		_school.visible = not _school.visible
+		_school_armed_t = 0.0
 	elif event.is_action_pressed("camera_mode"):
 		cam_mode = (cam_mode + 1) % 3
 		_toast("Camera: %s" % CAM_NAMES[cam_mode], 1.5, Hud.WHITE)
@@ -498,8 +529,16 @@ func _read_controls(dt: float) -> void:
 		var r := 300.0 / maxf(Settings.mouse_sens, 0.1)
 		roll_t += clampf((mp.x - 960.0) / r, -1.0, 1.0)
 		pitch_t += clampf(-(mp.y - 540.0) / r, -1.0, 1.0)
+	if Settings.opt.get("invert_pitch", false):
+		pitch_t = -pitch_t
 	roll_t = clampf(roll_t, -1.0, 1.0)
 	pitch_t = clampf(pitch_t, -1.0, 1.0)
+	if _pad_active:
+		# stick expo: softer around centre, full deflection unchanged
+		var e := float(Settings.opt.get("expo", 0.25))
+		roll_t = roll_t * (1.0 - e) + roll_t * roll_t * roll_t * e
+		pitch_t = pitch_t * (1.0 - e) + pitch_t * pitch_t * pitch_t * e
+		yaw_t = yaw_t * (1.0 - e) + yaw_t * yaw_t * yaw_t * e
 	if _pad_active or Settings.mouse_stick:
 		roll_s = roll_t
 		pitch_s = pitch_t
@@ -725,7 +764,7 @@ func _on_impact() -> void:
 			broken_now.append(slot)
 		# structural damage scales with the impact and is reduced by guards / armour
 		var protect := maxf(float(stats.get("durability", 1.0)), 0.5)
-		var sev := clampf((speed - sim.crash_speed) / 14.0, 0.05, 1.0) / protect
+		var sev := clampf((speed - sim.crash_speed) / 14.0, 0.05, 1.0) / protect * Settings.difficulty_damage()
 		var fwd := -(sim.basis.z)
 		var front := fwd.dot(-n) > 0.4
 		_hurt("frame", sev * 0.35)
@@ -789,6 +828,8 @@ func _drone_is_lost() -> bool:
 
 
 func _start_replay() -> void:
+	if _school:
+		_school.visible = false
 	state = S.REPLAY
 	_replay_full = false
 	_replay_start = maxi(0, _rec_pos.size() - REPLAY_FRAMES)
@@ -984,6 +1025,8 @@ func _end_flight(title: String, sub: String, workshop_msg: String, crashed: bool
 
 # --- result / pause UI --------------------------------------------------------------------------------------------
 func _show_result(title: String, lines: Array, success: bool, crashed: bool, msg: String = "") -> void:
+	if _school:
+		_school.visible = false
 	state = S.RESULT
 	_ended = true
 	Engine.time_scale = 1.0
@@ -1260,7 +1303,7 @@ func _update_camera(_dt: float) -> void:
 			return
 	drone_vis.visible = false
 	var tilt := Basis(Vector3.RIGHT, deg_to_rad(cfg["cam_angle"]))
-	var jitter: float = 0.0007 * (sim.w[0] + sim.w[1] + sim.w[2] + sim.w[3]) * float(stats.get("vibration", 1.0))
+	var jitter: float = 0.0007 * (sim.w[0] + sim.w[1] + sim.w[2] + sim.w[3]) * float(stats.get("vibration", 1.0)) * float(Settings.opt.get("cam_shake", 1.0))
 	var shake := Basis.from_euler(Vector3(randf_range(-jitter, jitter), randf_range(-jitter, jitter), randf_range(-jitter, jitter)))
 	var b := sim.basis * tilt * shake
 	cam.global_transform = Transform3D(b, sim.pos + sim.basis * CAM_OFFSET)
@@ -1298,7 +1341,39 @@ func _update_fx() -> void:
 	hud.link_text = "%s VTX %s  •  %d m" % ["HD" if stats.get("digital", false) else "AN", ["25mW", "200mW", "600mW"][clampi(cfg["vtx_power"], 0, 2)], int(sim.pos.distance_to(world.start_position()))]
 
 
+func _update_school(dt: float) -> void:
+	if _school == null or not _school.visible:
+		return
+	if sim.armed:
+		_school_armed_t += dt
+		if _school_armed_t > 25.0:
+			_school.visible = false     # fades out once the pilot is airborne for a while
+			return
+	var k := func(a: String) -> String: return UITheme.key_cap(Pad.glyph(a))
+	var t: Array = ["[color=#52c7bd][b]FLIGHT SCHOOL[/b][/color]   %s hide" % k.call("help"), "Mode: [b]%s[/b]  (%s to change)" % [ASSIST_NAMES[assist], k.call("flight_assist")]]
+	if not sim.armed:
+		t.append("1. Throttle fully down, then %s to [b]arm[/b]." % k.call("arm"))
+	match assist:
+		0:
+			t.append("Throttle %s / %s: up = climb, centre = [b]hover[/b], down = descend." % [k.call("throttle_up"), k.call("throttle_down")])
+		1:
+			t.append("Throttle %s / %s: about 35 %% hovers. The drone self-levels." % [k.call("throttle_up"), k.call("throttle_down")])
+		2:
+			t.append("ACRO: the sticks set rotation speed - nothing self-levels.")
+	t.append("Pitch / roll: %s %s %s %s   Yaw: %s %s" % [k.call("pitch_forward"), k.call("pitch_back"), k.call("roll_left"), k.call("roll_right"), k.call("yaw_left"), k.call("yaw_right")])
+	t.append("Camera %s   •   HUD %s   •   Pause %s" % [k.call("camera_mode"), k.call("toggle_hud"), k.call("pause")])
+	if stats.get("payload_kind", "") == "drop":
+		t.append("Release a pod: %s - the round reticle shows where it lands." % k.call("payload"))
+	match mtype:
+		"gates": t.append("Fly through the orange ring with the beam above it, then land on the pad.")
+		"race": t.append("Fly the rings in order before the time runs out.")
+		"strike": t.append("Find the red bracket - that's the objective. Then land back at the launch point.")
+		"recon": t.append("Keep each target centred in view until its ring fills.")
+	_school_lbl.text = "\n".join(t)
+
+
 func _update_hud(dt: float) -> void:
+	_update_school(dt)
 	hud.speed_kmh = sim.speed() * 3.6
 	hud.altitude = maxf(sim.pos.y - world.top_at(sim.pos.x, sim.pos.z) - DroneSim.DRONE_RADIUS, 0.0)
 	hud.volts = sim.v_term

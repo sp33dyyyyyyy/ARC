@@ -1009,3 +1009,57 @@ func garage_level4() -> void:
 	g.player.pitch = deg_to_rad(-10)
 	await _frames(20)
 	await shot("garage_level4")
+
+
+func ui_tour() -> void:
+	Career.new_career()
+	Game.goto("menu")
+	await _frames(40)
+	await shot("ui_menu")
+	Game.goto("garage", {"spawn": "door"})
+	await get_tree().create_timer(2.0).timeout
+	await _frames(20)
+	await shot("ui_howto")
+	var g := _garage()
+	var h: HowToPlay = g.overlay
+	h._show(3)
+	await _frames(5)
+	await shot("ui_howto_build")
+	g.close_overlay()
+	g.player.position = Vector3(-2.6, 0, -3.6)
+	g.player.yaw = deg_to_rad(15)
+	g.player.pitch = deg_to_rad(-5)
+	await _frames(20)
+	await shot("ui_garage_whiteboard")
+	g.player.position = Vector3(0, 0, 1.5)
+	g.player.yaw = 0.0
+	g.player.pitch = deg_to_rad(-12)
+	await _frames(20)
+	await shot("ui_garage_hud")
+	var o := OptionsMenu.new()
+	g._open_overlay(o)
+	await _frames(5)
+	await shot("ui_options_display")
+	var tabs: TabContainer = o.find_children("*", "TabContainer", true, false)[0]
+	for i in [1, 3, 4]:
+		tabs.current_tab = i
+		await _frames(4)
+		await shot("ui_options_%d" % i)
+
+
+func models() -> void:
+	var fs := await _fly_career("convoy")
+	fs._end_intro()
+	await _frames(5)
+	fs.debug_freeze = true
+	fs.cam_mode = 1
+	var t: CombatTarget = fs.runner.targets[1]
+	fs.sim.pos = t.center() + Vector3(7, 2.5, -9)
+	await _frames(30)
+	fs.cam.global_position = t.center() + Vector3(7, 2.5, -9)
+	fs.cam.look_at(t.center())
+	fs.cam_mode = 2
+	fs._spectator = t.center() + Vector3(8, 3, -8)
+	fs.sim.pos = t.center() + Vector3(0, 0.5, 0)
+	await _frames(10)
+	await shot("model_apc")

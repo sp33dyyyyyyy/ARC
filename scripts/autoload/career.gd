@@ -641,7 +641,7 @@ func deliver_to_contract(contract_id: String, drone_id: String) -> String:
 		return why
 	remove_drone(drone_id)
 	c["delivered_n"] = int(c["delivered_n"]) + 1
-	earn(int(c["pay"]), "%s: %s delivered (%s)" % [c["customer"], c["kind"], d["name"]])
+	earn(int(int(c["pay"]) * Settings.difficulty_reward()), "%s: %s delivered (%s)" % [c["customer"], c["kind"], d["name"]])
 	if int(c["delivered_n"]) >= int(c["qty"]):
 		c["delivered"] = true
 		data["rep"] = int(data["rep"]) + int(c["rep"])
@@ -717,6 +717,7 @@ func complete_mission(m: Dictionary, bonus: int) -> int:
 	var first := mission_count(m["id"]) == 0
 	var pay: int = int(m["reward"]) if first else int(m["repeat_reward"])
 	pay += bonus
+	pay = int(pay * Settings.difficulty_reward())
 	data["missions_done"][m["id"]] = mission_count(m["id"]) + 1
 	if first:
 		data["rep"] = int(data["rep"]) + int(m["rep"])
@@ -764,6 +765,15 @@ const GUIDE := [
 	"Deliver a customer contract in FACTORY ORDERS, or fly 'Eyes on the Road'.",
 	"Expand the business: buy garage Level 2 in GARAGE UPGRADES.",
 ]
+
+
+const GUIDE_TITLES := ["Find the starter kit", "Unpack it", "Build your first drone", "Wire it and save it", "Certify it",
+	"First test flight", "First mission", "Buy more parts", "Repair a drone", "Grow the business", "Expand the garage"]
+
+
+func guide_title() -> String:
+	var s := int(data["tutorial"])
+	return GUIDE_TITLES[s] if s < GUIDE_TITLES.size() else ""
 
 
 func guide_text() -> String:
@@ -858,7 +868,7 @@ func _process(dt: float) -> void:
 				notify.emit("Career guide complete - the business is yours to grow.", "good")
 			mark_dirty()
 	_autosave_t += dt
-	if _autosave_t > AUTOSAVE_S and _dirty:
+	if _autosave_t > float(Settings.opt.get("autosave", AUTOSAVE_S)) and _dirty:
 		_autosave_t = 0.0
 		save()
 

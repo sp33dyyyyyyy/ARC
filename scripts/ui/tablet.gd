@@ -33,6 +33,8 @@ func _ready() -> void:
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(sp)
 	top.add_child(UITheme.label("%d cr   Day %d  %s" % [Career.credits(), int(Career.data["day"]), Career.clock_text()], 22))
+	if garage and garage.has_method("open_help"):
+		top.add_child(UITheme.button("How to play", func(): garage.call_deferred("open_help", 0), Vector2(170, 40)))
 	top.add_child(UITheme.button("Close", func(): closed.emit(), Vector2(120, 40)))
 	_tabs = TabContainer.new()
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL

@@ -33,6 +33,48 @@ var pad_throttle_abs: bool = true   # gamepad throttle: stick position (centre =
 var assist: int = 0                 # default flight assist: 0 Beginner, 1 Intermediate, 2 Acro
 var osd: Dictionary = {"speed": true, "altitude": true, "battery": true, "amps": true, "mission": true, "crosshair": true, "compass": true, "markers": true}
 
+## Extra options: key -> [default, min, max]. The value type follows the default (bool / int / float).
+## Graphics entries at -1 follow the graphics preset.
+const OPTS := {
+	# display
+	"window_mode": [0, 0, 2],          # 0 windowed, 1 borderless fullscreen, 2 exclusive fullscreen
+	"fps_cap": [144, 0, 360],          # 0 = unlimited
+	"brightness": [1.0, 0.5, 1.6],
+	"render_scale": [0.0, 0.0, 1.0],   # 0 = use the preset
+	# graphics
+	"safe_graphics": [false],          # no shadows / glow / fog, fewer lights: for weak or crashy drivers
+	"shadows": [-1, -1, 1],
+	"shadow_quality": [-1, -1, 2],
+	"msaa": [-1, -1, 2],
+	"view_dist": [-1, -1, 2],
+	"trees": [-1, -1, 2],
+	"glow": [-1, -1, 1],
+	"fog": [true],
+	"particles": [1.0, 0.25, 1.5],
+	# audio
+	"ambience_vol": [0.7, 0.0, 1.0],
+	"mute_unfocused": [true],
+	# gameplay
+	"difficulty": [1, 0, 2],           # 0 Relaxed, 1 Standard, 2 Hardcore
+	"tutorial_hints": [true],
+	"beacons": [true],
+	"units": [0, 0, 1],                # 0 metric, 1 imperial
+	"head_bob": [true],
+	"cam_shake": [1.0, 0.0, 2.0],
+	"garage_fov": [72.0, 55.0, 100.0],
+	"autosave": [20.0, 10.0, 120.0],
+	"show_clock": [true],
+	# controls
+	"deadzone": [0.2, 0.05, 0.5],
+	"expo": [0.25, 0.0, 0.8],
+	"invert_pitch": [false],
+	"crouch_toggle": [true],
+	"sprint_toggle": [false],
+}
+const DIFFICULTY_NAMES := ["Relaxed", "Standard", "Hardcore"]
+const WINDOW_MODE_NAMES := ["Windowed", "Borderless fullscreen", "Exclusive fullscreen"]
+var opt: Dictionary = {}
+
 ## action id -> {"kb": "key:87", "pad": "joyaxis:1:-1"}   ("" = unbound)
 var bindings: Dictionary = {}
 
@@ -78,6 +120,7 @@ func action_table() -> Array:
 		{"id": "inventory", "label": "Inventory", "group": "Garage", "kb": "key:%d" % KEY_TAB, "pad": "joybtn:%d" % JOY_BUTTON_Y},
 		{"id": "rotate_item", "label": "Rotate held item (hold + look)", "group": "Garage", "kb": "key:%d" % KEY_R, "pad": "joybtn:%d" % JOY_BUTTON_RIGHT_SHOULDER},
 		{"id": "tablet", "label": "Workshop tablet", "group": "Garage", "kb": "key:%d" % KEY_Q, "pad": "joybtn:%d" % JOY_BUTTON_TOUCHPAD},
+		{"id": "help", "label": "How to play (guide)", "group": "Garage", "kb": "key:%d" % KEY_F1, "pad": "joybtn:%d" % JOY_BUTTON_BACK},
 		{"id": "pause", "label": "Pause / back", "group": "General", "kb": "key:%d" % KEY_ESCAPE, "pad": "joybtn:%d" % JOY_BUTTON_START},
 		{"id": "fullscreen", "label": "Toggle fullscreen", "group": "General", "kb": "key:%d" % KEY_F11, "pad": ""},
 		{"id": "debug_stats", "label": "Show FPS / performance overlay", "group": "General", "kb": "key:%d" % KEY_F3, "pad": ""},
@@ -93,13 +136,22 @@ func action_table() -> Array:
 	]
 
 
+func reset_opts() -> void:
+	for k in OPTS:
+		opt[k] = OPTS[k][0]
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	reset_opts()
 	_reset_bindings()
 	var had_file := FileAccess.file_exists(SETTINGS_PATH)
 	load_settings()
 	if not had_file:
 		graphics_preset = _detect_preset()
+		save_settings()
+	if OS.get_cmdline_user_args().has("--safe"):
+		opt["safe_graphics"] = true      # "Start - safe graphics.bat"
 		save_settings()
 	rebuild_input_map()
 	apply_all()
@@ -126,7 +178,80 @@ func _input(event: InputEvent) -> void:
 
 # --- quality ----------------------------------------------------------------
 func quality() -> Dictionary:
-	return PRESETS[clampi(graphics_preset, 0, PRESETS.size() - 1)]
+	var q: Dictionary = PRESETS[clampi(graphics_preset, 0, PRESETS.size() - 1)].duplicate()
+	if opt.is_empty():
+		reset_opts()
+	if int(opt["shadows"]) >= 0:
+		q["shadows"] = int(opt["shadows"]) == 1
+	if int(opt["shadow_quality"]) >= 0:
+		q["shadow_size"] = [1024, 2048, 4096][int(opt["shadow_quality"])]
+		q["shadow_dist"] = [80.0, 140.0, 200.0][int(opt["shadow_quality"])]
+	if int(opt["msaa"]) >= 0:
+		q["msaa"] = int(opt["msaa"])
+	if int(opt["view_dist"]) >= 0:
+		q["view"] = [380.0, 560.0, 850.0][int(opt["view_dist"])]
+	if int(opt["trees"]) >= 0:
+		q["trees"] = [90, 240, 450][int(opt["trees"])]
+	if int(opt["glow"]) >= 0:
+		q["glow"] = int(opt["glow"]) == 1
+	if float(opt["render_scale"]) > 0.0:
+		q["scale3d"] = clampf(float(opt["render_scale"]), 0.5, 1.0)
+	q["fog"] = bool(opt["fog"])
+	q["particles"] = float(opt["particles"])
+	q["safe"] = bool(opt["safe_graphics"])
+	if q["safe"]:
+		q["shadows"] = false
+		q["glow"] = false
+		q["fog"] = false
+		q["msaa"] = 0
+		q["trees"] = mini(int(q["trees"]), 110)
+		q["view"] = minf(float(q["view"]), 420.0)
+		q["particles"] = minf(float(q["particles"]), 0.5)
+	return q
+
+
+## Applies the brightness setting to an Environment (keeps its own base exposure).
+func apply_env(env: Environment) -> void:
+	if env == null:
+		return
+	if not env.has_meta("base_exposure"):
+		env.set_meta("base_exposure", env.tonemap_exposure)
+	env.tonemap_exposure = float(env.get_meta("base_exposure")) * float(opt.get("brightness", 1.0))
+	if not bool(opt.get("fog", true)) or bool(opt.get("safe_graphics", false)):
+		env.fog_enabled = false
+	if bool(opt.get("safe_graphics", false)):
+		env.glow_enabled = false
+
+
+func speed_text(mps: float) -> String:
+	return "%d" % int(round(mps * (2.237 if int(opt.get("units", 0)) == 1 else 3.6)))
+
+
+func speed_unit() -> String:
+	return "mph" if int(opt.get("units", 0)) == 1 else "km/h"
+
+
+func alt_text(m: float) -> String:
+	return "%d" % int(round(m * (3.281 if int(opt.get("units", 0)) == 1 else 1.0)))
+
+
+func alt_unit() -> String:
+	return "ft" if int(opt.get("units", 0)) == 1 else "m"
+
+
+func difficulty_reward() -> float:
+	return [1.35, 1.0, 0.8][clampi(int(opt.get("difficulty", 1)), 0, 2)]
+
+
+func difficulty_damage() -> float:
+	return [0.6, 1.0, 1.4][clampi(int(opt.get("difficulty", 1)), 0, 2)]
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and bool(opt.get("mute_unfocused", true)):
+		AudioServer.set_bus_mute(0, true)
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		apply_audio()
 
 
 ## Applies the graphics preset to a viewport (MSAA and 3D render scale).
@@ -272,7 +397,7 @@ func rebuild_input_map() -> void:
 		var id: String = a["id"]
 		if InputMap.has_action(id):
 			InputMap.erase_action(id)
-		InputMap.add_action(id, 0.2)
+		InputMap.add_action(id, float(opt.get("deadzone", 0.2)))
 		var b: Dictionary = bindings.get(id, {"kb": a["kb"], "pad": a["pad"]})
 		for slot in ["kb", "pad"]:
 			var ev := binding_to_event(str(b.get(slot, "")))
@@ -304,6 +429,18 @@ func load_settings() -> void:
 	assist = clampi(_geti(cfg, "controls", "assist", assist), 0, 2)
 	for k in osd:
 		osd[k] = _getb(cfg, "osd", k, osd[k])
+	for k in OPTS:
+		var d = OPTS[k][0]
+		var v = cfg.get_value("opt", k, d)
+		if d is bool:
+			opt[k] = bool(v) if v is bool else d
+		elif d is int:
+			opt[k] = clampi(int(v), OPTS[k][1], OPTS[k][2]) if (v is int or v is float) else d
+		else:
+			opt[k] = clampf(float(v), OPTS[k][1], OPTS[k][2]) if (v is int or v is float) else d
+	if fullscreen and int(opt["window_mode"]) == 0:
+		opt["window_mode"] = 1
+	fullscreen = int(opt["window_mode"]) > 0
 	for a in action_table():
 		var id: String = a["id"]
 		for slot in ["kb", "pad"]:
@@ -334,6 +471,8 @@ func save_settings() -> void:
 	cfg.set_value("controls", "assist", assist)
 	for k in osd:
 		cfg.set_value("osd", k, osd[k])
+	for k in opt:
+		cfg.set_value("opt", k, opt[k])
 	for id in bindings:
 		for slot in ["kb", "pad"]:
 			cfg.set_value("keys", "%s_%s" % [id, slot], bindings[id][slot])
@@ -369,10 +508,16 @@ func apply_display() -> void:
 	var vs := DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
 	if DisplayServer.window_get_vsync_mode() != vs:
 		DisplayServer.window_set_vsync_mode(vs)
+	Engine.max_fps = int(opt.get("fps_cap", 144))
 	var mode := DisplayServer.window_get_mode()
+	if fullscreen and int(opt.get("window_mode", 1)) == 0:
+		opt["window_mode"] = 1
+	if not fullscreen:
+		opt["window_mode"] = 0
 	if fullscreen:
-		if mode != DisplayServer.WINDOW_MODE_FULLSCREEN:
-			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		var want_mode := DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN if int(opt["window_mode"]) == 2 else DisplayServer.WINDOW_MODE_FULLSCREEN
+		if mode != want_mode:
+			DisplayServer.window_set_mode(want_mode)
 	else:
 		if mode != DisplayServer.WINDOW_MODE_WINDOWED:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
@@ -409,6 +554,7 @@ func _ensure_bus(bus_name: String) -> int:
 
 
 func apply_audio() -> void:
+	_set_bus_linear(_ensure_bus("Ambience"), float(opt.get("ambience_vol", 0.7)) if not opt.is_empty() else 0.7)
 	_set_bus_linear(0, master_vol)
 	_set_bus_linear(_ensure_bus("Music"), music_vol)
 	_set_bus_linear(_ensure_bus("SFX"), sfx_vol)

@@ -2,16 +2,39 @@ class_name UITheme
 extends RefCounted
 ## Dark, orange-accent UI theme built in code, plus small widget helpers.
 
-const BG := Color(0.075, 0.08, 0.1)
-const PANEL := Color(0.12, 0.13, 0.165)
-const PANEL_LIGHT := Color(0.17, 0.185, 0.23)
-const ACCENT := Color(1.0, 0.62, 0.1)
-const TEXT := Color(0.92, 0.93, 0.95)
-const MUTED := Color(0.62, 0.65, 0.72)
-const GOOD := Color(0.35, 0.9, 0.45)
-const BAD := Color(1.0, 0.3, 0.25)
+const BG := Color(0.065, 0.075, 0.085)
+const PANEL := Color(0.105, 0.12, 0.135)
+const PANEL_LIGHT := Color(0.16, 0.18, 0.2)
+const ACCENT := Color(1.0, 0.64, 0.14)
+const ACCENT2 := Color(0.32, 0.78, 0.74)
+const TEXT := Color(0.93, 0.94, 0.95)
+const MUTED := Color(0.6, 0.65, 0.68)
+const GOOD := Color(0.4, 0.9, 0.5)
+const BAD := Color(1.0, 0.34, 0.28)
 
 static var _theme: Theme = null
+static var _font: Font = null
+static var _font_bold: Font = null
+
+
+## A clean system UI font (Bahnschrift / Segoe UI on Windows), falling back to Godot's default.
+static func font(bold: bool = false) -> Font:
+	if bold and _font_bold:
+		return _font_bold
+	if not bold and _font:
+		return _font
+	var f := SystemFont.new()
+	f.font_names = PackedStringArray(["Bahnschrift", "Segoe UI", "Roboto", "Noto Sans", "Open Sans", "DejaVu Sans", "Liberation Sans"])
+	f.font_weight = 650 if bold else 420
+	f.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+	f.hinting = TextServer.HINTING_LIGHT
+	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
+	f.allow_system_fallback = true
+	if bold:
+		_font_bold = f
+	else:
+		_font = f
+	return f
 
 
 static func flat(color: Color, radius: int = 6, border: Color = Color(0, 0, 0, 0), border_w: int = 0, pad: int = 8) -> StyleBoxFlat:
@@ -43,12 +66,19 @@ static func get_theme() -> Theme:
 		return _theme
 	var t := Theme.new()
 	t.default_font_size = 20
+	t.default_font = font()
+	ThemeDB.fallback_font = font()
+	# Buttons get an accent underline on hover / focus
 	# Buttons
-	t.set_stylebox("normal", "Button", flat(PANEL_LIGHT, 6, Color(1, 1, 1, 0.08), 1, 14))
-	t.set_stylebox("hover", "Button", flat(Color(0.23, 0.25, 0.31), 6, ACCENT, 1, 14))
-	t.set_stylebox("pressed", "Button", flat(Color(0.3, 0.2, 0.08), 6, ACCENT, 2, 14))
-	t.set_stylebox("disabled", "Button", flat(Color(0.11, 0.12, 0.14), 6, Color(1, 1, 1, 0.04), 1, 14))
-	t.set_stylebox("focus", "Button", flat(Color(0, 0, 0, 0), 6, ACCENT, 2, 14))
+	t.set_stylebox("normal", "Button", flat(PANEL_LIGHT, 7, Color(1, 1, 1, 0.07), 1, 14))
+	var hov := flat(Color(0.21, 0.24, 0.27), 7, Color(ACCENT, 0.7), 1, 14)
+	hov.border_width_bottom = 3
+	t.set_stylebox("hover", "Button", hov)
+	t.set_stylebox("pressed", "Button", flat(Color(0.3, 0.21, 0.09), 7, ACCENT, 2, 14))
+	t.set_stylebox("disabled", "Button", flat(Color(0.1, 0.11, 0.12), 7, Color(1, 1, 1, 0.03), 1, 14))
+	var foc := flat(Color(1, 1, 1, 0.03), 7, ACCENT, 2, 14)
+	foc.border_width_bottom = 4
+	t.set_stylebox("focus", "Button", foc)
 	t.set_color("font_color", "Button", TEXT)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_pressed_color", "Button", ACCENT)
@@ -60,9 +90,33 @@ static func get_theme() -> Theme:
 	t.set_color("font_color", "OptionButton", TEXT)
 	t.set_stylebox("panel", "PopupMenu", flat(PANEL, 6, ACCENT, 1, 6))
 	t.set_stylebox("hover", "PopupMenu", flat(Color(0.3, 0.2, 0.08), 4, Color(0, 0, 0, 0), 0, 6))
-	# Panels
-	t.set_stylebox("panel", "PanelContainer", flat(PANEL, 10, Color(1, 1, 1, 0.07), 1, 14))
-	t.set_stylebox("panel", "Panel", flat(PANEL, 10, Color(1, 1, 1, 0.07), 1, 14))
+	# Panels: soft drop shadow, thin light rim
+	var pnl := flat(Color(PANEL, 0.97), 10, Color(1, 1, 1, 0.08), 1, 16)
+	pnl.shadow_color = Color(0, 0, 0, 0.45)
+	pnl.shadow_size = 10
+	pnl.shadow_offset = Vector2(0, 4)
+	t.set_stylebox("panel", "PanelContainer", pnl)
+	t.set_stylebox("panel", "Panel", pnl)
+	# Scrollbars
+	for sb in ["VScrollBar", "HScrollBar"]:
+		t.set_stylebox("scroll", sb, flat(Color(0, 0, 0, 0.25), 5, Color(0, 0, 0, 0), 0, 3))
+		t.set_stylebox("grabber", sb, flat(Color(1, 1, 1, 0.18), 5, Color(0, 0, 0, 0), 0, 3))
+		t.set_stylebox("grabber_highlight", sb, flat(Color(ACCENT, 0.7), 5, Color(0, 0, 0, 0), 0, 3))
+		t.set_stylebox("grabber_pressed", sb, flat(ACCENT, 5, Color(0, 0, 0, 0), 0, 3))
+	# Tooltips
+	t.set_stylebox("panel", "TooltipPanel", flat(Color(0.05, 0.055, 0.06, 0.97), 6, Color(ACCENT, 0.6), 1, 10))
+	t.set_color("font_color", "TooltipLabel", TEXT)
+	# Check buttons / boxes
+	for cb in ["CheckButton", "CheckBox"]:
+		t.set_stylebox("normal", cb, flat(Color(0, 0, 0, 0), 6, Color(0, 0, 0, 0), 0, 8))
+		t.set_stylebox("hover", cb, flat(Color(1, 1, 1, 0.05), 6, Color(0, 0, 0, 0), 0, 8))
+		t.set_stylebox("pressed", cb, flat(Color(0, 0, 0, 0), 6, Color(0, 0, 0, 0), 0, 8))
+		t.set_stylebox("focus", cb, flat(Color(0, 0, 0, 0), 6, ACCENT, 2, 8))
+		t.set_color("font_hover_color", cb, Color.WHITE)
+		t.set_color("font_pressed_color", cb, ACCENT)
+	t.set_stylebox("focus", "LineEdit", flat(Color(0, 0, 0, 0), 5, ACCENT, 2, 8))
+	t.set_stylebox("focus", "HSlider", flat(Color(0, 0, 0, 0), 4, ACCENT, 1, 2))
+	t.set_stylebox("focus", "TabBar", flat(Color(0, 0, 0, 0), 4, ACCENT, 2, 2))
 	t.set_color("font_color", "Label", TEXT)
 	t.set_color("font_color", "CheckBox", TEXT)
 	t.set_color("font_color", "CheckButton", TEXT)
@@ -153,3 +207,29 @@ static func slider(min_v: float, max_v: float, step: float, value: float) -> HSl
 	s.focus_mode = Control.FOCUS_ALL
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return s
+
+
+## Section header label (bold, accent) with a thin rule underneath.
+static func header(text: String, size: int = 24) -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	var l := label(text.to_upper(), size, ACCENT)
+	l.add_theme_font_override("font", font(true))
+	v.add_child(l)
+	var r := ColorRect.new()
+	r.color = Color(ACCENT, 0.35)
+	r.custom_minimum_size = Vector2(0, 2)
+	v.add_child(r)
+	return v
+
+
+## Big bold title label.
+static func title(text: String, size: int = 64, color: Color = Color.WHITE) -> Label:
+	var l := label(text, size, color)
+	l.add_theme_font_override("font", font(true))
+	return l
+
+
+## BBCode for a key-cap glyph, e.g. key_cap("E") -> boxed "E".
+static func key_cap(text: String) -> String:
+	return "[bgcolor=#ffffff26][color=#ffd27a] %s [/color][/bgcolor]" % text

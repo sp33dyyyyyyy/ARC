@@ -51,10 +51,16 @@ var _van_busy := false
 
 # UI
 var ui: Control
-var _prompt: Label
+var _prompt: RichTextLabel
+var _cap_re := RegEx.create_from_string("\\[([^\\]\\n]{1,14})\\]")
 var _crosshair: Control
-var _info: Label
+var _info: RichTextLabel
 var _guide: Label
+var _guide_title: Label
+var _guide_card: PanelContainer
+var _guide_bar: ProgressBar
+var _beacon: Node3D
+var _beacon_label: Label3D
 var _held_lbl: Label
 var _toasts: VBoxContainer
 var overlay: Control = null
@@ -62,6 +68,8 @@ var _overlay_layer: CanvasLayer
 var _overlay_root: Control
 var _fade: ColorRect
 var _busy := false   # transitions
+var _loaded := false
+var _loading: LoadingScreen
 var _built_level := 1
 
 
@@ -70,12 +78,20 @@ func _ready() -> void:
 	world = Node3D.new()
 	world.name = "GarageWorld"
 	add_child(world)
-	_build_environment()
-	_build_room()
-	_build_outside()
-	_build_equipment()
-	_spawn_pickables()
 	_build_ui()
+	_loading = LoadingScreen.new()
+	_loading.title = "THE GARAGE"
+	_fade.get_parent().add_child(_loading)
+	# built over several frames; each step is logged so a crash on a particular PC can be located in godot.log
+	for step in [["environment", _build_environment], ["room", _build_room], ["outside", _build_outside],
+			["equipment", _build_equipment], ["items", _spawn_pickables]]:
+		print("[garage] building %s" % step[0])
+		_loading.set_progress(float(["environment", "room", "outside", "equipment", "items"].find(step[0])) / 5.0, "Setting up the %s..." % step[0])
+		await get_tree().process_frame
+		if not is_inside_tree():
+			return
+		(step[1] as Callable).call()
+	print("[garage] player + ui")
 	player = GaragePlayer.new()
 	world.add_child(player)
 	_place_player()
@@ -89,16 +105,20 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_update_time_of_day()
 	_sync_rack()
+	_loaded = true
+	_loading.finish()
+	print("[garage] ready")
 	_fade_in()
+	_maybe_tutorial()
 	if message != "":
 		_on_notify(message, "info")
-	var g := Career.guide_text()
-	if g != "" and spawn == "door" and Career.data["tutorial"] == 0:
-		_on_notify("Welcome to your garage workshop. " + g, "guide")
 
 
 ## Called by main.gd just before the screen is swapped (children are still in the tree).
 func before_exit() -> void:
+	if not _loaded:
+		Career.save()
+		return
 	_save_layout()
 	Career.save()
 	Audio.engine_level = 0.0
@@ -124,6 +144,7 @@ func _build_environment() -> void:
 	env.fog_light_color = Color(0.7, 0.72, 0.75)
 	env.glow_enabled = Settings.quality()["glow"]
 	env.glow_intensity = 0.4
+	Settings.apply_env(env)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	world.add_child(we)
@@ -180,11 +201,15 @@ func _build_room() -> void:
 		GarageKit.box(world, Vector3(0.06, DOOR_H, 0.08), Vector3(x, DOOR_H * 0.5, 3.92), dark)
 		GarageKit.box(world, Vector3(0.06, 0.08, 3.2), Vector3(x, DOOR_H + 0.15, 2.4), dark)
 	# lights
-	for p in [Vector3(-2.4, 3.15, -3.8), Vector3(2.4, 3.15, -3.8), Vector3(-2.4, 3.15, 0.6), Vector3(2.4, 3.15, 0.6)]:
+	var safe: bool = Settings.quality()["safe"]
+	var light_spots := [Vector3(0, 3.15, -3.4), Vector3(0, 3.15, 1.0)] if safe else [Vector3(-2.4, 3.15, -3.8), Vector3(2.4, 3.15, -3.8), Vector3(-2.4, 3.15, 0.6), Vector3(2.4, 3.15, 0.6)]
+	for p in light_spots:
 		var tl := GarageKit.tube_light(world, p)
 		(tl["light"] as OmniLight3D).shadow_enabled = false
+		if safe:
+			(tl["light"] as OmniLight3D).omni_range = 9.0
 		tube_lights.append(tl)
-	if Career.level() >= 4:
+	if Career.level() >= 4 and not safe:
 		for p in [Vector3(0, 3.1, -1.6)]:
 			var tl := GarageKit.tube_light(world, p)
 			(tl["light"] as OmniLight3D).light_energy = 2.0
@@ -229,6 +254,7 @@ func _build_room() -> void:
 	# decoration with a function: posters / sign
 	GarageKit.label(world, "KALVARIAN VOLUNTEER WORKSHOP", 64, Vector3(0, 2.75, -5.99), Color(1.0, 0.65, 0.2))
 	GarageKit.label(world, "LEVEL %d - %s" % [Career.level(), Career.level_info()["name"].to_upper()], 40, Vector3(0, 2.55, -5.99), Color(0.85, 0.85, 0.85))
+	_build_details()
 	# a few non-functional props for atmosphere (bin, extinguisher)
 	GarageKit.cyl(world, 0.22, 0.6, Vector3(4.5, 0.3, 3.4), GarageKit.m(Color(0.2, 0.35, 0.25), 0.2, 0.6))
 	GarageKit.solid(world, Vector3(0.44, 0.6, 0.44), Vector3(4.5, 0.3, 3.4))
@@ -330,6 +356,8 @@ func _build_equipment() -> void:
 	lamp.light_energy = 1.4
 	lamp.omni_range = 2.8
 	world.add_child(lamp)
+	if Settings.quality()["safe"]:
+		lamp.visible = false
 	GarageKit.cyl(world, 0.12, 0.12, lamp.position + Vector3(0, 0.08, 0), GarageKit.m(Color(0.9, 0.5, 0.1), 0.3, 0.4), Vector3.ZERO, 12)
 	GarageKit.cyl(world, 0.015, 0.7, BENCH_POS + Vector3(-0.9, 1.3, -0.3), GarageKit.m(Color(0.15, 0.15, 0.15), 0.6, 0.4), Vector3(35, 0, 0), 6)
 	var lamp_it := Interactable.make(world, Vector3(0.3, 0.2, 0.3), lamp.position + Vector3(0, 0.08, 0), "Bench lamp", func() -> String: return "Lamp " + ("off" if lamp.visible else "on"), func(_p):
@@ -621,6 +649,8 @@ func _make_drone_pickable(d: Dictionary) -> Pickable:
 # rack, docks, test station
 # =====================================================================================
 func _on_career_changed() -> void:
+	if not _loaded:
+		return
 	_refresh_shelf_labels()
 	var sig := ""
 	for d in Career.roster():
@@ -1237,7 +1267,7 @@ func _printer_menu() -> void:
 # player input
 # =====================================================================================
 func _unhandled_input(event: InputEvent) -> void:
-	if _busy:
+	if _busy or not _loaded:
 		return
 	if overlay != null:
 		if event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel") or (event.is_action_pressed("tablet") and overlay is Tablet) or (event.is_action_pressed("inventory") and overlay is Tablet):
@@ -1249,6 +1279,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("pause"):
 		_pause_menu()
+	elif event.is_action_pressed("help"):
+		open_help(0)
 	elif event.is_action_pressed("tablet"):
 		_open_tablet("status")
 	elif event.is_action_pressed("inventory"):
@@ -1357,6 +1389,7 @@ func _pause_menu() -> void:
 	_context_menu("PAUSED", [
 		["Resume", func(): pass],
 		["Workshop tablet", func(): call_deferred("_open_tablet", "status")],
+		["How to play", func(): call_deferred("open_help", 0)],
 		["Options", func():
 			call_deferred("_open_options")],
 		["Save & main menu", func():
@@ -1379,6 +1412,8 @@ func _open_options() -> void:
 # per-frame
 # =====================================================================================
 func _process(dt: float) -> void:
+	if not _loaded:
+		return
 	_process_van(dt)
 	# ambience: a faint fluorescent hum, and the van's engine when it is near
 	var amb := 0.035 if lights_on else 0.015
@@ -1435,13 +1470,22 @@ func _process(dt: float) -> void:
 
 
 func _update_hud() -> void:
-	_info.text = "%d cr   •   Rep %d   •   Lv %d %s   •   Day %d  %s" % [Career.credits(), int(Career.data["rep"]), Career.level(), Career.level_info()["name"], int(Career.data["day"]), Career.clock_text()]
-	var orders: Array = Career.data["orders"]
-	if not orders.is_empty():
-		_info.text += "\nDelivery ETA " + Career.eta_text(orders[0]) + ("  (+%d more)" % (orders.size() - 1) if orders.size() > 1 else "")
+	if Engine.get_process_frames() % 8 == 0:
+		var chip := func(t: String, c: String) -> String: return "[bgcolor=#0b0d10d8][color=%s] %s [/color][/bgcolor]  " % [c, t]
+		var txt: String = chip.call("%d cr" % Career.credits(), "#ffa424") + chip.call("REP %d" % int(Career.data["rep"]), "#52c7bd") + chip.call("LV %d  %s" % [Career.level(), Career.level_info()["name"].to_upper()], "#c4a6ff")
+		if Settings.opt.get("show_clock", true):
+			txt += chip.call("DAY %d  %s" % [int(Career.data["day"]), Career.clock_text()], "#d0d4d8")
+		var orders: Array = Career.data["orders"]
+		if not orders.is_empty():
+			txt += chip.call("DELIVERY %s%s" % [Career.eta_text(orders[0]), "  +%d" % (orders.size() - 1) if orders.size() > 1 else ""], "#8cc8ff")
+		_info.text = txt
 	var g := Career.guide_text()
-	_guide.text = ("NEXT:  " + g) if g != "" else ""
-	_guide.visible = g != "" and overlay == null
+	var hints: bool = Settings.opt.get("tutorial_hints", true)
+	_guide.text = g
+	_guide_title.text = "STEP %d / %d  -  %s     (%s  how to play)" % [int(Career.data["tutorial"]) + 1, Career.GUIDE.size(), Career.guide_title().to_upper(), Pad.glyph("help")]
+	_guide_bar.value = int(Career.data["tutorial"])
+	_guide_card.visible = g != "" and overlay == null and hints
+	_update_beacon()
 	if Engine.get_process_frames() % 6 == 0:
 		_update_prompt()
 
@@ -1482,7 +1526,11 @@ func _update_prompt() -> void:
 			if it.alt_prompt() != "":
 				parts.append("[%s] %s" % [Pad.glyph("secondary"), it.alt_prompt()])
 			t = it.title + ("\n" + "   ".join(parts) if not parts.is_empty() else "")
-	_prompt.text = t
+	_crosshair.set_meta("hot", h != null and t != "")
+	_crosshair.queue_redraw()
+	# "[E] Open" -> boxed key caps
+	t = _cap_re.sub(t, "[bgcolor=#ffffff2e][color=#ffd27a] $1 [/color][/bgcolor]", true)
+	_prompt.text = "[center]" + t.replace("\n", "\n") + "[/center]"
 
 
 # =====================================================================================
@@ -1498,27 +1546,58 @@ func _build_ui() -> void:
 	_crosshair.position = Vector2(960, 540)
 	_crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crosshair.draw.connect(func():
+		if _crosshair.get_meta("hot", false):
+			_crosshair.draw_arc(Vector2.ZERO, 13.0, 0, TAU, 28, Color(0, 0, 0, 0.5), 4.0, true)
+			_crosshair.draw_arc(Vector2.ZERO, 13.0, 0, TAU, 28, UITheme.ACCENT, 2.0, true)
 		_crosshair.draw_circle(Vector2.ZERO, 4.0, Color(0, 0, 0, 0.5))
 		_crosshair.draw_circle(Vector2.ZERO, 2.5, Color(1, 1, 1, 0.9)))
 	ui.add_child(_crosshair)
-	_prompt = UITheme.label("", 24)
-	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_prompt.position = Vector2(460, 580)
-	_prompt.size = Vector2(1000, 90)
+	_prompt = RichTextLabel.new()
+	_prompt.bbcode_enabled = true
+	_prompt.fit_content = true
+	_prompt.scroll_active = false
+	_prompt.position = Vector2(410, 580)
+	_prompt.custom_minimum_size = Vector2(1100, 0)
+	_prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_prompt.add_theme_font_size_override("normal_font_size", 23)
 	_prompt.add_theme_color_override("font_outline_color", Color.BLACK)
 	_prompt.add_theme_constant_override("outline_size", 8)
 	ui.add_child(_prompt)
-	_info = UITheme.label("", 20, UITheme.TEXT)
+	_info = RichTextLabel.new()
+	_info.bbcode_enabled = true
+	_info.fit_content = true
+	_info.scroll_active = false
+	_info.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_info.custom_minimum_size = Vector2(1300, 0)
+	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info.add_theme_font_size_override("normal_font_size", 19)
 	_info.position = Vector2(24, 18)
 	_info.add_theme_color_override("font_outline_color", Color.BLACK)
 	_info.add_theme_constant_override("outline_size", 6)
 	ui.add_child(_info)
-	_guide = UITheme.label("", 21, UITheme.ACCENT)
-	_guide.position = Vector2(24, 980)
-	_guide.size = Vector2(1300, 60)
+	_guide_card = PanelContainer.new()
+	_guide_card.position = Vector2(24, 900)
+	_guide_card.custom_minimum_size = Vector2(760, 0)
+	var gst := UITheme.flat(Color(0.05, 0.055, 0.06, 0.86), 8, Color(UITheme.ACCENT, 0.55), 1, 14)
+	gst.border_width_left = 6
+	_guide_card.add_theme_stylebox_override("panel", gst)
+	_guide_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(_guide_card)
+	var gv := VBoxContainer.new()
+	gv.add_theme_constant_override("separation", 4)
+	_guide_card.add_child(gv)
+	_guide_title = UITheme.label("", 17, UITheme.ACCENT)
+	_guide_title.add_theme_font_override("font", UITheme.font(true))
+	gv.add_child(_guide_title)
+	_guide = UITheme.label("", 20)
 	_guide.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_guide.add_theme_stylebox_override("normal", UITheme.flat(Color(0, 0, 0, 0.55), 6, Color(1, 0.62, 0.1, 0.4), 1, 12))
-	ui.add_child(_guide)
+	_guide.custom_minimum_size = Vector2(730, 0)
+	gv.add_child(_guide)
+	_guide_bar = ProgressBar.new()
+	_guide_bar.show_percentage = false
+	_guide_bar.custom_minimum_size = Vector2(730, 6)
+	_guide_bar.max_value = Career.GUIDE.size()
+	gv.add_child(_guide_bar)
 	_held_lbl = UITheme.label("", 19, UITheme.MUTED)
 	_held_lbl.position = Vector2(24, 900)
 	_held_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -1565,7 +1644,10 @@ func _on_notify(text: String, kind: String) -> void:
 	var l := UITheme.label(text, 19, col)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.custom_minimum_size = Vector2(480, 0)
-	l.add_theme_stylebox_override("normal", UITheme.flat(Color(0.05, 0.055, 0.07, 0.88), 8, Color(col, 0.5), 1, 12))
+	var tst := UITheme.flat(Color(0.05, 0.055, 0.065, 0.9), 8, Color(col, 0.35), 1, 14)
+	tst.border_width_left = 6
+	tst.border_color = col
+	l.add_theme_stylebox_override("normal", tst)
 	_toasts.add_child(l)
 	if _toasts.get_child_count() > 5:
 		_toasts.get_child(0).queue_free()
@@ -1634,3 +1716,137 @@ func _save_layout() -> void:
 	lay["pos"] = pos
 	lay["items"] = items
 	Career.mark_dirty()
+
+
+
+# =====================================================================================
+# tutorial: the How-to-play guide and the floating step beacon
+# =====================================================================================
+func open_help(chapter: int) -> void:
+	var h := HowToPlay.new()
+	h.start_chapter = chapter
+	h.closed.connect(close_overlay)
+	_open_overlay(h)
+
+
+func _maybe_tutorial() -> void:
+	if not Career.flag("seen_intro") and Settings.opt.get("tutorial_hints", true):
+		Career.set_flag("seen_intro")
+		open_help(0)
+
+
+## World position the current career-guide step is about (Vector3.INF = none).
+func _guide_target() -> Vector3:
+	var step := int(Career.data["tutorial"])
+	var held := player.held if player else null
+	match step:
+		0:
+			for p in pickables:
+				if is_instance_valid(p) and p.kind == "parcel" and p.data.get("parcel", "") == "starter":
+					return p.global_position + Vector3(0, 0.5, 0) if cupboard_open[0] or cupboard_open[1] else BENCH_POS + Vector3(-0.75, 1.1, 0.5)
+			return BENCH_POS + Vector3(-0.75, 1.1, 0.5)
+		1, 7:
+			for p in pickables:
+				if is_instance_valid(p) and p.kind == "parcel" and not p.held:
+					return p.global_position + Vector3(0, 0.6, 0)
+			if held != null and held.kind == "parcel":
+				return Vector3.INF
+			return Vector3(-4.5, 1.9, -3.3) if step == 7 else Vector3.INF
+		2, 3, 8:
+			return BENCH_POS + Vector3(0, 1.6, 0.1)
+		4:
+			if held != null and held.kind == "drone":
+				return test_station["root"].global_position + Vector3(0, 1.5, 0)
+			if not rack_items.is_empty():
+				return (rack_items.values()[0] as Node3D).global_position + Vector3(0, 0.5, 0)
+			return test_station["root"].global_position + Vector3(0, 1.5, 0)
+		5:
+			return Vector3(3.3, 1.9, 3.9) if not door_open else Vector3(9.0, 1.6, 9.5)
+		6, 9, 10:
+			return Vector3(-4.5, 1.9, -3.3)
+	return Vector3.INF
+
+
+func _update_beacon() -> void:
+	if _beacon == null:
+		_beacon = Node3D.new()
+		world.add_child(_beacon)
+		var m := MeshFactory.mat(UITheme.ACCENT, 0.0, 0.4, 2.5)
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.no_depth_test = true
+		var cone := MeshFactory.cyl(_beacon, 0.12, 0.26, Vector3(0, 0.0, 0), m, Vector3(180, 0, 0), 10, 0.0)
+		cone.name = "Cone"
+		cone.set_meta("no_glow", true)
+		var stem := MeshFactory.box(_beacon, Vector3(0.06, 0.2, 0.06), Vector3(0, 0.23, 0), m)
+		stem.set_meta("no_glow", true)
+		_beacon_label = Label3D.new()
+		_beacon_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_beacon_label.no_depth_test = true
+		_beacon_label.font_size = 40
+		_beacon_label.pixel_size = 0.004
+		_beacon_label.modulate = UITheme.ACCENT
+		_beacon_label.outline_size = 8
+		_beacon_label.position = Vector3(0, 0.55, 0)
+		_beacon.add_child(_beacon_label)
+	var t := _guide_target() if (Settings.opt.get("beacons", true) and Settings.opt.get("tutorial_hints", true) and overlay == null) else Vector3.INF
+	_beacon.visible = t != Vector3.INF
+	if not _beacon.visible:
+		return
+	var bob := sin(Time.get_ticks_msec() * 0.005) * 0.08
+	_beacon.global_position = t + Vector3(0, bob, 0)
+	_beacon.rotation.y += 0.05
+	var d := player.global_position.distance_to(t) if player else 0.0
+	_beacon_label.text = "STEP %d   %.0f m" % [int(Career.data["tutorial"]) + 1, d] if d > 2.5 else "STEP %d" % (int(Career.data["tutorial"]) + 1)
+
+
+
+## Wall dressing that also teaches: a build-steps whiteboard, posters, a cabinet, a soldering station.
+func _build_details() -> void:
+	# whiteboard above the charger
+	var wb := Node3D.new()
+	wb.position = Vector3(-3.25, 1.95, -5.98)
+	world.add_child(wb)
+	GarageKit.box(wb, Vector3(2.2, 1.25, 0.03), Vector3.ZERO, GarageKit.m(Color(0.94, 0.95, 0.96), 0.0, 0.35))
+	GarageKit.box(wb, Vector3(2.28, 0.05, 0.05), Vector3(0, -0.66, 0.02), GarageKit.m(Color(0.6, 0.6, 0.62), 0.6, 0.4))
+	for x in [-1.13, 1.13]:
+		GarageKit.box(wb, Vector3(0.04, 1.3, 0.04), Vector3(x, 0, 0.01), GarageKit.m(Color(0.6, 0.6, 0.62), 0.6, 0.4))
+	var t := GarageKit.label(wb, "HOW TO BUILD A DRONE", 44, Vector3(0, 0.5, 0.025), Color(0.05, 0.25, 0.6))
+	t.outline_size = 0
+	var steps := GarageKit.label(wb, "1  Frame   2  Motors (CW / CCW)   3  Props\n4  ESC > FC > receiver > VTX > antenna\n5  Cam mount > camera > battery\n6  Tighten EVERY screw\n7  WIRE  >  SETUP  >  SAVE DRONE\n8  Test station, then the test pad!", 30, Vector3(-1.02, 0.08, 0.025), Color(0.1, 0.1, 0.12))
+	steps.outline_size = 0
+	steps.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	steps.position.x = -1.02
+	steps.offset = Vector2(0, 0)
+	steps.width = 800
+	steps.autowrap_mode = TextServer.AUTOWRAP_OFF
+	var red := GarageKit.label(wb, "CERTIFY BEFORE YOU FLY", 28, Vector3(0.45, -0.5, 0.025), Color(0.8, 0.1, 0.08))
+	red.outline_size = 0
+	# posters on the left wall
+	var posters := [["FLY SAFE", "Land at the launch point\nto recover your drone", Color(0.95, 0.6, 0.12)],
+		["CHARGE IT", "Dock batteries between\nflights", Color(0.32, 0.78, 0.74)]]
+	for i in posters.size():
+		var pnode := Node3D.new()
+		pnode.position = Vector3(-4.98, 1.9, 1.9 + i * 1.0)
+		pnode.rotation_degrees.y = 90
+		world.add_child(pnode)
+		GarageKit.box(pnode, Vector3(0.7, 0.95, 0.01), Vector3.ZERO, GarageKit.m(Color(0.12, 0.13, 0.15), 0.0, 0.8))
+		GarageKit.box(pnode, Vector3(0.7, 0.18, 0.012), Vector3(0, 0.38, 0), GarageKit.m(posters[i][2], 0.0, 0.6))
+		var h := GarageKit.label(pnode, posters[i][0], 40, Vector3(0, 0.38, 0.01), Color(0.06, 0.06, 0.07))
+		h.outline_size = 0
+		var b := GarageKit.label(pnode, posters[i][1], 22, Vector3(0, 0.0, 0.01), Color(0.9, 0.9, 0.9))
+		b.outline_size = 0
+	# wall cabinet on the back wall, right of the pegboard
+	var cab := GarageKit.m(Color(0.5, 0.12, 0.1), 0.3, 0.5)
+	GarageKit.box(world, Vector3(1.6, 0.75, 0.4), Vector3(2.6, 2.35, -5.78), cab)
+	GarageKit.box(world, Vector3(0.02, 0.7, 0.01), Vector3(2.6, 2.35, -5.575), GarageKit.m(Color(0.2, 0.05, 0.04), 0.3, 0.5))
+	for x in [2.5, 2.7]:
+		GarageKit.box(world, Vector3(0.03, 0.15, 0.03), Vector3(x, 2.3, -5.56), GarageKit.m(Color(0.75, 0.75, 0.75), 0.9, 0.3))
+	# soldering station and a reel of cable on the bench
+	var ss := BENCH_POS + Vector3(-1.2, 0.92, 0.15)
+	GarageKit.box(world, Vector3(0.22, 0.12, 0.16), ss + Vector3(0, 0.06, 0), GarageKit.m(Color(0.15, 0.15, 0.17), 0.4, 0.5))
+	GarageKit.box(world, Vector3(0.08, 0.04, 0.005), ss + Vector3(0, 0.08, 0.081), GarageKit.m(Color(0.1, 0.8, 0.3), 0.0, 0.3, 1.5))
+	GarageKit.cyl(world, 0.02, 0.18, ss + Vector3(0.18, 0.13, 0), GarageKit.m(Color(0.1, 0.1, 0.1), 0.3, 0.5), Vector3(0, 0, 35), 6)
+	GarageKit.cyl(world, 0.12, 0.08, BENCH_POS + Vector3(1.35, 0.96, -0.2), GarageKit.m(Color(0.9, 0.5, 0.05), 0.0, 0.6), Vector3(90, 0, 0), 14)
+	# ceiling beams
+	for z in [-4.6, -2.2, 0.2, 2.6]:
+		GarageKit.box(world, Vector3(10.2, 0.16, 0.14), Vector3(0, 3.12, z), GarageKit.m(Color(0.42, 0.42, 0.42), 0.5, 0.6))

@@ -254,11 +254,34 @@ static func _pad(parent: Node3D, pad_id: String, labels: bool = true) -> void:
 		label3d(parent, pd["label"], 0.42, pd["pos"] + Vector3(0, 0.62, 0), Color(1, 1, 0.85), "pad_label")
 
 
+## Procedural twill carbon-fibre texture (cached).
+static func carbon_mat() -> StandardMaterial3D:
+	if _mats.has("_carbon"):
+		return _mats["_carbon"]
+	var img := Image.create(32, 32, false, Image.FORMAT_RGB8)
+	for y in 32:
+		for x in 32:
+			var cell := (int(x / 4) + int(y / 4)) % 2
+			var k := float((x + y * (1 if cell == 0 else -1) + 64) % 4) / 4.0
+			var v := 0.05 + 0.05 * k + (0.03 if cell == 0 else 0.0)
+			img.set_pixel(x, y, Color(v, v, v * 1.1))
+	img.generate_mipmaps()
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = ImageTexture.create_from_image(img)
+	m.albedo_color = Color(0.9, 0.9, 0.95)
+	m.metallic = 0.35
+	m.roughness = 0.32
+	m.uv1_scale = Vector3(6, 6, 6)
+	m.uv1_triplanar = true
+	_mats["_carbon"] = m
+	return m
+
+
 static func make_frame(id: String) -> Node3D:
 	var f: Dictionary = Parts.part(id)
 	var o: float = f["arm"]
 	var root := Node3D.new()
-	var carbon := mat(CARBON, 0.45, 0.4)
+	var carbon: StandardMaterial3D = carbon_mat()
 	var sc: float = clampf(o / 7.95, 0.82, 1.35)
 	var armoured: bool = f.get("durability", 1.0) > 1.5
 	if armoured:
@@ -280,6 +303,14 @@ static func make_frame(id: String) -> Node3D:
 		arm.transform = Transform3D(Basis.looking_at(dir, Vector3.UP), tip * 0.5 + Vector3(0, 0.2, 0))
 		root.add_child(arm)
 		cyl(root, 1.6 * sc, 0.4, tip + Vector3(0, 0.2, 0), carbon, Vector3.ZERO, 20)
+		# lightening holes and the motor-mount bolt circle
+		var hole := mat(Color(0.015, 0.015, 0.02), 0.2, 0.8)
+		for k in 2:
+			var hp := tip * (0.42 + k * 0.2) + Vector3(0, 0.41, 0)
+			var hm := cyl(root, 0.28 * sc, 0.02, hp, hole, Vector3.ZERO, 10)
+			hm.scale = Vector3(1, 1, 1.8)
+			hm.rotation.y = atan2(dir.x, dir.z)
+		cyl(root, 0.45 * sc, 0.03, tip + Vector3(0, 0.41, 0), hole, Vector3.ZERO, 12)
 	# standoffs
 	var gold := mat(Color(0.95, 0.72, 0.1), 0.9, 0.25)
 	for sx in [-1, 1]:
@@ -313,10 +344,28 @@ static func make_motor(id: String) -> Node3D:
 	var steel := mat(Color(0.7, 0.7, 0.75), 0.9, 0.3)
 	var dark := mat(Color(0.12, 0.12, 0.14), 0.6, 0.4)
 	var bell: Color = m["color"]
+	var bell_m := mat(bell, 0.85, 0.28)
+	# base with mounting arms
 	cyl(root, 1.35 * s, 0.5, Vector3(0, 0.25, 0), dark, Vector3.ZERO, 20)
-	cyl(root, 1.0 * s, 0.6, Vector3(0, 0.8, 0), mat(Color(0.8, 0.45, 0.2), 0.8, 0.35), Vector3.ZERO, 16)
-	cyl(root, 1.5 * s, 1.0, Vector3(0, 1.6, 0), mat(bell, 0.85, 0.28), Vector3.ZERO, 24)
-	cyl(root, 1.5 * s, 0.1, Vector3(0, 2.15, 0), dark, Vector3.ZERO, 24)
+	for k in 4:
+		var a := PI * 0.25 + k * PI * 0.5
+		box(root, Vector3(0.5 * s, 0.32, 1.0 * s), Vector3(cos(a) * 1.25 * s, 0.16, sin(a) * 1.25 * s), dark, Vector3(0, -rad_to_deg(a) + 90, 0))
+	# copper windings visible under the bell
+	cyl(root, 1.12 * s, 0.6, Vector3(0, 0.8, 0), mat(Color(0.8, 0.45, 0.2), 0.8, 0.35), Vector3.ZERO, 18)
+	for k in 12:
+		var a := TAU * k / 12.0
+		box(root, Vector3(0.18 * s, 0.5, 0.28 * s), Vector3(cos(a) * 1.1 * s, 0.8, sin(a) * 1.1 * s), mat(Color(0.55, 0.3, 0.12), 0.7, 0.4), Vector3(0, -rad_to_deg(a), 0))
+	# bell with cooling slots and a spoked top
+	cyl(root, 1.5 * s, 1.0, Vector3(0, 1.6, 0), bell_m, Vector3.ZERO, 24)
+	for k in 6:
+		var a := TAU * k / 6.0 + 0.26
+		box(root, Vector3(0.12, 0.55, 0.62 * s), Vector3(cos(a) * 1.49 * s, 1.55, sin(a) * 1.49 * s), dark, Vector3(0, -rad_to_deg(a), 0))
+	cyl(root, 1.5 * s, 0.12, Vector3(0, 2.15, 0), dark, Vector3.ZERO, 24)
+	for k in 5:
+		var a := TAU * k / 5.0
+		box(root, Vector3(1.15 * s, 0.08, 0.26 * s), Vector3(cos(a) * 0.62 * s, 2.24, sin(a) * 0.62 * s), bell_m, Vector3(0, -rad_to_deg(a), 0))
+	cyl(root, 0.55 * s, 0.14, Vector3(0, 2.26, 0), bell_m, Vector3.ZERO, 14)
+	cyl(root, 0.18, 0.7, Vector3(0, 2.5, 0), steel, Vector3.ZERO, 8)
 	cyl(root, 0.3, 0.3, Vector3(0, 2.35, 0), mat(GOLD, 0.9, 0.2), Vector3.ZERO, 10)
 	var arrow := spin_arrow(m["spin"] == "CW", 1.1 * s, Color(1, 1, 1), 0.09, 0.5)
 	arrow.position = Vector3(0, 2.22, 0)
@@ -334,7 +383,8 @@ static func make_prop(id: String, frame_id: String = "frame_5", broken: bool = f
 	var scale_f: float = f["prop_in"] / 5.0
 	var radius: float = p["diam"] * 2.54 * 0.5 * scale_f
 	var col: Color = p["color"]
-	var blade_mat := mat(col, 0.0, 0.35, 0.25)
+	var blade_mat: StandardMaterial3D = mat(col, 0.0, 0.35, 0.25).duplicate()
+	blade_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	cyl(root, 0.6, 0.5, Vector3(0, 0.25, 0), mat(Color(0.08, 0.08, 0.09), 0.5, 0.4), Vector3.ZERO, 12)
 	var n: int = p["blades"]
 	for b in n:
@@ -348,16 +398,50 @@ static func make_prop(id: String, frame_id: String = "frame_5", broken: bool = f
 		var holder := Node3D.new()
 		holder.rotation = Vector3(0, ang, 0)
 		root.add_child(holder)
-		var pitch := 22.0 * (-1.0 if spin_cw else 1.0)
-		box(holder, Vector3(length, 0.08, w), Vector3(0.5 + length * 0.5, 0.42, 0), blade_mat, Vector3(pitch, 0, 0))
-		if not (broken and b == 0):
-			box(holder, Vector3(0.8, 0.08, w * 0.7), Vector3(0.5 + length - 0.2, 0.42, 0), blade_mat, Vector3(pitch, 0, 0))
+		var bm := MeshInstance3D.new()
+		bm.mesh = blade_mesh(length, w * 0.75, w * 1.05, w * 0.45, 26.0, 9.0, spin_cw, broken and b == 0)
+		bm.material_override = blade_mat
+		bm.position = Vector3(0.45, 0.42, 0)
+		holder.add_child(bm)
 	var arrow := spin_arrow(spin_cw, 0.95, Color(1, 1, 1), 0.07, 0.6)
 	arrow.position = Vector3(0, 0.62, 0)
 	arrow.add_to_group("spin_arrow")
 	root.add_child(arrow)
 	root.set_meta("radius", radius)
 	return root
+
+
+## A propeller blade: tapered planform (widest near 40 %), twist washing out to the tip,
+## a slightly cambered section and a rounded tip. Built along +X from the hub.
+static func blade_mesh(length: float, w_root: float, w_mid: float, w_tip: float, pitch_root: float, pitch_tip: float, cw: bool, snapped: bool) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 10
+	var L := length * (0.45 if snapped else 1.0)
+	var sgn := -1.0 if cw else 1.0
+	var rows: Array = []
+	for i in n + 1:
+		var t := float(i) / n
+		var x := t * L
+		var tt := x / length
+		var w := lerpf(w_root, w_mid, smoothstep(0.0, 0.4, tt)) if tt < 0.4 else lerpf(w_mid, w_tip, smoothstep(0.4, 1.0, tt))
+		if not snapped and t > 0.85:
+			w *= sqrt(maxf(1.0 - pow((t - 0.85) / 0.15, 2.0), 0.05))
+		var pitch := deg_to_rad(lerpf(pitch_root, pitch_tip, tt)) * sgn
+		var lead := Vector3(0, sin(pitch), -cos(pitch)) * w * 0.45
+		var trail := -Vector3(0, sin(pitch), -cos(pitch)) * w * 0.55
+		var camber := Vector3(0, 0.07 * (1.0 - tt), 0)
+		rows.append([Vector3(x, 0, 0) + lead, Vector3(x, 0, 0) + camber, Vector3(x, 0, 0) + trail])
+	for i in n:
+		for j in 2:
+			var a: Vector3 = rows[i][j]
+			var b: Vector3 = rows[i][j + 1]
+			var c: Vector3 = rows[i + 1][j]
+			var d: Vector3 = rows[i + 1][j + 1]
+			for v in [a, c, b, b, c, d]:
+				st.add_vertex(v)
+	st.generate_normals()
+	return st.commit()
 
 
 static func _pcb(parent: Node3D, w: float, d: float, color: Color) -> void:
@@ -429,7 +513,11 @@ static func make_cam() -> Node3D:
 	var plastic := mat(Color(0.05, 0.05, 0.06), 0.2, 0.5)
 	box(tilt, Vector3(2.0, 2.0, 1.4), Vector3.ZERO, plastic)
 	cyl(tilt, 0.7, 0.8, Vector3(0, 0, -1.0), mat(Color(0.12, 0.12, 0.14), 0.6, 0.3), Vector3(90, 0, 0), 16)
+	cyl(tilt, 0.78, 0.18, Vector3(0, 0, -1.36), mat(Color(0.2, 0.2, 0.22), 0.7, 0.3), Vector3(90, 0, 0), 16)
 	cyl(tilt, 0.55, 0.05, Vector3(0, 0, -1.43), mat(Color(0.1, 0.25, 0.55), 0.0, 0.1, 0.6), Vector3(90, 0, 0), 16)
+	box(tilt, Vector3(2.04, 0.12, 1.44), Vector3(0, 0.75, 0), mat(Color(0.85, 0.45, 0.08), 0.2, 0.5))
+	for sx in [-0.6, 0.6]:
+		cyl(tilt, 0.08, 0.06, Vector3(sx, 0.4, -0.71), mat(Color(0.7, 0.7, 0.72), 0.9, 0.3), Vector3(90, 0, 0), 8)
 	for pid in Parts.PADS:
 		if Parts.PADS[pid]["cat"] == "cam":
 			_pad(root, pid)

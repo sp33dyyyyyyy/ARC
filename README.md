@@ -116,8 +116,13 @@ The **tablet** (`Q` / touchpad) shows the career guide, deliveries and ETAs, cha
 salvage bin (repair / recycle), and the roster. Notifications pop up on the right. Layout (parcels, tools, batteries, drones left on the
 floor, door and light state) is saved. Time of day runs while you're in the garage and is shown on the sky through the open door.
 
-A **career guide** at the bottom of the screen walks a new player through the first loop (starter kit → build → save → certify →
-shakedown → first mission → buy parts → repair → contract → Level 2).
+**Tutorial.** On the first career start the **HOW TO PLAY** guide opens (nine chapters with your current key and button
+bindings; also on the main menu, `F1` / Create in the garage, the pause menu and the tablet). A **step card** (bottom-left)
+and a **floating arrow** over the right object walk a new player through the first loop (starter kit → build → save →
+certify → shakedown → first mission → buy parts → repair → contract → Level 2). The workbench has a live **bench guide**
+line ("open the Motors tab…", "tighten the screws on…"), the first flights show a **flight school** card for the current
+flight mode, a whiteboard in the garage lists the build steps, and loading screens show tips. All hints can be switched off
+in **Options > Gameplay**.
 
 ---
 
@@ -202,6 +207,16 @@ control glitches. The drone you fly is always the saved build, paint and damage 
 * Controller vibration on arming, gates, hits, kills, parcels, doors and pick-ups (toggle in Options).
 
 ---
+
+## Options
+
+Seven tabs: **Display** (window mode, V-Sync, frame-rate cap, brightness, flight and garage FOV, HUD), **Graphics** (preset,
+**Safe graphics** for weak or crash-prone drivers, render scale, shadows, shadow quality, MSAA, view distance, tree density,
+glow, fog, particle amount), **Audio** (master, music, effects, vehicles & ambience, mute in background), **Gameplay**
+(difficulty, autosave, tutorial hints and arrows, units, head bob, camera shake, clock), **Flight & Pad** (default flight
+mode, mouse sticks, invert pitch, absolute pad throttle, dead zone, stick expo, vibration, PlayStation/Xbox names, look
+sensitivity, crouch/sprint toggle or hold), **OSD** (each flight display element) and **Controls** (every binding).
+`FrontlineFPV.exe -- --safe` starts with Safe graphics on.
 
 ## Performance
 

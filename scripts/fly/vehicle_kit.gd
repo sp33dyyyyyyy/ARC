@@ -34,6 +34,19 @@ static func _emblem(p: Node3D, pos: Vector3, rot_y: float, s: float = 0.6) -> vo
 	_b(e, Vector3(s * 0.55, s * 0.12, 0.03), Vector3(s * 0.14, 0, 0), w, Vector3(0, 0, -35))
 
 
+static func _lights(root: Node3D, xs: float, y: float, z: float) -> void:
+	var lamp := _m(Color(1.0, 0.95, 0.8), 0.0, 0.3, 1.2)
+	for sx in [-xs, xs]:
+		_c(root, 0.13, 0.06, Vector3(sx, y, z), lamp, Vector3(90, 0, 0), 10)
+
+
+static func _fenders(root: Node3D, xs: float, zs: Array, r: float, mat: Material) -> void:
+	for sx in [-xs, xs]:
+		for z in zs:
+			_b(root, Vector3(0.5, 0.06, r * 2.3), Vector3(sx, r * 2.05, z), mat)
+			_b(root, Vector3(0.5, r * 0.6, 0.06), Vector3(sx, r * 1.75, z - r * 1.15), mat, Vector3(-30, 0, 0))
+
+
 static func _wheels(root: Node3D, xs: float, zs: Array, r: float, w: float) -> Array:
 	var out: Array = []
 	var tyre := _m(DARK, 0.1, 0.9)
@@ -92,6 +105,18 @@ static func truck(radar: bool) -> Node3D:
 		_c(root, 1.17, 3.7, Vector3(0, 2.9, 1.3), canvas, Vector3(90, 0, 0), 10)
 	_emblem(root, Vector3(1.17, 1.9, -2.3), PI * 0.5)
 	_emblem(root, Vector3(-1.17, 1.9, -2.3), -PI * 0.5)
+	# cab details: side windows, mirrors, grille, lights, bumper, exhaust stack, roof hatch
+	for sx in [-1.16, 1.16]:
+		_b(root, Vector3(0.02, 0.45, 0.8), Vector3(sx, 2.25, -2.5), glass)
+		_b(root, Vector3(0.06, 0.35, 0.2), Vector3(sx * 1.13, 2.2, -3.0), _m(DARK))
+		_b(root, Vector3(0.2, 0.04, 0.04), Vector3(sx * 1.05, 2.2, -3.0), _m(DARK))
+	for k in 5:
+		_b(root, Vector3(1.4, 0.04, 0.04), Vector3(0, 1.45 + k * 0.1, -3.22), _m(DARK))
+	_lights(root, 0.85, 1.4, -3.23)
+	_b(root, Vector3(2.45, 0.22, 0.25), Vector3(0, 0.85, -3.35), _m(DARK, 0.5, 0.5))
+	_c(root, 0.08, 1.6, Vector3(1.2, 2.5, -1.45), _m(Color(0.2, 0.2, 0.2), 0.6, 0.5))
+	_b(root, Vector3(0.8, 0.08, 0.6), Vector3(0, 2.63, -2.3), _m(OLIVE_D))
+	_fenders(root, 1.05, [-2.4, 0.6, 2.2], 0.55, _m(OLIVE_D))
 	root.set_meta("wheels", _wheels(root, 1.05, [-2.4, 0.6, 2.2], 0.55, 0.4))
 	return root
 
@@ -112,6 +137,20 @@ static func apc() -> Node3D:
 		_b(root, Vector3(0.05, 0.4, 0.5), Vector3(1.36 * sx, 1.7, 1.6), _m(DARK))
 	_emblem(root, Vector3(1.36, 1.5, 0.6), PI * 0.5, 0.7)
 	_emblem(root, Vector3(-1.36, 1.5, 0.6), -PI * 0.5, 0.7)
+	# hatches, periscopes, smoke launchers, lights, tow hooks, stowage
+	for hz in [0.9, 2.0]:
+		_c(root, 0.38, 0.08, Vector3(0.45, 2.42, hz), _m(OLIVE_D), Vector3.ZERO, 12)
+		_c(root, 0.38, 0.08, Vector3(-0.45, 2.42, hz), _m(OLIVE_D), Vector3.ZERO, 12)
+	for k in 3:
+		_b(root, Vector3(0.18, 0.12, 0.1), Vector3(-0.5 + k * 0.5, 2.15, -2.85), _m(Color(0.1, 0.14, 0.16), 0.6, 0.2))
+	for sx in [-1, 1]:
+		for k in 3:
+			_c(root, 0.06, 0.28, Vector3(0.45 * sx, 2.65 + k * 0.08, -0.6), _m(DARK), Vector3(-30, 0, 15 * sx), 6)
+	_lights(root, 0.9, 1.55, -3.95)
+	for sx in [-0.7, 0.7]:
+		_b(root, Vector3(0.12, 0.12, 0.2), Vector3(sx, 0.95, -4.0), _m(DARK))
+	_b(root, Vector3(1.5, 0.35, 0.7), Vector3(0, 2.25, 3.0), _m(Color(0.3, 0.3, 0.22), 0.0, 0.95))
+	_fenders(root, 1.25, [-2.3, -0.8, 0.8, 2.3], 0.6, _m(OLIVE_D))
 	root.set_meta("wheels", _wheels(root, 1.25, [-2.3, -0.8, 0.8, 2.3], 0.6, 0.45))
 	return root
 
@@ -144,6 +183,31 @@ static func tracked(tank: bool) -> Node3D:
 	root.set_meta("turret", tur)
 	_emblem(root, Vector3(1.21, 1.35, 1.0), PI * 0.5, 0.7)
 	_emblem(root, Vector3(-1.21, 1.35, 1.0), -PI * 0.5, 0.7)
+	# track links, sprockets / idlers, side skirts, engine deck, hatch, antennas
+	var link := _m(Color(0.16, 0.16, 0.15), 0.5, 0.7)
+	for sx in [-1.45, 1.45]:
+		for k in 18:
+			var z := -len * 0.48 + k * len * 0.056
+			_b(root, Vector3(0.72, 0.06, 0.18), Vector3(sx, 1.04, z), link)
+			_b(root, Vector3(0.72, 0.06, 0.18), Vector3(sx, 0.06, z), link)
+		for z in [-len * 0.5 + 0.2, len * 0.5 - 0.2]:
+			var sp := _c(root, 0.45, 0.74, Vector3(sx, 0.6, z), _m(Color(0.2, 0.2, 0.19), 0.6, 0.5), Vector3(0, 0, 90), 8)
+			sp.name = "Sprocket"
+		_b(root, Vector3(0.06, 0.55, len - 0.6), Vector3(sx * 1.24, 0.92, 0), _m(OLIVE_D))
+	for k in 5:
+		_b(root, Vector3(1.8, 0.05, 0.12), Vector3(0, 1.72, len * 0.3 + k * 0.2), _m(DARK))
+	if tank:
+		_c(tur, 0.42, 0.12, Vector3(-0.5, 0.82, 0.5), _m(OLIVE_D), Vector3.ZERO, 12)
+		_b(tur, Vector3(0.9, 0.45, 0.4), Vector3(0, 0.38, -1.55), hull)
+		_c(tur, 0.02, 2.2, Vector3(-0.85, 1.85, 1.2), _m(DARK), Vector3(-8, 0, 0), 4)
+		_b(tur, Vector3(1.6, 0.4, 0.5), Vector3(0, 0.45, 1.6), _m(Color(0.3, 0.3, 0.22), 0.0, 0.95))
+		for sx in [-1, 1]:
+			for k in 4:
+				_c(tur, 0.07, 0.3, Vector3(1.15 * sx, 0.6, -0.4 + k * 0.17), _m(DARK), Vector3(-40, 0, -40 * sx), 6)
+	else:
+		_c(root, 0.02, 2.0, Vector3(0.9, 2.4, 2.4), _m(DARK), Vector3(-8, 0, 0), 4)
+		for k in 2:
+			_c(root, 0.35, 0.08, Vector3(-0.5 + k, 2.33, 2.0), _m(OLIVE_D), Vector3.ZERO, 12)
 	root.set_meta("wheels", [])
 	return root
 
@@ -213,6 +277,20 @@ static func heli(transport: bool) -> Node3D:
 	root.set_meta("tail_rotor", tr)
 	_emblem(root, Vector3(r * 1.0, r + 0.7, 1.0), PI * 0.5, 0.8)
 	_emblem(root, Vector3(-r * 1.0, r + 0.7, 1.0), -PI * 0.5, 0.8)
+	# engine housings, intakes and exhausts on the roof
+	for sx in [-0.35, 0.35]:
+		_c(root, r * 0.32, body_len * 0.35, Vector3(sx * r, r * 2.05 + 0.6, 0.2), skin, Vector3(90, 0, 0), 10)
+		_c(root, r * 0.22, 0.1, Vector3(sx * r, r * 2.05 + 0.6, 0.2 - body_len * 0.18), _m(DARK), Vector3(90, 0, 0), 10)
+		_c(root, r * 0.2, 0.4, Vector3(sx * r * 1.6, r * 2.0 + 0.6, 0.2 + body_len * 0.2), _m(Color(0.12, 0.11, 0.1), 0.6, 0.5), Vector3(70, 0, 30 * signf(sx)), 8)
+	# canopy frame bars
+	for k in 3:
+		var a := -0.6 + k * 0.6
+		_b(root, Vector3(0.05, r * 1.1, 0.05), Vector3(sin(a) * r * 0.95, r + 0.75, -body_len * 0.5 - cos(a) * r * 0.55), _m(DARK), Vector3(-35, 0, rad_to_deg(a) * 0.5))
+	# stub wings with fictional equipment pods (scout) / sponsons (transport)
+	for sx in [-1, 1]:
+		_b(root, Vector3(r * 1.6, 0.08, 0.8), Vector3(sx * r * 1.6, r + 0.4, 0.4), skin, Vector3(0, 0, -6 * sx))
+		_c(root, 0.16 if not transport else 0.35, 1.1 if not transport else 2.2, Vector3(sx * r * 2.1, r + 0.22, 0.4), _m(Color(0.25, 0.27, 0.24), 0.3, 0.6), Vector3(90, 0, 0), 10)
+	_b(root, Vector3(0.1, r * 0.9, r * 1.0), Vector3(0, r * 1.5 + 0.6, body_len * 0.5 + tail_len - 0.2), skin, Vector3(-20, 0, 0))
 	var nav := _m(Color(1, 0.2, 0.15), 0.0, 0.4, 3.0)
 	MeshFactory.sphere(root, 0.08, Vector3(0, r * 2.0 + 0.7, body_len * 0.5 + tail_len), nav)
 	return root

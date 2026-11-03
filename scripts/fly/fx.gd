@@ -51,7 +51,7 @@ static func _ramp(cols: Array) -> Gradient:
 
 static func _emitter(amount: int, life: float, mesh_size: float, mat: Material) -> CPUParticles3D:
 	var p := CPUParticles3D.new()
-	p.amount = amount
+	p.amount = maxi(int(amount * float(Settings.opt.get("particles", 1.0)) * (0.5 if Settings.opt.get("safe_graphics", false) else 1.0)), 2)
 	p.lifetime = life
 	var q := QuadMesh.new()
 	q.size = Vector2(mesh_size, mesh_size)

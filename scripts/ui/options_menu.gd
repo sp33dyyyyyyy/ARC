@@ -28,7 +28,7 @@ func _ready() -> void:
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(center)
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(1180, 820)
+	panel.custom_minimum_size = Vector2(1480, 900)
 	center.add_child(panel)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 12)
@@ -38,17 +38,27 @@ func _ready() -> void:
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vb.add_child(tabs)
-	tabs.add_child(_build_game_tab())
-	tabs.add_child(_build_flight_tab())
+	tabs.add_child(_build_display_tab())
+	tabs.add_child(_build_graphics_tab())
 	tabs.add_child(_build_audio_tab())
+	tabs.add_child(_build_gameplay_tab())
+	tabs.add_child(_build_flight_tab())
+	tabs.add_child(_build_osd_tab())
 	tabs.add_child(_build_controls_tab())
+	tabs.get_tab_bar().focus_mode = Control.FOCUS_ALL
 
 	_toast = UITheme.label("", 18, UITheme.MUTED)
 	vb.add_child(_toast)
 	var foot := HBoxContainer.new()
 	foot.alignment = BoxContainer.ALIGNMENT_END
 	vb.add_child(foot)
-	foot.add_child(UITheme.accent_button("Close", _close, Vector2(180, 46)))
+	foot.add_child(UITheme.button("Reset all settings", func():
+		Settings.reset_opts()
+		Settings.reset_bindings_to_default()
+		Settings.apply_all()
+		Settings.save_settings()
+		_say("Defaults restored - reopen Options to see them."), Vector2(220, 46)))
+	foot.add_child(UITheme.accent_button("Save & close", _close, Vector2(200, 46)))
 
 	_cap_label = UITheme.label("", 30, Color.WHITE)
 	_cap_label.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -107,98 +117,202 @@ func _slider_row(grid: GridContainer, text: String, lo: float, hi: float, step: 
 	_row(grid, text, hb)
 
 
-func _build_game_tab() -> Control:
-	var r := _scroll_grid("Game", 2)
-	var g: GridContainer = r[1]
+func _section(g: GridContainer, text: String) -> void:
+	var l := UITheme.label(text.to_upper(), 18, UITheme.ACCENT)
+	l.add_theme_font_override("font", UITheme.font(true))
+	g.add_child(l)
+	g.add_child(Control.new())
+
+
+func _check_row(g: GridContainer, text: String, value: bool, cb: Callable, tip: String = "") -> void:
+	var c := CheckButton.new()
+	c.button_pressed = value
+	c.focus_mode = Control.FOCUS_ALL
+	c.tooltip_text = tip
+	c.toggled.connect(cb)
+	_row(g, text, c)
+
+
+func _option_row(g: GridContainer, text: String, names: Array, selected: int, cb: Callable, tip: String = "") -> OptionButton:
 	var ob := OptionButton.new()
-	for n in Settings.PRESET_NAMES:
+	ob.custom_minimum_size = Vector2(380, 40)
+	for n in names:
 		ob.add_item(n)
-	ob.select(Settings.graphics_preset)
-	ob.item_selected.connect(func(i: int):
-		Settings.graphics_preset = i
-		Settings.settings_changed.emit())
-	_row(g, "Graphics preset", ob)
-	_slider_row(g, "Field of view", 60, 110, 1, Settings.fov, "%d°", func(x: float): Settings.fov = x)
-	_slider_row(g, "Mouse sensitivity", 0.2, 3.0, 0.05, Settings.mouse_sens, "%.2f", func(x: float): Settings.mouse_sens = x)
-	var hud := CheckButton.new()
-	hud.button_pressed = Settings.hud_on
-	hud.toggled.connect(func(on: bool): Settings.hud_on = on)
-	_row(g, "HUD enabled", hud)
-	var ms := CheckButton.new()
-	ms.button_pressed = Settings.mouse_stick
-	ms.toggled.connect(func(on: bool): Settings.mouse_stick = on)
-	_row(g, "Mouse as sticks (fly)", ms)
-	var fs := CheckButton.new()
-	fs.button_pressed = Settings.fullscreen
-	fs.toggled.connect(func(on: bool):
-		Settings.fullscreen = on
-		Settings.apply_display())
-	_row(g, "Fullscreen (F11)", fs)
+	ob.select(clampi(selected, 0, names.size() - 1))
+	ob.tooltip_text = tip
+	ob.item_selected.connect(cb)
+	_row(g, text, ob)
+	return ob
+
+
+## Int option where -1 means "follow the graphics preset".
+func _preset_opt(g: GridContainer, text: String, key: String, names: Array) -> void:
+	var all := ["Preset default"]
+	all.append_array(names)
+	_option_row(g, text, all, int(Settings.opt[key]) + 1, func(i: int):
+		Settings.opt[key] = i - 1
+		_graphics_changed())
+
+
+func _graphics_changed() -> void:
+	Settings.apply_to_viewport(get_viewport())
+	Settings.settings_changed.emit()
+	_say("Graphics changes apply fully when the next screen loads.")
+
+
+func _opt_check(g: GridContainer, text: String, key: String, tip: String = "") -> void:
+	_check_row(g, text, Settings.opt[key], func(on: bool): Settings.opt[key] = on, tip)
+
+
+func _opt_slider(g: GridContainer, text: String, key: String, step: float, fmt: String, cb: Callable = Callable()) -> void:
+	var o: Array = Settings.OPTS[key]
+	_slider_row(g, text, float(o[1]), float(o[2]), step, float(Settings.opt[key]), fmt, func(x: float):
+		Settings.opt[key] = type_convert(x, typeof(o[0]))
+		if cb.is_valid():
+			cb.call(x))
+
+
+func _build_display_tab() -> Control:
+	var r := _scroll_grid("Display", 2)
+	var g: GridContainer = r[1]
+	_section(g, "Window")
+	_option_row(g, "Window mode", Settings.WINDOW_MODE_NAMES, int(Settings.opt["window_mode"]), func(i: int):
+		Settings.opt["window_mode"] = i
+		Settings.fullscreen = i > 0
+		Settings.apply_display(), "F11 toggles windowed / fullscreen at any time.")
 	var vs := CheckButton.new()
 	vs.button_pressed = Settings.vsync
 	vs.toggled.connect(func(on: bool):
 		Settings.vsync = on
 		Settings.apply_display())
 	_row(g, "V-Sync", vs)
-	var ua := UITheme.button("Unlock all parts (testing)", func():
-		SaveData.unlock_all()
-		_say("All parts unlocked."), Vector2(300, 44))
-	_row(g, "Progress", ua)
-	var cr := UITheme.button("+5000 credits (testing)", func():
-		Career.earn(5000, "Testing grant")
-		_say("+5000 credits."), Vector2(300, 44))
-	_row(g, "Career", cr)
+	var caps := [0, 30, 60, 120, 144, 165, 240]
+	var cap_names := ["Unlimited", "30", "60", "120", "144", "165", "240"]
+	_option_row(g, "Frame rate limit", cap_names, maxi(caps.find(int(Settings.opt["fps_cap"])), 0), func(i: int):
+		Settings.opt["fps_cap"] = caps[i]
+		Engine.max_fps = caps[i])
+	_section(g, "Picture")
+	_opt_slider(g, "Brightness", "brightness", 0.05, "%.2f", func(_x: float):
+		for we in get_tree().root.find_children("*", "WorldEnvironment", true, false):
+			Settings.apply_env((we as WorldEnvironment).environment))
+	_slider_row(g, "Field of view (flight)", 60, 110, 1, Settings.fov, "%d°", func(x: float): Settings.fov = x)
+	_opt_slider(g, "Field of view (garage)", "garage_fov", 1.0, "%d°")
+	var hud := CheckButton.new()
+	hud.button_pressed = Settings.hud_on
+	hud.toggled.connect(func(on: bool): Settings.hud_on = on)
+	_row(g, "Flight HUD enabled", hud)
 	return r[0]
 
 
-func _check_row(g: GridContainer, text: String, value: bool, cb: Callable) -> void:
-	var c := CheckButton.new()
-	c.button_pressed = value
-	c.focus_mode = Control.FOCUS_ALL
-	c.toggled.connect(cb)
-	_row(g, text, c)
-
-
-func _build_flight_tab() -> Control:
-	var r := _scroll_grid("Flight & Pad", 2)
+func _build_graphics_tab() -> Control:
+	var r := _scroll_grid("Graphics", 2)
 	var g: GridContainer = r[1]
-	var ob := OptionButton.new()
-	for n in ["Beginner (self-level + altitude hold)", "Intermediate (self-level)", "Acro (rate mode)"]:
-		ob.add_item(n)
-	ob.select(Settings.assist)
-	ob.item_selected.connect(func(i: int): Settings.assist = i)
-	_row(g, "Default flight mode", ob)
-	_check_row(g, "Gamepad throttle = stick position (centre 50 %)", Settings.pad_throttle_abs, func(on: bool): Settings.pad_throttle_abs = on)
-	_slider_row(g, "Look sensitivity (garage)", 0.2, 3.0, 0.05, Settings.look_sens, "%.2f", func(x: float): Settings.look_sens = x)
-	_check_row(g, "Invert look Y", Settings.invert_y, func(on: bool): Settings.invert_y = on)
-	_check_row(g, "Controller vibration", Settings.rumble, func(on: bool): Settings.rumble = on)
-	var gl := OptionButton.new()
-	gl.add_item("PlayStation (Cross / Circle / Square / Triangle)")
-	gl.add_item("Xbox (A / B / X / Y)")
-	gl.select(Settings.pad_glyphs)
-	gl.item_selected.connect(func(i: int):
-		Settings.pad_glyphs = i
-		_refresh_binds())
-	_row(g, "Button names", gl)
-	for k in Settings.osd:
-		var key: String = k
-		_check_row(g, "OSD: %s" % key.capitalize(), Settings.osd[key], func(on: bool): Settings.osd[key] = on)
+	_section(g, "Quality")
+	_option_row(g, "Graphics preset", Settings.PRESET_NAMES, Settings.graphics_preset, func(i: int):
+		Settings.graphics_preset = i
+		_graphics_changed())
+	_check_row(g, "Safe graphics (compatibility)", Settings.opt["safe_graphics"], func(on: bool):
+		Settings.opt["safe_graphics"] = on
+		_graphics_changed(), "No shadows, glow or fog and fewer lights. Try this if the game crashes, flickers or runs slowly.")
+	_slider_row(g, "Render scale", 0.0, 1.0, 0.05, float(Settings.opt["render_scale"]), "%.2f", func(x: float):
+		Settings.opt["render_scale"] = x if x >= 0.5 else 0.0
+		Settings.apply_to_viewport(get_viewport()))
+	_row(g, "", UITheme.label("Render scale 0 = preset.  0.5 - 1.0 = 3D resolution.", 16, UITheme.MUTED))
+	_section(g, "Detail (overrides the preset)")
+	_preset_opt(g, "Shadows", "shadows", ["Off", "On"])
+	_preset_opt(g, "Shadow quality", "shadow_quality", ["Low", "Medium", "High"])
+	_preset_opt(g, "Anti-aliasing (MSAA)", "msaa", ["Off", "2x", "4x"])
+	_preset_opt(g, "View distance", "view_dist", ["Short", "Medium", "Far"])
+	_preset_opt(g, "Tree density", "trees", ["Low", "Medium", "High"])
+	_preset_opt(g, "Glow / bloom", "glow", ["Off", "On"])
+	_opt_check(g, "Fog and haze", "fog")
+	_opt_slider(g, "Particle amount", "particles", 0.05, "%.2f")
 	return r[0]
 
 
 func _build_audio_tab() -> Control:
 	var r := _scroll_grid("Audio", 2)
 	var g: GridContainer = r[1]
+	_section(g, "Volume")
 	_slider_row(g, "Master volume", 0, 1, 0.01, Settings.master_vol, "%.2f", func(x: float):
 		Settings.master_vol = x
 		Settings.apply_audio())
 	_slider_row(g, "Music volume", 0, 1, 0.01, Settings.music_vol, "%.2f", func(x: float):
 		Settings.music_vol = x
 		Settings.apply_audio())
-	_slider_row(g, "SFX volume", 0, 1, 0.01, Settings.sfx_vol, "%.2f", func(x: float):
+	_slider_row(g, "Effects volume", 0, 1, 0.01, Settings.sfx_vol, "%.2f", func(x: float):
 		Settings.sfx_vol = x
 		Settings.apply_audio()
 		Audio.play("beep"))
+	_opt_slider(g, "Vehicles & ambience volume", "ambience_vol", 0.01, "%.2f", func(_x: float): Settings.apply_audio())
+	_opt_check(g, "Mute when the window is in the background", "mute_unfocused")
+	return r[0]
+
+
+func _build_gameplay_tab() -> Control:
+	var r := _scroll_grid("Gameplay", 2)
+	var g: GridContainer = r[1]
+	_section(g, "Career")
+	_option_row(g, "Difficulty", ["Relaxed - +35 % pay, gentler crashes", "Standard", "Hardcore - -20 % pay, harsher crashes"], int(Settings.opt["difficulty"]), func(i: int): Settings.opt["difficulty"] = i)
+	_opt_slider(g, "Autosave every (seconds)", "autosave", 5.0, "%d s")
+	_section(g, "Tutorial")
+	_opt_check(g, "Tutorial hints (step card, bench guide, flight school)", "tutorial_hints")
+	_opt_check(g, "Floating step arrows in the garage", "beacons")
+	_row(g, "Replay the intro guide", UITheme.button("Show HOW TO PLAY next time", func():
+		Career.data["flags"].erase("seen_intro")
+		_say("The guide will open the next time you enter the garage."), Vector2(380, 42)))
+	_section(g, "Display units & comfort")
+	_option_row(g, "Units", ["Metric (km/h, m)", "Imperial (mph, ft)"], int(Settings.opt["units"]), func(i: int): Settings.opt["units"] = i)
+	_opt_check(g, "Head bob while walking", "head_bob")
+	_opt_slider(g, "FPV camera shake", "cam_shake", 0.05, "%.2f")
+	_opt_check(g, "Show day / time in the garage", "show_clock")
+	_section(g, "Testing")
+	var ua := UITheme.button("Unlock all parts in the market", func():
+		SaveData.unlock_all()
+		_say("All parts unlocked."), Vector2(380, 42))
+	_row(g, "Parts", ua)
+	var cr := UITheme.button("+5000 credits", func():
+		Career.earn(5000, "Testing grant")
+		_say("+5000 credits."), Vector2(380, 42))
+	_row(g, "Credits", cr)
+	return r[0]
+
+
+func _build_flight_tab() -> Control:
+	var r := _scroll_grid("Flight & Pad", 2)
+	var g: GridContainer = r[1]
+	_section(g, "Flight")
+	_option_row(g, "Default flight mode", ["Beginner (self-level + altitude hold)", "Intermediate (self-level)", "Acro (rate mode)"], Settings.assist, func(i: int): Settings.assist = i)
+	var ms := CheckButton.new()
+	ms.button_pressed = Settings.mouse_stick
+	ms.toggled.connect(func(on: bool): Settings.mouse_stick = on)
+	_row(g, "Mouse as sticks", ms)
+	_slider_row(g, "Mouse stick sensitivity", 0.2, 3.0, 0.05, Settings.mouse_sens, "%.2f", func(x: float): Settings.mouse_sens = x)
+	_opt_check(g, "Invert pitch", "invert_pitch")
+	_section(g, "Gamepad")
+	_check_row(g, "Throttle = stick position (centre 50 %)", Settings.pad_throttle_abs, func(on: bool): Settings.pad_throttle_abs = on)
+	_opt_slider(g, "Stick dead zone", "deadzone", 0.01, "%.2f", func(_x: float): Settings.rebuild_input_map())
+	_opt_slider(g, "Stick expo (softer centre)", "expo", 0.05, "%.2f")
+	_check_row(g, "Controller vibration", Settings.rumble, func(on: bool): Settings.rumble = on)
+	_option_row(g, "Button names", ["PlayStation (Cross / Circle / Square / Triangle)", "Xbox (A / B / X / Y)"], Settings.pad_glyphs, func(i: int):
+		Settings.pad_glyphs = i
+		_refresh_binds())
+	_section(g, "Walking")
+	_slider_row(g, "Look sensitivity", 0.2, 3.0, 0.05, Settings.look_sens, "%.2f", func(x: float): Settings.look_sens = x)
+	_check_row(g, "Invert look Y", Settings.invert_y, func(on: bool): Settings.invert_y = on)
+	_opt_check(g, "Crouch is a toggle (off = hold)", "crouch_toggle")
+	_opt_check(g, "Sprint is a toggle (off = hold)", "sprint_toggle")
+	return r[0]
+
+
+func _build_osd_tab() -> Control:
+	var r := _scroll_grid("OSD", 2)
+	var g: GridContainer = r[1]
+	_section(g, "Flight on-screen display")
+	var names := {"speed": "Speed", "altitude": "Altitude", "battery": "Battery voltage & bar", "amps": "Motor / total current", "mission": "Mission & objectives", "crosshair": "Crosshair", "compass": "Compass & objective bearing", "markers": "Target brackets, arrows & drop reticle"}
+	for k in Settings.osd:
+		var key: String = k
+		_check_row(g, names.get(key, key.capitalize()), Settings.osd[key], func(on: bool): Settings.osd[key] = on)
 	return r[0]
 
 

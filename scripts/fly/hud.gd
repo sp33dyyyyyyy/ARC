@@ -90,11 +90,11 @@ func _draw() -> void:
 			_txt(c + spots[i] + Vector2(0, 0), "M%d  %4.1f A" % [i + 1, a], 30, mc, 1)
 	# speed / altitude
 	if osd.get("speed", true):
-		_txt(Vector2(960, 1000), "%d" % int(round(speed_kmh)), 64, WHITE, 1)
-		_txt(Vector2(960, 1040), "km/h", 24, Color(0.85, 0.85, 0.9), 1)
+		_txt(Vector2(960, 1000), Settings.speed_text(speed_kmh / 3.6), 64, WHITE, 1)
+		_txt(Vector2(960, 1040), Settings.speed_unit(), 24, Color(0.85, 0.85, 0.9), 1)
 	if osd.get("altitude", true):
-		_txt(Vector2(1180, 1000), "%d" % int(round(altitude)), 64, WHITE, 0)
-		_txt(Vector2(1180, 1040), "ALT  m", 24, Color(0.85, 0.85, 0.9), 0)
+		_txt(Vector2(1180, 1000), Settings.alt_text(altitude), 64, WHITE, 0)
+		_txt(Vector2(1180, 1040), "ALT  " + Settings.alt_unit(), 24, Color(0.85, 0.85, 0.9), 0)
 	if osd.get("compass", true):
 		_draw_compass()
 	if pods_text != "":

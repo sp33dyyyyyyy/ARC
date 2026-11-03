@@ -307,6 +307,7 @@ func _build_environment() -> void:
 	env.glow_enabled = quality["glow"]
 	env.glow_intensity = 0.6
 	env.glow_bloom = 0.08
+	Settings.apply_env(env)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)

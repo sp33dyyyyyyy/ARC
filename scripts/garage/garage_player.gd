@@ -22,6 +22,7 @@ var hovered: Node = null
 var held: Pickable = null
 var _hold_rot := Vector3.ZERO
 var _bob := 0.0
+var _sprint_latch := false
 var _step_t := 0.0
 var _eye := EYE
 var _shape: CapsuleShape3D
@@ -38,7 +39,7 @@ func _ready() -> void:
 	collision_layer = 2
 	collision_mask = 1
 	cam = Camera3D.new()
-	cam.fov = 72.0
+	cam.fov = float(Settings.opt.get("garage_fov", 72.0))
 	cam.near = 0.03
 	cam.far = 400.0
 	cam.position.y = EYE
@@ -69,7 +70,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		pitch -= event.relative.y * s * (-1.0 if Settings.invert_y else 1.0)
 		pitch = clampf(pitch, deg_to_rad(-85), deg_to_rad(85))
 	elif event.is_action_pressed("crouch"):
-		crouched = not crouched
+		if Settings.opt.get("crouch_toggle", true):
+			crouched = not crouched
+		else:
+			crouched = true
+	elif event.is_action_released("crouch") and not Settings.opt.get("crouch_toggle", true):
+		crouched = false
+	elif event.is_action_pressed("sprint") and Settings.opt.get("sprint_toggle", false):
+		_sprint_latch = not _sprint_latch
 
 
 func _physics_process(dt: float) -> void:
@@ -92,7 +100,8 @@ func _physics_process(dt: float) -> void:
 				pitch -= stick.y * rs * (-1.0 if Settings.invert_y else 1.0)
 				pitch = clampf(pitch, deg_to_rad(-85), deg_to_rad(85))
 		var mv := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-		var spd := CROUCH if crouched else (SPRINT if Input.is_action_pressed("sprint") else WALK)
+		var sprinting := _sprint_latch if Settings.opt.get("sprint_toggle", false) else Input.is_action_pressed("sprint")
+		var spd := CROUCH if crouched else (SPRINT if sprinting else WALK)
 		var dir := Basis(Vector3.UP, yaw) * Vector3(mv.x, 0, mv.y)
 		var want := dir * spd
 		velocity.x = move_toward(velocity.x, want.x, 18.0 * dt)
@@ -111,7 +120,7 @@ func _physics_process(dt: float) -> void:
 	move_and_slide()
 	rotation.y = yaw
 	_eye = lerpf(_eye, EYE_CROUCH if crouched else EYE, minf(dt * 10.0, 1.0))
-	cam.position.y = _eye + sin(_bob) * 0.025
+	cam.position.y = _eye + (sin(_bob) * 0.025 if Settings.opt.get("head_bob", true) else 0.0)
 	cam.rotation.x = pitch
 	_update_hover()
 	_update_held(dt)

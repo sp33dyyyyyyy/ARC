@@ -55,7 +55,7 @@ func _ready() -> void:
 	_motor = _make_generator("SFX", 0.12)
 	_motor.play()
 	_motor_pb = _motor.get_stream_playback()
-	_engine = _make_generator("SFX", 0.15)
+	_engine = _make_generator("Ambience", 0.15)
 	_engine.play()
 	_engine_pb = _engine.get_stream_playback()
 	# start the music a moment after the window is up (keeps the first frames free)

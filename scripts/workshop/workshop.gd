@@ -29,6 +29,7 @@ var _menu: Control = null
 var _sun: DirectionalLight3D
 var _name_lbl: Label
 var _credits_lbl: Label
+var _tutor: RichTextLabel
 
 
 func _ready() -> void:
@@ -66,6 +67,7 @@ func _build_world() -> void:
 	env.ambient_light_color = Color(0.7, 0.66, 0.6)
 	env.ambient_light_energy = 0.5
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	Settings.apply_env(env)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	world.add_child(we)
@@ -186,6 +188,19 @@ func _build_ui() -> void:
 	hb.add_child(_credits_lbl)
 	hb.add_child(UITheme.button("Menu (Esc)", _show_menu, Vector2(150, 46)))
 
+	_tutor = RichTextLabel.new()
+	_tutor.bbcode_enabled = true
+	_tutor.fit_content = true
+	_tutor.scroll_active = false
+	_tutor.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_tutor.position = Vector2(470, 74)
+	_tutor.custom_minimum_size = Vector2(980, 0)
+	_tutor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tutor.add_theme_font_size_override("normal_font_size", 21)
+	var tst := UITheme.flat(Color(0.05, 0.055, 0.06, 0.86), 8, Color(UITheme.ACCENT2, 0.6), 1, 12)
+	tst.border_width_left = 6
+	_tutor.add_theme_stylebox_override("normal", tst)
+	ui_root.add_child(_tutor)
 	_toast = UITheme.label("", 24, Color.WHITE)
 	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_toast.position = Vector2(0, 86)
@@ -338,6 +353,10 @@ func _process(_dt: float) -> void:
 		_credits_lbl.text = "%d cr" % Career.credits()
 	if _name_lbl:
 		_name_lbl.text = "WORKBENCH  -  %s" % (Game.bench_name if Game.bench_name != "" else "new build")
+	if _tutor and Engine.get_process_frames() % 10 == 0:
+		var t := tutor_text()
+		_tutor.visible = t != "" and _menu == null
+		_tutor.text = "[color=#52c7bd]BENCH GUIDE[/color]   " + t
 	# gamepad: right stick orbits the camera
 	if Pad.using_pad and (stage == "build" or stage == "wire") and _menu == null:
 		var rx := Input.get_joy_axis(0, JOY_AXIS_RIGHT_X)
@@ -352,6 +371,47 @@ func _process(_dt: float) -> void:
 		elif Input.is_action_pressed("cam_zoom_out"):
 			cam_dist = clampf(cam_dist * (1.0 + _dt), 8.0, 80.0)
 			_update_camera()
+
+
+## The workbench coach: one line telling the player what to do next.
+func tutor_text() -> String:
+	if not Settings.opt.get("tutorial_hints", true):
+		return ""
+	var k := func(a: String) -> String: return UITheme.key_cap(Pad.glyph(a))
+	match stage:
+		"wire":
+			if Game.wiring_complete():
+				return "Wiring done - open [b]3 SETUP[/b]."
+			return "Click a pad, then the pad it connects to. The checklist on the left lists every wire."
+		"setup":
+			return "Defaults are fine. Check the tabs if you like, then press [b]SAVE DRONE[/b] (or TEST FLY)."
+	if build.held != null:
+		if Parts.needs_orientation(Parts.part(build.held_id)["cat"]):
+			return "Press %s until the part's white arrow points the same way as the yellow marker, then click the glowing slot." % k.call("build_rotate")
+		return "Click the glowing slot to fit the %s." % Parts.part(build.held_id)["name"]
+	if not Game.loose.is_empty():
+		var slot: String = Game.loose.keys()[0]
+		return "Gold screws are loose: click or hold %s on the [b]%s[/b] to tighten them." % [k.call("interact"), Parts.part(Game.placed[slot])["name"]]
+	var s := Game.stats()
+	if s.get("broken_props", 0) > 0:
+		return "Click the broken props to scrap them, then fit fresh ones from the Props tab."
+	if s.get("complete", false):
+		return "All parts fitted and tight - open [b]2 WIRE[/b] at the top."
+	for cat in Parts.CATEGORIES:
+		if cat in Parts.OPTIONAL_CATS:
+			continue
+		var have := 0
+		for slot in Game.placed:
+			if Parts.part(Game.placed[slot])["cat"] == cat:
+				have += 1
+		if have < int(Parts.CAT_QUOTA[cat]):
+			var owned := 0
+			for id in Parts.parts_in(cat):
+				owned += Career.stock(id)
+			if owned == 0:
+				return "No %s in storage. Order one in PARTS MARKET on the garage computer." % Parts.CAT_NAMES[cat].to_lower()
+			return "Next: open the [b]%s[/b] tab and drag a part from the tray onto its glowing slot." % Parts.CAT_NAMES[cat]
+	return ""
 
 
 func _back_to_garage() -> void:
