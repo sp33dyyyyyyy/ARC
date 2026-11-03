@@ -1,244 +1,262 @@
-# Propwash Workshop
+# FRONTLINE FPV — Garage Warfare
 
-A first-person FPV drone game for Windows, made with **Godot 4.3 (GDScript, Compatibility/OpenGL 3D renderer)**.
-You build a quadcopter on a workbench, wire it, configure the flight controller in a Betaflight-style
-menu and then fly it with a live power budget. Crash or run the battery flat and you are back at the
-bench with the same drone.
+A mid/low-poly drone-factory and FPV combat simulator for Windows, made with **Godot 4.3 (GDScript, Compatibility/OpenGL renderer)**.
+
+You run a small drone workshop out of your home garage for the (fictional) **Kalvarian Volunteer Workshops**. You walk around the garage
+in first person, unpack parts, assemble drones component by component on the workbench, tighten every screw, wire and tune them,
+certify them on the test station, charge their batteries, and then fly them — in FPV — on test courses, reconnaissance runs and
+arcade-style strike missions against the equipment of the (fictional) **Dravic Ironguard**. Missions pay credits and reputation;
+you spend them on parts, contracts, upgrades and a bigger workshop.
 
 ```
-BUILD  ->  WIRE  ->  SETUP  ->  FLY   (crash / flat battery -> back to the workshop, same drone)
+GARAGE (walk) ─ workbench ─ BUILD → WIRE → SETUP → SAVE ─ rack ─ test station (diagnostics) ─ charger
+   │                                                                                        │
+   └─ computer: WORKSHOP OS ─ parts market → van delivers parcels → unpack into storage     │
+                            ─ deployment map → FPV mission → recovered / damaged / lost ────┘
 ```
 
 No third-party or paid assets are used: every mesh, texture, sound and the music is generated in code
-(primitives, procedural noise, synthesized audio).
+(primitives, procedural noise, synthesised audio). All factions, regions, vehicles and equipment are fictional, and combat is
+abstract (health/armour numbers and stylised, non-graphic hit effects) — nothing models real weapons, payloads or vulnerabilities.
 
 ---
 
 ## Running it
 
-### In the editor
 1. Install **Godot 4.3** (standard build, not .NET): <https://godotengine.org/download/archive/4.3-stable/>
-2. `Import` this folder (`project.godot`) in the Godot project manager and press **F5**.
-   The first import takes a few seconds (it builds the global-class cache).
+2. `Import` this folder (`project.godot`) in the project manager and press **F5**.
 
-### Exporting a standalone Windows `.exe`
-1. In the editor: **Editor > Manage Export Templates > Download and Install** (Godot 4.3.stable templates).
-2. **Project > Export...** — a **Windows Desktop** preset is already defined in `export_presets.cfg`
-   (64-bit, PCK embedded in the exe, so the result is a single file).
-3. Press **Export Project**, choose `build/PropwashWorkshop.exe` (untick *Export With Debug*).
-4. Run the exe. Settings and progress are written to `%APPDATA%\Godot\app_userdata\Propwash Workshop\`
-   (`settings.cfg` and `save.json`).
-
-Command line (same result, handy for CI):
+Export a standalone Windows `.exe` with the included **Windows Desktop** preset (*Project > Export*), or from the command line:
 ```
-godot --headless --path . --export-release "Windows Desktop" build/PropwashWorkshop.exe
+godot --headless --path . --export-release "Windows Desktop" build/FrontlineFPV.exe
 ```
-The preset has `application/modify_resources` switched off so it exports from any OS without `rcedit`/Wine.
-If you want a custom exe icon/metadata on Windows, install `rcedit`, set it under
-*Editor Settings > Export > Windows*, supply a `.ico` and switch that option back on.
+Saves go to `%APPDATA%\Godot\app_userdata\Frontline FPV - Garage Warfare\` (`career.json`, `save.json`, `settings.cfg`).
 
-> Verified in the build environment: the project imports clean, the whole flow runs under a software
-> Vulkan driver, and `--export-release` produces a valid 64-bit PE executable. The produced `.exe`
-> itself could not be launched there (the sandbox is Linux), so please give it a spin on Windows.
+From the main menu: **START CAREER** (first time) / **CONTINUE CAREER**, **NEW CAREER**, the current **WORKBENCH**, **OPTIONS**.
 
 ---
 
-## Requirements / performance
+## Controls
 
-* Windows 10/11 64-bit, any GPU with OpenGL 3.3 (the Compatibility renderer is used so the exe starts on every machine; target: GTX 1060 / RX 580 class at 60 fps).
-* Default window 1920x1080 (UI scales with the window; smaller screens get a 90 % window). **F11** toggles fullscreen.
-* **Options > Game > Graphics preset** — *Low / Medium / High*:
+Every action has a keyboard/mouse slot and a gamepad slot and is rebindable in **Options > Controls** (rebinding only steals a key from
+actions that are active at the same time, so walking on `W` and throttle on `W` coexist). Button names default to PlayStation glyphs
+(**Options > Flight & Pad** switches to Xbox names). Every menu and Workshop OS app is navigable with the D-pad / left stick + Cross,
+Circle goes back.
 
-| Preset | Shadows | MSAA | 3D render scale | Trees | Terrain mesh | Draw distance | Glow |
-|---|---|---|---|---|---|---|---|
-| Low    | off | off | 85 % (bilinear) | 110 | 10 m grid | 380 m | off |
-| Medium | 1024, 110 m | off | 100 % | 240 | 6 m grid | 520 m | off |
-| High   | 2048, 180 m | 2x | 100 % | 420 | 5 m grid | 800 m | on |
+### On foot in the garage
 
-On first launch the preset is picked automatically: integrated / unknown GPUs start on **Low**, GeForce GTX/RTX and Radeon RX cards on **Medium**.
-**F3** (rebindable) shows an FPS / frame-time / draw-call overlay and the GPU name; Godot also writes a log to
-`%APPDATA%\Godot\app_userdata\Propwash Workshop\logs\godot.log`. The flight sim only runs at 240 Hz while flying (60 Hz elsewhere), the field loads over several
-frames with a progress bar, hidden viewports (parts tray, gyro view) don't render, and the video-effect shader is skipped on Low while the link is clean.
-
-Terrain is chunked (frustum-culled), trees are two `MultiMesh`es, the flight model costs ~25 µs per 240 Hz step.
-The terrain is generated when a flight starts (about a second on Medium).
-
----
-
-## Controls (all rebindable in **Options > Controls**; saved to `user://settings.cfg`)
-
-Every action has one **Keyboard/Mouse** slot and one **Gamepad** slot. Binding a key that is already in use
-un-binds it from its old action. Gamepad: any standard (XInput/DualShock/etc.) pad.
-
-| Action | Keyboard / mouse (default) | Gamepad (default) |
+| Action | PC | PS5 DualSense |
 |---|---|---|
-| Throttle up / down | `W` / `S` | Left stick up / down |
-| Yaw left / right | `A` / `D` | Left stick left / right |
-| Pitch forward / back | `Up` / `Down` | Right stick up / down |
-| Roll left / right | `Left` / `Right` | Right stick left / right |
-| Arm / disarm | `Space` | `A` |
-| Fine stick (hold) | `Shift` | – |
-| Self-level (angle) / acro mode | `V` | `X` |
-| Mouse-as-sticks toggle | `M` | – |
-| HUD on/off | `H` | `Y` |
-| Restart mission | `F5` | Back |
-| Pause / back | `Esc` | Start |
-| Fullscreen | `F11` | – |
-| FPS / performance overlay | `F3` | – |
-| Grab / place / select (workshop) | Left mouse | – |
-| Rotate held part | `R` | – |
-| Orbit camera (hold) | Right mouse (drag) | – |
-| Zoom | Mouse wheel | – |
-| Motor test 1-4 (hold, Setup > Motor) | `1` `2` `3` `4` | – |
+| Walk | `WASD` | Left stick |
+| Look | Mouse | Right stick |
+| Interact | `E` | Cross |
+| Pick up / put down (drop) | `F` | Square |
+| Place held item on the surface you look at | Left mouse | Cross (when nothing under the crosshair accepts it; a held parcel is opened instead) |
+| Rotate held item | hold `R` + mouse | hold R1 + right stick |
+| Secondary action / inspect | Right mouse | L2 |
+| Sprint (hold) | `Shift` | L3 |
+| Crouch (toggle) | `Ctrl` | R3 |
+| Inventory (tablet, storage tab) | `Tab` | Triangle |
+| Workshop tablet | `Q` | Touchpad |
+| Pause | `Esc` | Options |
 
-* **Throttle is non-spring** (like a real radio): `W`/`S` or the left stick *raise/lower* it and it holds.
-* Keyboard pitch/roll/yaw are smoothed (about 0.15 s to full deflection); hold `Shift` for half deflection.
-* **Mouse stick mode** (Options or `M`): the pointer offset from the screen centre is pitch/roll (the pointer is
-  confined and hidden). *Mouse sensitivity* scales the deflection.
-* **Acro (rate) mode is the default**; rates (center sensitivity / max rate / expo per axis) are set in **Setup > PID**. For keyboard beginners `V` (or Setup > Firmware)
-  switches to **Angle (self-level)** mode, where the sticks command tilt and the same rate PIDs do the work.
+### Workbench (BUILD / WIRE / SETUP)
+
+| Action | PC | Gamepad |
+|---|---|---|
+| Grab / place / tighten / select | Left mouse (click or drag) | Virtual cursor: left stick moves it, Cross clicks |
+| Rotate held part | `R` | R1 |
+| Orbit camera | Right-mouse drag | Right stick |
+| Zoom | Mouse wheel | R2 / L2 |
+
+### Flying (Mode 2)
+
+| Action | PC | Gamepad |
+|---|---|---|
+| Throttle / yaw | `W` `S` / `A` `D` | Left stick (throttle = stick position, centre 50 %; optional rate mode in Options) |
+| Pitch / roll | Arrow keys | Right stick |
+| Arm / disarm | `Space` | Cross |
+| Release mission module (pod) | `F` | R2 |
+| Flight mode: Beginner → Intermediate → Acro | `B` | R1 |
+| Self-level / acro toggle (legacy) | `V` | Square |
+| Camera: FPV → chase → spectator | `C` | L1 |
+| HUD on/off | `H` | Triangle |
+| Mouse-as-sticks | `M` | – |
+| Restart (bench test flights) | `F5` | Create |
+| Pause / end mission | `Esc` | Options |
+
+**F11** fullscreen, **F3** performance overlay.
 
 ---
 
-## The four stages
+## The garage (Map 1)
 
-### 1. BUILD
-Green cutting-mat grid, wood-panel backdrop, 3/4 camera (right-drag orbits, wheel zooms). Parts live in a **3D tray**
-at the bottom of the screen; pick a category (Frame, Motors, Props, ESC, Flight ctrl, VTX, Camera, Battery).
-**Click or drag** a part to a glowing slot. Each slot shows a **blue marker** (attach point) and a **yellow marker**
-(orientation: a spin arrow for motors/props, a forward arrow for everything else). Press **R** to rotate a held part until its
-white arrow matches the yellow one. Parts snap on release; wrong placements flash red, shake and **bounce back** to the tray with a message.
-Click an installed part to pick it up again (parts that depend on it return to the tray too).
+A walkable, fully lit home garage on a suburban lot, with a driveway, a road the delivery van uses, and an outdoor test pad with practice
+gates. Equipment is built on one reusable interaction framework (`Interactable` bodies with prompt/use/secondary/accept/pick callbacks and
+`Pickable` physics items) with a hover glow and on-screen prompts that show the right key or button.
 
-* Frames: 5" carbon X (default) + 3" ducted whoop and 7" long-range (unlocks).
-* Motors: 2306 2400KV (default), 2207 1800KV, 2806 1300KV — each exists as a CW and a CCW motor (arrow on the bell).
-* Props: 5143 tri-blade yellow (default), 5040 bi-blade orange — CW and CCW versions.
-* 4-in-1 ESC (M1-M4 pads, ESC1-4 chips, CUR pin, C BAT pad), flight controller (motor pad row, gyro chip), VTX with antenna,
-  FPV camera, 4S LiPo (1100 / **1500** / 2200 mAh).
-* **Spin direction is enforced**: M1 and M4 are CCW, M2 and M3 are CW (Betaflight "props in"). A motor's arrow must match its slot and
-  the prop's spin must match the motor's arrow. All four motors must be the same model, all four props the same model.
-* Stack order is enforced bottom-up (ESC, FC, VTX, battery); props need their motor first.
-
-### 2. WIRE
-The stack is shown exploded. Click a pad, then the pad it connects to. Cables are coloured tubes; the four pre-soldered motor
-leads run along the arms. Wrong pairings **flash red** and are refused with an explanation.
-
-| Wire | Colour |
+| Thing | What it does |
 |---|---|
-| FC M1/M2/M3/M4 -> ESC S1/S2/S3/S4 (4-wire pad harness) | yellow / green / blue / white |
-| Battery red -> ESC BAT+, black -> ESC BAT- | red / black |
-| VTX -> FC UART pad | blue |
-| Camera -> FC CAM pad | yellow |
-| ESC CUR -> FC CURR (optional) | white |
+| **Cupboard & drawers** (under the bench) | Open/close with animation. The **starter kit** box is in the cupboard; tools live in the drawers. |
+| **Parcels** | Pick up, carry, place on any surface, rotate, drop. Open them **inside** the garage: flaps open, the parts pop out into storage. |
+| **Workbench** | `E` sits you at the bench with the current build. `RMB` loads a drone from the rack; bringing a held drone puts it on the bench. |
+| **Computer** | Opens **WORKSHOP OS** (below). |
+| **Storage shelves** | Labelled bins show live stock per category; `E` inspects a bin. |
+| **Drone rack** | Every saved drone is shown as its real 3D build with its name. `E` options (set active, to bench, inspect, remove battery), `F` picks it up, `RMB` inspects. |
+| **Charging station** | Remove a battery from a drone (rack menu), carry it to a dock (`E`), watch the LED and percentage, take it back and refit it to its drone. |
+| **Test station** | Carry a drone to it and press `E`: animated diagnostics (power, FC, link, video, motor spin test, structure, battery) and a report. Passing certifies the drone for deployment. |
+| **Garage door / light switch / bench lamp** | Roll-up door with rumble, fluorescent lights that flicker on, a desk lamp. |
+| **Deployment case** | Opens the deployment map (or pack a held drone into it). |
+| **Outdoor test pad** | Test flights with the active drone: Shakedown, Gate Race, Battery Challenge, Free Flight. |
+| **3D printer** (Level 2) | Prints mounts and prop guards for filament credits; the head moves while printing. |
+| **Assembly station** (Level 3) | Animated arms; works the automated production orders. |
+| **Delivery van** | Drives in when an order arrives, honks, drops the parcel on the driveway and leaves. |
 
-Battery leads on the **C BAT** (capacitor) pad, power onto signal pads, M1 on S2 etc. are all rejected. Click a connected pad to unplug it.
-Without the optional CUR wire the HUD's *total* current reads `--.- A` (per-motor amps still work via the ESC telemetry on the harness).
+The **tablet** (`Q` / touchpad) shows the career guide, deliveries and ETAs, charging, printing and production, the full inventory and
+salvage bin (repair / recycle), and the roster. Notifications pop up on the right. Layout (parcels, tools, batteries, drones left on the
+floor, door and light state) is saved. Time of day runs while you're in the garage and is shown on the sky through the open door.
 
-### 3. SETUP (Betaflight-style, UI only)
-Tabs **Firmware** (board/airframe summary, presets, camera angle), **Gyro** (live 3D wireframe + roll/pitch/yaw, gyro low-pass filter),
-**Port** (VTX UART, receiver UART, VTX power), **PID** (P/I/D per axis, rates with expo, rate-curve plot and a *simulated step response* that
-visibly rings when the tune is bad) and **Motor** (four vertical bars + sliders; hold `1-4` to spin a motor and check wiring/spin direction).
-Pick a mission and press **SAVE & FLY**.
-
-### 4. FLY
-First-person camera from the nose with an up-tilt (default 20°, adjustable in Setup > Firmware; the FOV also widens by up to 5° with speed).
-**Analog FPV effect** (noise, horizontal tearing, chroma bleed, scan lines) grows with distance from the pilot and when terrain blocks the link.
-HUD: crosshair, speed (km/h), altitude (AGL), battery voltage bar, live total amps, per-motor amp labels (updated every frame), throttle gauge,
-mission info. `H` hides it. `Esc` pauses.
-
-**Missions** (best times and unlocked parts are saved to `user://save.json`):
-* *Free flight* over hills, trees and a lake.
-* *Gate race*: 12 rings in order against a timer (par shown). Finishing unlocks the 3" whoop frame, 2207 motors, 5040 props and the 2200 mAh pack.
-* *Battery challenge*: a ~3.3 km, 17-checkpoint route on **one** pack. Finishing unlocks the 7" frame and 2806 motors.
+A **career guide** at the bottom of the screen walks a new player through the first loop (starter kit → build → save → certify →
+shakedown → first mission → buy parts → repair → contract → Level 2).
 
 ---
 
-## Flight and power model (summary)
+## Building drones (the workbench)
 
-* X-quad, four thrust vectors, rigid-body integration at 240 Hz. Thrust/motor = `T_ref · (KV/2400)^1.3 · (prop diameter)^3 · prop factor` at 100 % rpm and
-  scales with rpm² (rpm ∝ throttle × pack voltage). Prop reaction torque gives yaw. Rate-mode PID (P, I, D-on-measurement) with a gyro low-pass,
-  a D-term low-pass, throttle/voltage gain scheduling, and airmode-style mixer compression.
-* Current per motor: `0.1 A + I_full · rpm^2.2 · (16.8 V / V_pack)`; `I_full` follows thrust^1.5 and falls with prop size. Default 5" build: **~0.1 A/motor idle,
-  ~17 A/motor and ~70 A total at full throttle**, ~7-8 A total hover.
-* Battery: 4S LiPo, open-circuit voltage from a charge curve, internal resistance (**voltage sags under load**), mAh integration, **cut-off at 3.2 V/cell**
-  on a 0.45 s-filtered terminal voltage — below it the ESCs stop and the drone falls. An ESC/pack current limit (60 A per Ah) protects mismatched builds.
-* Heavier builds hover at a higher throttle (more current), climb and accelerate slower and drain the pack faster; the 2200 mAh pack proves it.
-* Impacts into a surface faster than **7 m/s (≈25 km/h)** crash: 1-4 props break (those facing the impact first), then a slow-motion chase-cam **replay** of the
-  last ~4 s plays, then the workshop. Gentle landings are fine. Water contact ends the flight too.
+Parts come from **garage storage** — the tray shows how many of each you own, and installing consumes them.
 
----
+* Required parts: **frame, 4 motors (2 CW + 2 CCW), 4 props, ESC, flight controller, receiver, VTX, antenna, camera mount, camera, battery**.
+  Optional: **protection** (prop guard rings or armour plates) and a **mission module** (training drop pod, twin rack, heavy pod, recon sensor pod).
+* Drag or click a part to its glowing slot; `R` rotates it until its arrow matches the yellow marker. Compatibility is enforced
+  (spin direction, matching motor/prop models, stack order, digital camera needs a digital VTX, whoops can't take guards or drop modules,
+  the heavy pod needs a 7" or armoured frame).
+* After placing a part its **screws glow**: click (or hold) the part and a screwdriver drives them one by one (the *Power screwdriver*
+  upgrade does all of a part at once). WIRE and SAVE need every part secured.
+* **Repair tool**: hold on a damaged part to restore it for credits. **Paint frame** cycles colours. **Strip build** returns everything to
+  storage (damaged parts to the salvage bin). Lifting a damaged part off sends it to salvage when you drop it in the tray.
+* WIRE and SETUP are the original pad-wiring and Betaflight-style tuning stages. **TEST FLY** flies the bench build on the testing grounds;
+  **SAVE DRONE** names it and puts it on the rack (optionally also saving a production preset).
 
-## Assumptions I made (the brief left these open)
-
-1. **Units/scale** — workshop 1 unit = 1 cm, flight world in metres. The tray is its own 3D viewport so parts never clip into the bench.
-2. **Prop size follows the frame** (the prop part auto-sizes to 3"/5"/7"); thrust uses the prop's diameter. The ducted whoop gets a x1.8 thrust bonus (ducts).
-3. **Motor direction** — the brief says motors have a CW/CCW arrow that must match the prop. I model CW/CCW as separate motor *and* prop parts and fix the layout to
-   Betaflight props-in order. Motors are pre-soldered to the ESC M1-M4 pads (their leads are drawn along the arms); the player wires the harness, power, VTX and camera.
-4. **C BAT pad** is treated as the capacitor pad (a decoy that rejects battery leads). **CUR** is optional and enables the total-amps HUD readout.
-5. **Rates** live in the *PID* tab (the brief lists exactly five tabs). Rates are Betaflight-"actual"-like: centre sensitivity, max rate, expo per axis.
-6. **PID units are normalised to the airframe** (the FC auto-scales gains for authority), so the defaults are stable on every build and tuning, not airframe
-   mismatch, decides oscillation. Bad tuning really rings in flight (a prop-wash style disturbance excites it); the Setup chart shows the same loop.
-7. **Port tab has consequences**: receiver UART off -> cannot arm; VTX UART off -> video is pure static. Both default to on. VTX power (25/200/600 mW)
-   sets how far the video stays clear (40 / 100 / 180 m clean, 280 / 600 / 1000 m dead). The receiver link fails safe beyond 900 m or at the world edge.
-8. **"Slight tilt for speed"** is implemented as the FPV camera up-tilt (default 20°, adjustable) plus a small speed-dependent FOV widening.
-9. **FOV** (60-110) is the horizontal field of view.
-10. **Battery** is recharged automatically when you return to the workshop; broken props are not (you must scrap them and fit fresh ones in BUILD).
-11. **Unlocks** come from *finishing* a mission once (not from beating par). **Options > Unlock all parts (testing)** unlocks everything.
-12. **Keybinds** are stored by physical key position, so WASD works on any layout.
-13. **Audio** is synthesised at runtime (motor whine, UI sounds, a generative music bed); volumes map to Master/Music/SFX buses.
-14. The workshop keeps your current drone in `save.json`; *New drone* on the main menu clears it.
-15. The Windows build is unsigned and not tested on real GPUs in this environment (see the note above).
+Builds have real trade-offs: mass, thrust-to-weight, hover current and endurance, top speed, agility, durability, control range
+(2.4 GHz vs long-range receiver), video range (antenna gain, analogue vs digital), camera tilt and vibration (mount, FC), crash tolerance
+(guards/armour) and module payload. Damaged parts reduce motor thrust, add vibration and video noise, cut battery capacity and cause
+control glitches. The drone you fly is always the saved build, paint and damage included.
 
 ---
 
-## Play-test checklist
+## WORKSHOP OS (the computer)
 
-Tip: **Options > Unlock all parts (testing)** and the *Quick to Setup & Fly* button on the main menu save time.
-
-- [ ] **Wiring rejects bad input** — WIRE stage: connect FC `M1` to ESC `S2` (red flash + message, no wire). Put the battery **red** lead on `BAT−`, on **C BAT**, or on any
-      signal pad (rejected). VTX onto the `CAM` pad (rejected). Then make all nine correct connections; the checklist turns green and *NEXT: SETUP* enables.
-- [ ] **Spin direction is enforced** — BUILD: drop a CW motor on the CCW slot M1 (bounces back, "Wrong spin…"). Install the right motors, then try a CW prop on a CCW motor (bounces).
-      Mixed motor models or a prop before its motor are also refused. Setup > Motor: hold `1`-`4` and check each arrow's direction matches its label.
-- [ ] **Amp readouts change with throttle** — FLY: armed at zero throttle the HUD shows ~0.1 A per motor; raise throttle and the four labels and the total follow
-      (hover ≈ 7-8 A total, full throttle ≈ 17 A per motor / ≈ 70 A total). Voltage drops under load and recovers when you lift off.
-- [ ] **A crash breaks a prop** — fly into the ground/a tree above ~25 km/h: props break, a slow-mo replay plays, the workshop opens on BUILD with broken props shown.
-      Click them to scrap, drop fresh ones on the glowing slots, and you can continue. (A gentle landing breaks nothing.)
-- [ ] **Battery cut-off works** — fly (or hover) until the pack empties: *LOW BATTERY* flashes below 3.45 V/cell, at 3.2 V/cell *POWER LOSS* appears, motors stop and the drone drops;
-      you land back in the workshop with the pack recharged. Try full throttle with a nearly empty pack to see the voltage sag trigger it earlier.
-- [ ] **Keybinds persist after restart** — Options > Controls: rebind *Throttle up* to `T` (and a gamepad axis), close the game, start it again: the new bindings are still there
-      (also FOV, preset and volume). Deleting/corrupting `settings.cfg` or `save.json` just resets to defaults.
-- [ ] Extras: analog video degrades with distance; `H` hides the HUD; mouse-stick mode (`M`); F11 fullscreen; gate race counts gates in order and saves the best time;
-      Setup > PID with P ≈ 100+ and low D shows a ringing step response and a shaky hover.
+| App | What it does |
+|---|---|
+| **PARTS MARKET** | Fictional manufacturers (Kestrel Dynamics, Voltforge, Aerofoil Works, Hexacore Labs, Stepline Radio, Lumen Optics, Boreal Cells, Ironweave). Each product has price, quality, mass, specs, compatibility notes, daily stock, a rotating 3D preview, and a garage-level tier. Cart → order → courier ETA. Storage space is limited. |
+| **DRONE MANAGER** | Roster with 3D preview and full spec sheet, damage list, rename, set active, save as preset, duplicate (production order), repaint, compare two drones, disassemble. |
+| **FACTORY ORDERS** | Customer contracts (racing, training, camera, reconnaissance, utility drones with spec requirements — each drone shows why it does or doesn't qualify), production orders from presets (required/available/missing parts, estimated cost, "order the missing parts"), automated assembly from Level 3, preset management. |
+| **DEPLOYMENT MAP** | Missions by region with difficulty, conditions (time, weather, wind), rewards, recovery rules, objectives, a briefing map, drone selection with readiness checks and module rearm cost. |
+| **INVENTORY** | Stock per category (sell back at half price) and the salvage bin (repair or recycle). |
+| **DIAGNOSTICS** | Virtual checks and the performance report for any drone (certification itself needs the physical test station). |
+| **FINANCES** | Balance, recent income/spending, fleet and stock value, statistics, full ledger. |
+| **GARAGE UPGRADES** | Levels 1–5 (Home Garage → Improved Workshop → Small Drone Factory → Advanced Drone Production Garage → Professional Drone Development Facility), each adding visible equipment, rack slots, charging docks, storage and market tiers; plus one-off upgrades (power screwdriver, fast charger, extra shelving, bulk supplier, express courier, faster assembly). |
+| **SETTINGS** | Opens the options. |
 
 ---
 
-## Automated checks (optional)
+## Missions and maps
+
+| Map | Missions |
+|---|---|
+| **Garage & Testing Grounds** — hills, lake, the garage property | Shakedown Flight (6 gates + land on the pad), Gate Race, Battery Challenge, Free Flight |
+| **Rural Conflict Zone — Vessa Lowlands** — fields and hedgerows, valley road, farm, village, checkpoint, training range | Training Range: Static Targets, Eyes on the Road (recon), Convoy Interdiction, Iron Column, Free Flight |
+| **Industrial Conflict Zone — Korvo Works** — warehouses, factory hall, chimneys, container yard, rail tracks, helipad | Radar Blackout (with a video-jamming mast), Warehouse Recon, Rotor Hunt, Transport Hunt, Free Flight |
+
+* **Deployment**: a short intro shot of your drone at the field launch point, then FPV. Missions unlock in sequence.
+* **Targets** (all fictional): Strelka utility truck, Korsak light armoured carrier, Bastion tracked transport, IG-70 Warden tank,
+  Okulus mobile radar, Vespa-9 scout helicopter, Tarn-4 transport helicopter, Kestra patrol UAV, radar installation, jammer mast,
+  empty guard tower, range target structures, unoccupied supply containers, field communications unit.
+* **Vehicles** drive the road in convoys (followers keep their gap, slow for wrecks, speed up when alerted). **Helicopters** sit on the
+  helipad spooling up, take off, climb, fly a patrol loop with banking and altitude changes, hover, return and land; when they notice the
+  drone they climb and speed up; when defeated they spin down to a crash. **UAVs** orbit high.
+* **Damage states**: smoke below ~55 % health, fire below 25 %, then a stylised blast (flash, shock ring, sparks, dust, debris) and a
+  charred wreck that keeps smoking. Objective kills trigger a short slow-motion **cinematic**.
+* **Attacks are abstract**: release a pod from the mission module (`F` / R2) — the HUD shows a predicted-impact reticle that turns red
+  over a target — or fly into a target (impact strike; the drone is expended). Damage = module power × falloff × (1 − armour).
+* **Recon**: keep a target centred in view within range to fill its scan ring (the recon pod and digital cameras scan faster/further).
+* **Return to launch**: after the objectives, land at the launch point to recover the drone. Training missions always recover crashed
+  drones; in **contested** missions a drone that goes down away from the launch point is **lost** (removed from the roster). Rewards are
+  paid as soon as the objectives are done.
+* Conditions: dawn / noon / dusk, clear / overcast / fog / rain (particles), wind with gusts and turbulence that push the drone around.
+
+---
+
+## Flight
+
+* Original physics model kept: four thrust vectors, 240 Hz rigid body, rate PIDs with gyro/D-term filtering, live power budget and
+  voltage sag, battery cut-off, prop-wash; plus wind/gusts, per-motor health, building collisions and per-build crash tolerance.
+* **Beginner**: self-level with a 32° tilt limit and **altitude hold** (throttle centre = hover, up climbs, down descends). **Intermediate**:
+  self-level, manual throttle. **Acro**: rate mode. Default in Options; cycle in flight with `B` / R1.
+* **Cameras**: FPV (analogue break-up with distance and terrain, or the **digital** link — sharp, then macro-blocking — when an HD VTX is
+  fitted), chase, spectator; crash replays and a **cinematic replay** of the whole flight from the result screen.
+* **OSD**: speed, altitude, battery, amps, mission/objectives, crosshair, compass with objective bearing, target brackets with health/scan
+  progress and distance, off-screen objective arrows, pod count — each element can be switched off in **Options > Flight & Pad**.
+* Crashes damage parts depending on impact speed, direction (nose hits hurt the camera), frame durability and guards. The battery's
+  charge carries over between flights — charge it at the docks.
+* Controller vibration on arming, gates, hits, kills, parcels, doors and pick-ups (toggle in Options).
+
+---
+
+## Performance
+
+Compatibility renderer (OpenGL 3.3) so it starts on any GPU. Graphics presets Low / Medium / High (shadows, MSAA, render scale, tree
+count, terrain resolution, draw distance, glow), auto-picked on first launch. Terrain is chunked, trees are MultiMeshes, buildings are
+simple boxes with grid-bucketed collision, particles are CPU particles, and worlds build over several frames behind a progress bar.
+
+---
+
+## Automated checks
 
 ```
-# fast, no GPU needed (build/wire rules, settings & save robustness, keybind persistence across processes)
+# rules, settings/save robustness, keybind persistence
 godot --headless --path . res://tests/logic_test.tscn
 godot --headless --path . res://tests/logic_test.tscn -- read
 
-# flight/power model numbers (idle/full-throttle amps, PID stability, battery cut-off, per-build stats)
+# flight / power model numbers
 godot --headless --path . --script res://tests/sim_test.gd
 
-# mission / battery / crash / landing logic inside the real FlyStage (works headless)
-godot --headless --path . res://tests/driver.tscn -- /tmp race_complete gate_miss battery_complete battery_flat rx_off crash_breaks_prop soft_landing
+# mission / battery / crash logic in the real FlyStage, and the whole career loop
+godot --headless --path . res://tests/driver.tscn -- /tmp race_complete gate_miss battery_complete battery_flat rx_off crash_breaks_prop soft_landing e2e
 
-# real mouse-input UI tests + screenshots (needs a display, or xvfb + any Vulkan driver, e.g. lavapipe)
-godot --path . res://tests/driver.tscn -- <out_dir> interaction wire_interaction click_mode menu build_partial wire setup_tabs fly crash
+# screenshots (needs a display or xvfb):
+godot --path . res://tests/driver.tscn -- <out_dir> garage garage_interact garage_os garage_delivery bench_new fly_rural fly_industrial fly_strike_loss
 ```
+
+`e2e` drives the full first-playable loop through the game code: open the starter kit, assemble a drone on the bench (consuming storage,
+tightening screws), wire and save it, certify it on the test station, fly the Shakedown, fly the training range and get paid, order parts
+and receive the van delivery, repair a damaged motor, and reload the save.
+
+---
 
 ## Project layout
 
 ```
 project.godot, export_presets.cfg, icon.svg
-scenes/main.tscn            single scene; everything else is built in code
-shaders/analog_fx.gdshader  FPV analog break-up
-scripts/autoload/           Settings (+keybinds), SaveData, Audio (procedural), Game (shared state)
-scripts/data/               Parts (catalogue, slots, wires, stats), MeshFactory (procedural meshes), DroneVisual
-scripts/workshop/           Workshop, BuildStage, WireStage, SetupStage
-scripts/fly/                FlyStage, FlyWorld (terrain/trees/lake), DroneSim, FlightMath, Missions, Hud
-scripts/ui/                 theme, main menu, options/rebinding, charts, gyro view, motor diagram
-tests/                      headless logic/sim tests and the visual/interaction driver
+scenes/main.tscn              single scene; everything else is built in code
+shaders/analog_fx.gdshader    analogue / digital FPV video effects
+scripts/autoload/             Settings (+keybinds/OSD), SaveData (records), Audio (procedural), Game (bench state, flight context),
+                              Career (economy, roster, deliveries, contracts, levels, guide), Pad (gamepad glyphs, rumble, cursor)
+scripts/data/                 Parts (catalogue, slots, compatibility, stats), Campaign (missions, levels, upgrades, contracts),
+                              MeshFactory (part meshes), DroneVisual (assembled drone, paint, damage)
+scripts/garage/               Garage (the hub), GaragePlayer, Interactable, Pickable, GarageKit (furniture, van, materials)
+scripts/workshop/             Workshop, BuildStage, WireStage, SetupStage
+scripts/fly/                  FlyStage, FlyWorld (3 maps), DroneSim, FlightMath, Missions, MissionRunner, CombatTarget,
+                              VehicleKit (vehicle models), Fx (particles), Hud
+scripts/ui/                   WorkshopOS, Tablet, ContextMenu, DiagnosticsPanel, theme, main menu, options, charts
+tests/                        logic/sim tests and the driver (visual + end-to-end)
 ```
+
+---
+
+## Notes and limits
+
+* Combat, damage and equipment are deliberately abstract and fictional; missions are game objectives, not procedures.
+* Wiring is the simplified pad-to-pad harness from the original game; the receiver and antenna are plug-in parts.
+* The workbench can't be relocated yet, and the forest, mountain and urban maps are future work.
+* The Windows build is unsigned and wasn't run on real Windows hardware here (the screenshots come from Linux/Xvfb with Mesa).

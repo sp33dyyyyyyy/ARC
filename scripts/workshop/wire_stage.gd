@@ -104,7 +104,7 @@ func _explode() -> void:
 			continue
 		var cat: String = s["cat"]
 		_tween.tween_property(n, "position", s["pos"] + Parts.EXPLODE.get(cat, Vector3.ZERO), 0.8).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		if cat == "prop":
+		if cat in ["prop", "guard"]:
 			n.visible = false
 		for l in n.find_children("*", "Label3D", true, false):
 			if l.is_in_group("pad_label") or l.is_in_group("chip_label"):

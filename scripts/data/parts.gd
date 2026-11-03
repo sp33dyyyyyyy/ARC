@@ -95,6 +95,8 @@ const EXPLODE := {
 	"frame": Vector3(0, 0, 0), "motor": Vector3(0, 0, 0), "prop": Vector3(0, 0, 0),
 	"esc": Vector3(0, 0, 0), "fc": Vector3(0, 3.6, 0), "vtx": Vector3(0, 7.2, 0),
 	"cam": Vector3(0, 0, 0), "battery": Vector3(11.0, 5.0, 3.0),
+	"antenna": Vector3(0, 7.2, 0), "rx": Vector3(0, 0, 0), "cam_mount": Vector3(0, 0, 0),
+	"guard": Vector3(0, 0, 0), "payload": Vector3(0, 0, 0),
 }
 
 static var _db: Dictionary = {}

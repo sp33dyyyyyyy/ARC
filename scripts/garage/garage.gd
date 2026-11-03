@@ -62,9 +62,11 @@ var _overlay_layer: CanvasLayer
 var _overlay_root: Control
 var _fade: ColorRect
 var _busy := false   # transitions
+var _built_level := 1
 
 
 func _ready() -> void:
+	_built_level = Career.level()
 	world = Node3D.new()
 	world.name = "GarageWorld"
 	add_child(world)
@@ -99,6 +101,7 @@ func _ready() -> void:
 func before_exit() -> void:
 	_save_layout()
 	Career.save()
+	Audio.engine_level = 0.0
 
 
 # =====================================================================================
@@ -654,7 +657,7 @@ func _sync_rack() -> void:
 				bn.visible = false
 		it.add_child(mdl)
 		it.highlight_root = mdl
-		var tag := GarageKit.label(it, "%s%s" % [d["name"], "  ★" if Career.data["active_drone"] == d["id"] else ""], 40, Vector3(0, 0.15, 0.2), Color(1, 0.9, 0.7) if d.get("certified", false) else Color(1, 0.55, 0.4))
+		var tag := GarageKit.label(it, "%s%s" % [d["name"], "  ★" if Career.data["active_drone"] == d["id"] else ""], 30, Vector3(0, 0.3, 0.22), Color(1, 0.9, 0.7) if d.get("certified", false) else Color(1, 0.55, 0.4))
 		tag.rotation_degrees.y = 0
 		it.pick_prompt_fn = func() -> String: return "Pick up %s" % d["name"]
 		it.pick_fn = func(pl) -> bool:
@@ -1122,6 +1125,12 @@ func close_overlay() -> void:
 	if overlay != null and is_instance_valid(overlay):
 		overlay.queue_free()
 	overlay = null
+	if Career.level() != _built_level and not _busy:
+		# a garage expansion was just bought: rebuild the room with the new equipment
+		_busy = true
+		_save_layout()
+		Game.goto("garage", {"spawn": "pc", "message": "Workshop expanded to Level %d - %s. New equipment installed." % [Career.level(), Career.level_info()["name"]]})
+		return
 	if not _busy:
 		player.enabled = true
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -1371,6 +1380,18 @@ func _open_options() -> void:
 # =====================================================================================
 func _process(dt: float) -> void:
 	_process_van(dt)
+	# ambience: a faint fluorescent hum, and the van's engine when it is near
+	var amb := 0.035 if lights_on else 0.015
+	var pitch := 0.12
+	if van.visible and player:
+		var d := van.global_position.distance_to(player.global_position)
+		var vl := clampf(18.0 / (d + 6.0), 0.0, 0.9)
+		if vl > amb:
+			amb = vl
+			pitch = 0.45
+	Audio.engine_level = amb
+	Audio.engine_pitch = pitch
+	Audio.engine_chop = 0.0
 	if Engine.get_process_frames() % 30 == 0:
 		_update_time_of_day()
 	# charger LEDs and labels
@@ -1571,6 +1592,9 @@ func _place_player() -> void:
 		"outside":
 			player.position = Vector3(6.5, 0, 9.0)
 			player.yaw = deg_to_rad(160)
+		"pc":
+			player.position = Vector3(-2.8, 0, -2.0)
+			player.yaw = deg_to_rad(110)
 		_:
 			player.position = Vector3(0.0, 0, 2.2)
 			player.yaw = 0.0

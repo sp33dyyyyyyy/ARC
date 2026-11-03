@@ -775,21 +775,6 @@ func fly_strike_loss() -> void:
 	await shot("fly_strike_result")
 
 
-func dbg_os() -> void:
-	_fresh_career_with_drone()
-	Game.goto("garage", {"spawn": "door"})
-	await _frames(30)
-	var g := _garage()
-	g.open_computer()
-	await _frames(5)
-	var os: Control = g.overlay
-	print("DBG os size=", os.size, " pos=", os.position, " anchors=", os.anchor_right, " child0=", os.get_child(0), " size0=", (os.get_child(0) as Control).size)
-	g._context_menu("t", [])
-	await _frames(5)
-	print("DBG cm size=", g.overlay.size, " root=", g._overlay_root.size, " ui=", g.ui.size, " vp=", g.get_viewport().get_visible_rect())
-
-
-
 func bench_new() -> void:
 	Career.new_career()
 	Career.open_parcel("starter")
@@ -960,3 +945,67 @@ func e2e() -> void:
 	var saved_credits := Career.credits()
 	Career.load_career()
 	print("CHECK e2e career persists: ", Career.credits() == saved_credits, " roster=", Career.roster().size(), " missions=", Career.data["missions_done"].keys())
+
+
+func pod_drop() -> void:
+	var fs := await _fly_career("range_static")
+	fs._end_intro()
+	await _frames(5)
+	fs.debug_freeze = true
+	var t: CombatTarget = fs.runner.targets[0]
+	fs.sim.pos = t.center() + Vector3(0, 20, 0)
+	fs.sim.vel = Vector3.ZERO
+	var hp0 := t.hp
+	var ip := fs.runner.predict_impact(fs.sim)
+	print("CHECK predicted impact near target: ", snappedf(t.distance_to_box(ip), 0.1), " m")
+	fs._release_payload()
+	await get_tree().create_timer(3.0).timeout
+	print("CHECK pod hit the board: hp ", hp0, " -> ", t.hp, " dead=", t.dead, " pods_left=", fs.pods_left)
+	await shot("pod_drop")
+
+
+func garage_tablet() -> void:
+	_fresh_career_with_drone()
+	Career.place_order({"pod_s": 1})
+	Game.goto("garage", {"spawn": "rack"})
+	await _frames(40)
+	var g := _garage()
+	g.player.yaw = deg_to_rad(90)
+	g.player.pitch = deg_to_rad(-15)
+	await _frames(10)
+	await shot("garage_rack")
+	g._open_tablet("status")
+	await _frames(10)
+	await shot("tablet_status")
+	g.close_overlay()
+	g._drone_menu(Career.roster()[0]["id"])
+	await _frames(10)
+	await shot("rack_menu")
+
+
+func recon_scan() -> void:
+	var fs := await _fly_career("eyes_road")
+	fs._end_intro()
+	await _frames(5)
+	fs.debug_freeze = true
+	for t in fs.runner.targets:
+		fs.sim.pos = t.center() + Vector3(0, 12, 30)
+		fs.sim.basis = Basis.looking_at(t.center() - fs.sim.pos, Vector3.UP) * Basis(Vector3.RIGHT, deg_to_rad(-float(fs.cfg["cam_angle"])))
+		await get_tree().create_timer(3.0).timeout
+	print("CHECK recon scanned: ", fs.runner.targets.map(func(t): return snappedf(t.scanned, 0.01)), " phase=", fs.runner.phase)
+	await shot("recon")
+
+
+func garage_level4() -> void:
+	_fresh_career_with_drone()
+	Career.data["level"] = 4
+	Career.data["printer"] = {"item": "mount_35", "t": 20.0, "total": 37.0}
+	Career.save_preset("Wasp build", full_build(), FlightMath.default_cfg())
+	Career.add_job("Wasp build", 2, true)
+	Game.goto("garage", {"spawn": "door"})
+	await _frames(60)
+	var g := _garage()
+	g.player.yaw = deg_to_rad(-25)
+	g.player.pitch = deg_to_rad(-10)
+	await _frames(20)
+	await shot("garage_level4")
