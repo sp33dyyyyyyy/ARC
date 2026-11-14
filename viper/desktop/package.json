@@ -26,7 +26,6 @@
     "pdfjs-dist": "6.5.438",
     "qrcode": "1.5.4",
     "quickjs-emscripten": "0.32.0",
-    "sql.js": "1.16.0",
     "systeminformation": "5.33.22",
     "ws": "8.23.0",
     "xlsx": "0.18.5"
@@ -48,10 +47,16 @@
       "plugins-examples/**/*",
       "build/icon.*",
       "build/tray*.png",
-      "package.json"
+      "package.json",
+      "!node_modules/@napi-rs/**",
+      "!node_modules/pdfjs-dist/{build,web,types,image_decoders,cmaps,standard_fonts}/**",
+      "!**/*.{map,md,markdown,ts,mts,cts}",
+      "!**/{test,tests,__tests__,docs,example,examples}/**",
+      "!**/{LICENSE,CHANGELOG,HISTORY}*"
     ],
     "asarUnpack": [
-      "node_modules/pdfjs-dist/**",
+      "node_modules/pdfjs-dist/legacy/**",
+      "node_modules/pdfjs-dist/wasm/**",
       "node_modules/quickjs-emscripten*/**",
       "node_modules/@jitl/**"
     ],
@@ -88,6 +93,10 @@
         "repo": "ARC",
         "releaseType": "release"
       }
+    ],
+    "electronLanguages": [
+      "en-US",
+      "en-GB"
     ]
   }
 }
