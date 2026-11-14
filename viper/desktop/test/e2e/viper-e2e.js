@@ -53,6 +53,8 @@ function runInstaller() {
   // Runtime is bundled: no Node.js/Python/.NET needed on the PC.
   const bundled = ['ffmpeg.dll', 'resources/app.asar', 'resources/app.asar.unpacked'].every((f) => fs.existsSync(path.join(INSTALL_DIR, f)));
   check('Installer', 'Electron runtime and app bundle installed (no Node.js/Python required)', bundled);
+  const secrets = []; (function walk(d) { try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.(pem|key|jks|keystore|p12|pfx)$|^\.env|^id_rsa/i.test(e.name)) secrets.push(path.relative(INSTALL_DIR, p)); } } catch { /* ignore */ } })(INSTALL_DIR);
+  check('Installer', 'no keys, certificates or .env files are shipped in the installed app', !secrets.length, secrets.slice(0, 5).join(', ') || 'none found');
   const size = dirSize(INSTALL_DIR);
   metrics.installedSizeMB = Math.round(size / 1048576);
 }

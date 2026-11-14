@@ -140,6 +140,23 @@ class Database {
     this.db.exec('BEGIN');
     try { const r = fn(); this.db.exec('COMMIT'); return r; } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
+  /**
+   * Keep the database small and fast over months of use: drop old speed samples, old read
+   * notifications, old automation runs and year-old activity entries, then let SQLite optimise.
+   * Conversations, memories, documents and transcripts are user data and are never pruned.
+   */
+  housekeeping(now = Date.now()) {
+    if (this.closed) return null;
+    const day = 86400000; const out = {};
+    const run = (k, sql, ...p) => { try { out[k] = this.db.prepare(sql).run(...p).changes; } catch { out[k] = 0; } };
+    run('modelPerf', 'DELETE FROM model_perf WHERE ts < ?', now - 90 * day);
+    run('deliveries', 'DELETE FROM deliveries WHERE notification_id IN (SELECT id FROM notifications WHERE read = 1 AND created_at < ?)', now - 90 * day);
+    run('notifications', 'DELETE FROM notifications WHERE read = 1 AND created_at < ?', now - 90 * day);
+    run('automationRuns', 'DELETE FROM automation_runs WHERE started_at < ?', now - 180 * day);
+    run('activity', 'DELETE FROM activity WHERE ts < ?', now - 365 * day);
+    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_perf_ts ON model_perf(ts); PRAGMA optimize;'); } catch { /* optional */ }
+    return out;
+  }
   close() { this.closed = true; try { this.db.close(); } catch { /* already closed */ } }
 }
 

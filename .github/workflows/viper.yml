@@ -7,6 +7,10 @@ on:
     paths: ['viper/**', '.github/workflows/viper.yml']
   workflow_dispatch:
 
+concurrency:
+  group: viper-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   E2E_MODEL: qwen2.5:0.5b
 

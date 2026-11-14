@@ -78,3 +78,20 @@ test('allowed folders: OneDrive-moved Documents is found and a missing folder is
   assert.equal(r.path, svc.dataDir, 'defaults to the first folder that exists');
   await assert.rejects(svc.call('POST', '/files/browse', { path: gone }), (e) => e.status === 404 && /Folder not found/.test(e.message));
 });
+
+test('database housekeeping prunes old logs but never user data', async (t) => {
+  const svc = await startViper('tidy');
+  t.after(() => svc.shutdown());
+  const old = Date.now() - 400 * 86400000;
+  svc.db.run('INSERT INTO model_perf (backend, model, ts, ttft_ms, tokens, tok_per_s, ok) VALUES (?, ?, ?, ?, ?, ?, ?)', 'x', 'm', old, 1, 1, 1, 1);
+  svc.db.run('INSERT INTO model_perf (backend, model, ts, ttft_ms, tokens, tok_per_s, ok) VALUES (?, ?, ?, ?, ?, ?, ?)', 'x', 'm', Date.now(), 1, 1, 1, 1);
+  svc.db.run('INSERT INTO activity (ts, actor, action) VALUES (?, ?, ?)', old, 'user', 'old');
+  svc.db.run("INSERT INTO notifications (id, title, read, created_at) VALUES ('n1', 'old read', 1, ?), ('n2', 'old unread', 0, ?)", old, old);
+  const conv = svc.orchestrator.createConversation({ title: 'keep me' });
+  svc.db.run('UPDATE conversations SET created_at = ?, updated_at = ? WHERE id = ?', old, old, conv.id);
+  const r = svc.db.housekeeping();
+  assert.deepEqual([r.modelPerf, r.activity, r.notifications], [1, 1, 1]);
+  assert.equal(svc.db.get('SELECT COUNT(*) AS n FROM model_perf').n, 1);
+  assert.ok(svc.db.get("SELECT id FROM notifications WHERE id = 'n2'"), 'unread notifications are kept');
+  assert.ok(svc.orchestrator.getConversation(conv.id), 'conversations are never pruned');
+});

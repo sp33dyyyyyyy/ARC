@@ -15,10 +15,13 @@ Manager measures the real numbers on your PC.
 
 ## 1. Install the desktop app
 
-Run `VIPER-Setup-<version>.exe`. It installs per user (no admin rights) into
+Run `VIPER-Windows-Setup.exe`. It installs per user (no admin rights) into
 `%LOCALAPPDATA%\Programs\VIPER`, adds desktop and Start-menu shortcuts and registers an
 uninstaller (Settings → Apps). Data lives in `%APPDATA%\VIPER` and is kept on uninstall unless you
 delete it.
+
+`VIPER-Portable.exe` runs VIPER without installing (it unpacks itself to a temporary folder on each
+start, so it starts a little slower). It uses the same data folder, `%APPDATA%\VIPER`.
 
 The installer is not code-signed, so Windows SmartScreen shows “Windows protected your PC” — choose
 *More info → Run anyway*, or sign it with your own certificate (see *Building* below).
@@ -52,10 +55,11 @@ rembg extension.
 
 ## 5. VIPER Mobile (Android 8.0+)
 
-1. Copy `VIPER-Mobile-1.0.0.apk` to the phone and install it (allow “Install unknown apps” for your
-   file manager).
+1. Copy `VIPER-Mobile.apk` to the phone and install it (allow “Install unknown apps” for your
+   file manager). If you installed the 1.0.0 test build (“VIPER” with a debug label), uninstall it first.
 2. On the PC: *Communications → Phone link → Show pairing code*.
-3. In the app: *Scan pairing code*. Both devices must be on the same Wi-Fi, or connected through a
+3. In the app: *Scan pairing code*. No camera? Click *Copy pairing code* on the PC, send the text to
+   the phone (e.g. e-mail to yourself) and share it to VIPER Mobile or paste it into the app. Both devices must be on the same Wi-Fi, or connected through a
    private VPN such as WireGuard or Tailscale for away-from-home use. Windows Firewall will ask to
    allow VIPER on private networks the first time — allow it.
 

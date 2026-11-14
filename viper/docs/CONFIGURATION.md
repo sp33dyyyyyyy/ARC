@@ -43,10 +43,35 @@ Every action is recorded in the activity log (*Settings → Activity log*).
 
 ## Performance
 
-*Settings → Performance*: context window, CPU threads, GPU layers (Ollama), keep-alive (how long
-a model stays in memory), temperature and how many messages stay in context. Only the model needed
-for a request is loaded; engines unload idle models. Animations can be reduced or switched off and
-pause automatically when VIPER is minimised.
+*Settings → Performance* has three profiles. **Automatic** picks one from the hardware VIPER
+detects, and you can switch at any time:
+
+| | Eco | Balanced (default on a Core i7 / 16 GB / integrated-graphics laptop) | Performance |
+|---|---|---|---|
+| Interface | reduced animation, 30 fps | full animation, 60 fps (30 fps while the AI is generating) | 60 fps |
+| Context window | 2,048 tokens | 4,096 tokens | 8,192 tokens |
+| Models kept in RAM at once | 1 | 1 | 2 |
+| Idle model unloaded after | 2 min | 10 min | 30 min |
+| Background warm-up | off | on | on |
+| CPU cores kept free for the UI | 2 | 1 | 0 |
+
+How the speed-ups work:
+
+- **Prompt cache.** The system prompt and the base tool list never change between messages.
+  The current time and remembered facts are added to your latest message instead. Local
+  engines can then reuse their cache and only process the new turn.
+- **Warm-up.** Shortly after start-up, VIPER loads the chat model and pre-processes its
+  instructions in the background, so the first reply starts sooner.
+- **One model in memory.** Before a different model runs (for example vision after chat),
+  other idle models are unloaded, so chat, code and vision models never all occupy RAM together.
+- **Threads.** CPU inference uses one thread per performance core. On Intel CPUs with
+  efficiency cores, the E-cores are left for Windows and the interface.
+- **Animation.** The core animation reduces its own detail if drawing becomes slow (adaptive
+  quality). It stops completely while VIPER is minimised, hidden or scrolled out of view.
+
+Every value (context window, threads, GPU layers, keep-alive, frame-rate limit, models in
+memory) can still be changed individually. The *Measured speed* table shows real tokens per
+second and time to first token for each model on your PC.
 
 ## Environment variables
 

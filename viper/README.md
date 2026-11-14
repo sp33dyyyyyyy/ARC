@@ -13,7 +13,8 @@ your own computer. No subscription, no cloud inference by default.
 
 ## Quick start (Windows)
 
-1. Run `VIPER-Setup-1.0.0.exe` (per-user install, desktop + Start-menu shortcuts, uninstaller).
+1. Run `VIPER-Windows-Setup.exe` (per-user install, desktop + Start-menu shortcuts, uninstaller), or
+   run `VIPER-Portable.exe` without installing.
 2. The first-run wizard scans your hardware, helps you install **Microsoft Foundry Local**
    (`winget install Microsoft.FoundryLocal`) or **Ollama**, downloads a model sized for your PC,
    tests it, and optionally installs voice (whisper.cpp + a British Piper voice).

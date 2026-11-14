@@ -164,11 +164,14 @@ async function createViper(opts = {}) {
     svc.briefing.scheduleProactive();
     svc.healthTimer = setInterval(() => svc.models.checkHealth().catch(() => {}), 20000);
     svc.apps.refresh().catch(() => {});
+    const tidy = () => { const r = db.housekeeping(); if (r && Object.values(r).some(Boolean)) log.info('database housekeeping', JSON.stringify(r)); };
+    svc.tidyTimer = setTimeout(function again() { tidy(); svc.tidyTimer = setTimeout(again, 86400000); svc.tidyTimer.unref?.(); }, 60000);
+    svc.tidyTimer.unref?.();
   }
   for (const m of FEATURE_MODULES) { try { const mod = require(m); await mod.start?.(svc); } catch { /* optional */ } }
 
   svc.shutdown = async () => {
-    clearInterval(svc.healthTimer); clearTimeout(warmTimer);
+    clearInterval(svc.healthTimer); clearTimeout(warmTimer); clearTimeout(svc.tidyTimer);
     svc.orchestrator.cancelAll();
     svc.monitor.stop(); svc.reminders.stop(); svc.automation.stop();
     for (const m of FEATURE_MODULES) { try { await require(m).stop?.(svc); } catch { /* optional */ } }

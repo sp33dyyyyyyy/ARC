@@ -78,13 +78,13 @@ api.on('tasks.changed', async () => {
   const t = (await api.get('/tasks').catch(() => ({ tasks: [] }))).tasks.filter((x) => x.state === 'running');
   const el = $('#task'); el.classList.toggle('hidden', !t.length); el.textContent = t.length ? `${t[0].label}${t[0].progress != null ? ` · ${Math.round(t[0].progress * 100)}%` : ''}${t.length > 1 ? ` (+${t.length - 1})` : ''}` : '';
 });
-api.on('settings.changed', (d) => { settings[d.section] = d.value; if (d.section === 'ui') core.setMode(d.value.animations); if (d.section === 'voice') voice.configure(d.value).catch(() => {}); });
+api.on('settings.changed', (d) => { settings[d.section] = d.value; if (d.section === 'ui') { core.setMode(d.value.animations); core.setFps(d.value.fpsLimit || 60); } if (d.section === 'performance') core.setAdaptive(d.value.adaptiveQuality !== false); if (d.section === 'voice') voice.configure(d.value).catch(() => {}); });
 
 (async () => {
   api.connect();
   settings = await api.get('/settings');
   state.health = (await api.get('/status')).health || {};
-  core.setMode(settings.ui.animations); core.start();
+  core.setMode(settings.ui.animations); core.setFps(settings.ui.fpsLimit || 60); core.setAdaptive(settings.performance?.adaptiveQuality !== false); core.start();
   if (settings.ui.hudCompact) setCompact(true);
   try { await voice.configure({ ...settings.voice, wakeEnabled: false }, await api.get('/voice/status')); } catch { /* voice optional */ }
   coreState();
