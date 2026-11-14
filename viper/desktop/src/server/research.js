@@ -30,11 +30,35 @@ async function ddgSearch(query, limit = 8) {
   return out;
 }
 
-async function fetchPage(url) {
-  const u = new URL(url);
+function isPrivateIp(ip) {
+  const v = ip.replace(/^::ffff:/, '');
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(v) || /^172\.(1[6-9]|2\d|3[01])\./.test(v)) return true;
+  return v === '::1' || v === '::' || /^f[cd]/i.test(v) || /^fe80/i.test(v);
+}
+/** Refuse loopback/LAN/link-local targets, including hostnames that resolve to them. */
+async function assertPublicUrl(u) {
   if (!['http:', 'https:'].includes(u.protocol)) throw new Error('Only http(s) URLs');
-  if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|\[::1\])/.test(u.hostname) || /^172\.(1[6-9]|2\d|3[01])\./.test(u.hostname)) throw new Error('Refusing to fetch a private-network address');
-  const r = await fetchWithTimeout(url, { headers: { 'User-Agent': UA, Accept: 'text/html,text/plain,application/xhtml+xml' }, redirect: 'follow' }, 15000);
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (/^localhost$/i.test(host) || host.endsWith('.local') || host.endsWith('.internal')) throw new Error('Refusing to fetch a private-network address');
+  const addrs = await require('node:dns').promises.lookup(host, { all: true }).catch(() => []);
+  if (!addrs.length) throw new Error(`Cannot resolve ${host}`);
+  if (addrs.some((a) => isPrivateIp(a.address))) throw new Error('Refusing to fetch a private-network address');
+}
+
+async function fetchPage(url) {
+  let u = new URL(url);
+  let r;
+  // Follow redirects manually so every hop is checked (a public page must not bounce us to the LAN).
+  for (let hop = 0; ; hop++) {
+    await assertPublicUrl(u);
+    r = await fetchWithTimeout(u.toString(), { headers: { 'User-Agent': UA, Accept: 'text/html,text/plain,application/xhtml+xml' }, redirect: 'manual' }, 15000);
+    if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+      if (hop >= 5) throw new Error('Too many redirects');
+      u = new URL(r.headers.get('location'), u);
+      continue;
+    }
+    break;
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const ct = r.headers.get('content-type') || '';
   if (!/text\/|html|xml|json/.test(ct)) throw new Error(`Unsupported content type ${ct}`);
@@ -42,7 +66,7 @@ async function fetchPage(url) {
   const title = (raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]?.trim();
   const main = raw.match(/<(article|main)[^>]*>([\s\S]*?)<\/\1>/i);
   const text = /html/.test(ct) ? htmlToText(main && main[2].length > 1500 ? main[2] : raw) : raw;
-  return { url: r.url || url, title: decodeEntities(title || u.hostname), text: text.slice(0, 60000), fetchedAt: now() };
+  return { url: u.toString(), title: decodeEntities(title || u.hostname), text: text.slice(0, 60000), fetchedAt: now() };
 }
 
 function relevantPassages(text, query, max = 2400) {
@@ -174,5 +198,5 @@ module.exports = {
     r.get(`${P}/:id/export`, async ({ params }) => ({ __raw: Buffer.from(svc.research.exportMarkdown(params.id)), type: 'text/markdown', filename: 'viper-research.md' }));
     r.delete(`${P}/:id`, async ({ params }) => svc.research.delete(params.id));
   },
-  ddgSearch, fetchPage, validateCitations, relevantPassages,
+  ddgSearch, fetchPage, validateCitations, relevantPassages, isPrivateIp, assertPublicUrl,
 };

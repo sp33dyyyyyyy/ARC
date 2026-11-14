@@ -28,7 +28,11 @@ class Orchestrator {
   // ---------- conversations ----------
   createConversation({ title, mode = 'chat', private: priv = false } = {}) {
     const c = { id: uid(priv ? 'pc_' : 'c_'), title: title || 'New conversation', mode, pinned: 0, private: priv ? 1 : 0, created_at: now(), updated_at: now() };
-    if (priv) this.privateConvs.set(c.id, { conv: c, messages: [] });
+    if (priv) {
+      this.privateConvs.set(c.id, { conv: c, messages: [] });
+      // Private chats live only in memory; keep the most recent 20 to bound memory use.
+      while (this.privateConvs.size > 20) this.privateConvs.delete(this.privateConvs.keys().next().value);
+    }
     else this.svc.db.run('INSERT INTO conversations (id, title, mode, pinned, private, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)', c.id, c.title, c.mode, c.created_at, c.updated_at);
     this.svc.bus.publish('conversations.changed', {});
     return c;
@@ -123,7 +127,7 @@ class Orchestrator {
       const tk = estimateTokens(content) + 4;
       if (used + tk > budget && out.length) { dropped = i + 1; break; }
       used += tk;
-      out.unshift({ role: m.role, content, images: m.meta?.images, created_at: m.created_at });
+      out.unshift({ role: m.role, content, created_at: m.created_at });
     }
     const conv = this.getConversation(convId);
     if (dropped && conv?.summary) out.unshift({ role: 'system', content: `Summary of the earlier part of this conversation: ${conv.summary}` });
@@ -179,7 +183,7 @@ class Orchestrator {
     let tainted = docs.length > 0;
     const docContext = docs.map((d) => wrapUntrusted(`attached file: ${d.name}`, d.text.slice(0, 24000))).join('\n\n');
 
-    const userMsg = this.addMessage(convId, { role: 'user', content: input.text || '', attachments: attachments.map((a) => ({ type: a.type, name: a.name })), meta: { voice: !!input.voice, device: input.device?.name, ...(docContext ? { docContext } : {}), ...(images.length ? { images } : {}) } });
+    const userMsg = this.addMessage(convId, { role: 'user', content: input.text || '', attachments: attachments.map((a) => ({ type: a.type, name: a.name })), meta: { voice: !!input.voice, device: input.device?.name, ...(docContext ? { docContext } : {}), ...(images.length ? { hasImages: true } : {}) } });
     const convNow = this.getConversation(convId);
     if (convNow && convNow.title === 'New conversation' && input.text) this.updateConversation(convId, { title: input.text.slice(0, 48) });
     bus.publish('chat.start', { requestId, conversationId: convId, userMessage: { ...userMsg, meta: { voice: !!input.voice, device: input.device?.name } }, voice: !!input.voice });
@@ -215,6 +219,9 @@ class Orchestrator {
     let sys = buildSys();
     const { history, dropped, oldestKept } = this.buildHistory(convId, estimateTokens(sys) + (native ? estimateTokens(JSON.stringify(toolDefs)) : 0));
     const messages = [{ role: 'system', content: sys }, ...history.map(({ created_at, ...m }) => m)];
+    // Images belong to this turn only: attach them to the current user message rather than
+    // storing them, so later text-only turns never send old images to a text model.
+    if (images.length) { const last = messages[messages.length - 1]; if (last?.role === 'user') last.images = images; }
     const toolEvents = [];
     let final = ''; let perf = null; let reasoning = '';
 

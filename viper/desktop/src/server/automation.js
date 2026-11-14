@@ -105,7 +105,14 @@ class AutomationEngine {
       } else if (t.type === 'once') {
         const delay = t.at - Date.now();
         if (delay <= 0 && a.last_run) return;
-        const h = setTimeout(() => { fire({ trigger: 'once' }); this.update(a.id, { enabled: false }); }, Math.max(0, Math.min(delay, 2 ** 31 - 1)));
+        // setTimeout caps at ~24.8 days, so re-arm in steps until the real time arrives.
+        let h = null;
+        const arm = () => {
+          const left = t.at - Date.now();
+          if (left > 2 ** 31 - 1) { h = setTimeout(arm, 2 ** 31 - 1); return; }
+          h = setTimeout(() => { fire({ trigger: 'once' }); this.update(a.id, { enabled: false }); }, Math.max(0, left));
+        };
+        arm();
         this.jobs.set(a.id, { stop: () => clearTimeout(h), next: () => t.at });
       } else if (t.type === 'folder' || t.type === 'download') {
         this.watchFolder(a, fire);

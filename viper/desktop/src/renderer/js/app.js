@@ -115,11 +115,13 @@ function micButton() {
   b.setAttribute('aria-pressed', String(muted));
 }
 $('#mic-toggle').addEventListener('click', async () => {
+  if (!app.settings) return; // still starting up
   app.settings.voice = await api.patch('/settings/voice', { micMuted: !app.settings.voice.micMuted });
   await configureVoice(); micButton();
   toast(app.settings.voice.micMuted ? 'Microphone off' : 'Microphone on', app.settings.voice.micMuted ? 'VIPER cannot hear anything until you turn it back on.' : '');
 });
-$('#hud-btn').addEventListener('click', () => { if (window.viperNative?.toggleHud) window.viperNative.toggleHud(); else toast('Floating HUD', 'Available in the desktop app.'); });
+$('#hud-btn').addEventListener('click', () => {
+  if (!app.settings) return; if (window.viperNative?.toggleHud) window.viperNative.toggleHud(); else toast('Floating HUD', 'Available in the desktop app.'); });
 
 // ---------------- right rail ----------------
 const spark = { cpu: [], mem: [] };

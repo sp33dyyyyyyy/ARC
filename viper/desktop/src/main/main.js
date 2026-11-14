@@ -46,7 +46,15 @@ function vaultKey() {
   const dir = require('../server/paths').defaultDataDir();
   fs.mkdirSync(dir, { recursive: true });
   const f = path.join(dir, 'vault.key.protected');
-  try { if (fs.existsSync(f)) return safeStorage.decryptString(fs.readFileSync(f)); } catch { /* unreadable: create a new one */ }
+  if (fs.existsSync(f)) {
+    try { return safeStorage.decryptString(fs.readFileSync(f)); } catch (e) {
+      // Keep the old key (it may become readable again, e.g. after restoring the Windows
+      // profile) and tell the user that saved passwords/tokens need re-entering.
+      const backup = `${f}.unreadable-${Date.now()}`;
+      fs.renameSync(f, backup);
+      app.whenReady().then(() => dialog.showMessageBox({ type: 'warning', title: 'VIPER', message: 'Saved credentials could not be unlocked', detail: `Windows could not decrypt VIPER's credential key (${e.message}). Email, SMS and other saved passwords need to be entered again. The old key was kept at:\n${backup}` }));
+    }
+  }
   const key = crypto.randomBytes(32).toString('hex');
   fs.writeFileSync(f, safeStorage.encryptString(key));
   return key;

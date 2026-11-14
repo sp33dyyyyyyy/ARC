@@ -12,6 +12,15 @@ const { norm } = require('../system/apps');
 
 const PROTECTED = new Set(['system', 'idle', 'csrss.exe', 'wininit.exe', 'winlogon.exe', 'lsass.exe', 'services.exe', 'smss.exe', 'svchost.exe', 'dwm.exe', 'explorer.exe', 'registry', 'memory compression', 'fontdrvhost.exe', 'viper.exe', 'systemd', 'init', 'kthreadd', 'launchd', 'kernel_task', 'windowserver']);
 
+/** Lightweight process-name listing (tasklist on Windows) for launch verification. */
+async function processNames(monitor) {
+  if (process.platform === 'win32') {
+    const r = await run('tasklist', ['/FO', 'CSV', '/NH'], 8000);
+    return r.ok ? r.stdout.split(/\r?\n/).map((l) => (l.match(/^"([^"]+)"/) || [])[1]).filter(Boolean) : [];
+  }
+  return (await monitor.allProcesses().catch(() => [])).map((p) => p.name);
+}
+
 function knownFolder(name) {
   const h = os.homedir();
   const map = { home: h, downloads: path.join(h, 'Downloads'), documents: path.join(h, 'Documents'), desktop: path.join(h, 'Desktop'), pictures: path.join(h, 'Pictures'), music: path.join(h, 'Music'), videos: path.join(h, 'Videos') };
@@ -156,16 +165,14 @@ function register(reg, svc) {
       if (matches.length > 1 && matches[0].score < 70 && matches[1].score === matches[0].score) {
         return { ok: false, error: `Ambiguous application name. Did you mean: ${matches.slice(0, 4).map((m) => m.name).join(', ')}?` };
       }
-      const before = new Set((await monitor.allProcesses().catch(() => [])).map((p) => p.pid));
       const r = await apps.launch(app);
       if (!r.ok) return { ok: false, error: `Launch failed: ${r.error}` };
-      // Verify: look for a new process whose name resembles the app.
+      // Verify with a few cheap checks for a running process whose name resembles the app.
       const key = norm(app.name).split(' ')[0];
       let verified = false;
-      for (let i = 0; i < 8 && !verified; i++) {
-        await sleep(750);
-        const procs = await monitor.allProcesses().catch(() => []);
-        verified = procs.some((p) => (!before.has(p.pid) || i > 0) && norm(p.name).includes(key));
+      for (const wait of [800, 1700, 2500]) {
+        await sleep(wait);
+        if ((await processNames(monitor)).some((n) => norm(n).includes(key))) { verified = true; break; }
       }
       return { ok: true, result: { app: app.name, launched: true, verifiedRunning: verified, note: verified ? 'Process confirmed running.' : 'Launch command was accepted, but a matching process could not be confirmed yet.' }, summary: `${app.name}${verified ? ' running' : ' launch requested'}` };
     },

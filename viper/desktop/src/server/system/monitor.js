@@ -78,6 +78,8 @@ class SystemMonitor {
         const tx = (net || []).reduce((a, n) => a + (n.tx_sec > 0 ? n.tx_sec : 0), 0);
         s.net = { rxPerSec: Math.round(rx), txPerSec: Math.round(tx) };
       }).catch(() => {}));
+      // Hidden: still read the CPU temperature (every 2 min) so overheating alerts keep working.
+      if (!this.visible && this.settings.get('proactive').highCpuTemp?.enabled && due('tempHidden', 120000)) jobs.push(si.cpuTemperature().then((temp) => { s.temp = temp && temp.main > 0 ? { cpu: temp.main, max: temp.max > 0 ? temp.max : null } : null; }).catch(() => {}));
       if (this.visible && due('sensors', 30000)) jobs.push(Promise.all([si.battery().catch(() => null), si.cpuTemperature().catch(() => null), si.graphics().catch(() => null)]).then(([bat, temp, gfx]) => {
         s.battery = bat && bat.hasBattery ? { pct: bat.percent, charging: bat.isCharging, timeRemaining: bat.timeRemaining >= 0 ? bat.timeRemaining : null } : null;
         s.temp = temp && temp.main > 0 ? { cpu: temp.main, max: temp.max > 0 ? temp.max : null } : null;

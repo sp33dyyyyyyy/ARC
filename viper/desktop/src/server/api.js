@@ -113,6 +113,7 @@ function coreRoutes(r, svc) {
   // Tools (direct execution from UI buttons; permissions still enforced)
   r.get(`${P}/tools`, async () => svc.tools.list().map((t) => ({ name: t.name, label: t.label, description: t.description, category: t.category, risk: t.risk, parameters: t.parameters, plugin: t.plugin || null })));
   r.post(`${P}/tools/:name`, async ({ params, body, auth }) => svc.tools.execute(params.name, body.args || {}, { actor: auth.device ? `device:${auth.device.name}` : 'user', device: auth.device || null, origin: auth.device ? 'phone' : 'desktop', userInitiated: true }), { scope: 'control' });
+  r.get(`${P}/approved-scripts`, async () => svc.settings.get('approvedScripts').map((s) => ({ name: s.name })), { scope: 'control' });
   r.get(`${P}/apps`, async ({ query }) => (query.q ? svc.apps.find(query.q) : svc.apps.list()), { scope: 'read' });
   r.post(`${P}/apps/refresh`, async () => (await svc.apps.refresh()).length);
 
@@ -155,6 +156,7 @@ function coreRoutes(r, svc) {
     // Natural language → automation using the create_automation tool via the LLM.
     const { requestId, conversationId, done } = svc.orchestrator.handle({ text: `Create an automation: ${body.text}`, mode: 'automation', device: auth.device || null, private: true });
     const res = await done;
+    svc.orchestrator.deleteConversation(conversationId); // throwaway private conversation
     return { requestId, conversationId, reply: res?.message?.content, error: res?.error };
   }, { scope: 'automation' });
   r.get(`${P}/automations/history`, async () => svc.automation.history(null, 100), { scope: 'read' });

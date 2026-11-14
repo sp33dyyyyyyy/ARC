@@ -166,7 +166,7 @@ class PluginManager {
   async disable(id) { this.unload(id); this.db.run('UPDATE plugins SET enabled = 0 WHERE id = ?', id); this.changed(); }
   unload(id) {
     const l = this.loaded.get(id); if (!l) return;
-    for (const t of l.plugin.manifest.contributes.tools || []) this.svc.tools.unregister(`${t.name}`);
+    for (const t of l.plugin.manifest.contributes.tools || []) if (this.svc.tools.get(t.name)?.plugin === id) this.svc.tools.unregister(t.name);
     for (const c of l.plugin.manifest.contributes.notificationChannels || []) this.svc.notify.channels.delete(`plugin:${id}:${c.id}`);
     for (const m of l.plugin.manifest.contributes.models || []) delete this.svc.models.backends[`plugin:${id}:${m.id}`];
     l.sb.dispose(); this.loaded.delete(id);
@@ -174,6 +174,8 @@ class PluginManager {
   registerContributions(plugin, sb) {
     const c = plugin.manifest.contributes;
     for (const t of c.tools || []) {
+      const existing = this.svc.tools.get(t.name);
+      if (existing && existing.plugin !== plugin.id) { this.log.warn(`plugin ${plugin.id}: tool name "${t.name}" is already used by ${existing.plugin ? `plugin ${existing.plugin}` : 'VIPER'}; skipped`); continue; }
       this.svc.tools.register({ name: t.name, label: `${t.label || t.name} (${plugin.name})`, description: `${t.description} [plugin: ${plugin.name}]`, parameters: t.parameters || { type: 'object', properties: {} }, category: 'plugin.tools', risk: t.risk === 'read' ? 'read' : 'write', keywords: t.keywords || [], plugin: plugin.id,
         handler: async (args) => ({ ok: true, result: await sb.call('tools', t.name, args), untrusted: true }) });
     }
