@@ -33,7 +33,12 @@ jobs:
           if (!(Test-Path "$env:LOCALAPPDATA\Programs\VIPER\VIPER.exe")) { throw 'VIPER.exe not installed' }
           if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\VIPER.lnk")) { throw 'Start menu shortcut missing' }
       - uses: actions/upload-artifact@v4
-        with: { name: VIPER-Setup, path: 'viper/desktop/dist/VIPER-Setup-*.exe' }
+        with:
+          name: VIPER-Setup
+          path: |
+            viper/desktop/dist/VIPER-Setup-*.exe
+            viper/desktop/dist/VIPER-Setup-*.exe.blockmap
+            viper/desktop/dist/latest.yml
 
   android:
     name: VIPER Mobile APK
@@ -48,3 +53,32 @@ jobs:
       - run: ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with: { name: VIPER-Mobile, path: 'viper/mobile/app/build/outputs/apk/**/*.apk' }
+
+  release:
+    name: Publish download (GitHub Release)
+    needs: [desktop-windows, android]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -e
+          mkdir -p out
+          cp artifacts/VIPER-Setup/* out/
+          cp artifacts/VIPER-Mobile/debug/app-debug.apk out/VIPER-Mobile.apk
+          VERSION=$(grep -oE 'VIPER-Setup-[0-9.]+\.exe$' <<< "$(ls out)" | head -1 | sed -E 's/VIPER-Setup-(.*)\.exe/\1/')
+          TAG="v${VERSION}"
+          NOTES="VIPER ${VERSION} for Windows 10/11 and VIPER Mobile for Android. Unsigned build: Windows/browsers may warn; choose Keep / More info -> Run anyway. Built from ${SHA}."
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$REPO" --target "$SHA" --notes "$NOTES" --latest
+            gh release upload "$TAG" out/* --repo "$REPO" --clobber
+          else
+            gh release create "$TAG" out/* --repo "$REPO" --target "$SHA" --title "VIPER ${VERSION}" --notes "$NOTES" --latest
+          fi
