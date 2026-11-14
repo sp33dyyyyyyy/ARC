@@ -4,8 +4,18 @@ import { h, icon, mdEl, clear } from '../ui.js';
 export function followRequest(app, requestId, target, { onDone, onError, scroller } = {}) {
   const body = h('div.body'); const tools = h('div'); const text = h('div.cursor');
   clear(target).append(tools, body); body.append(text);
-  let buf = ''; let raf = 0;
-  const flush = () => { raf = 0; const md = mdEl(buf); md.classList.add('cursor'); body.replaceChildren(md); if (scroller) scroller.scrollTop = scroller.scrollHeight; };
+  let buf = ''; let raf = 0; let lastFlush = 0;
+  // Re-render the streaming markdown at most ~10 times a second, and only follow the
+  // bottom if the user hasn't scrolled up to read.
+  const flush = () => {
+    raf = 0;
+    const now = performance.now();
+    if (now - lastFlush < 100) { raf = requestAnimationFrame(flush); return; }
+    lastFlush = now;
+    const stick = scroller ? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80 : false;
+    const md = mdEl(buf); md.classList.add('cursor'); body.replaceChildren(md);
+    if (scroller && stick) scroller.scrollTop = scroller.scrollHeight;
+  };
   const handlers = {};
   const on = (type, fn) => { handlers[type] = fn; return app.api.on(type, fn); };
   const offs = [

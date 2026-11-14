@@ -27,6 +27,7 @@ class ModelManager {
     this.active = new Map(); // requestId -> info (current AI tasks)
     this.modelCache = { at: 0, list: [] };
     this.recovering = false;
+    require('../hardware').detectHardware().then((hw) => { this.backends.ollama.physicalCores = hw.cpu.physicalCores || null; }).catch(() => {});
   }
 
   backend(id) {

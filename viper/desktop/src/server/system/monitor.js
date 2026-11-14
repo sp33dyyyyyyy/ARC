@@ -44,35 +44,49 @@ class SystemMonitor {
     return this.online;
   }
 
+  /** CPU % from os.cpus() deltas — no child processes, essentially free. */
+  cpuFromOs() {
+    const cpus = os.cpus();
+    const prev = this.prevCpus; this.prevCpus = cpus;
+    if (!prev || prev.length !== cpus.length) return null;
+    const per = cpus.map((c, i) => {
+      const a = c.times; const b = prev[i].times;
+      const total = (a.user + a.nice + a.sys + a.irq + a.idle) - (b.user + b.nice + b.sys + b.irq + b.idle);
+      return total > 0 ? Math.round((1 - (a.idle - b.idle) / total) * 100) : 0;
+    });
+    return { pct: Math.round(per.reduce((x, y) => x + y, 0) / per.length * 10) / 10, perCore: per };
+  }
+
+  /**
+   * Sampling is tiered so the monitor never competes with local AI inference:
+   * CPU/memory every tick from the OS (no processes spawned), network every 10 s,
+   * disks every 60 s, and GPU/temperature/battery (which launch PowerShell/WMI or
+   * nvidia-smi on Windows) every 30 s — and only while VIPER is visible.
+   */
   async sample() {
     const t = Date.now();
-    const s = { t, cpu: null, mem: null, disks: [], net: null, gpu: null, battery: null, temp: null, online: await this.checkOnline(), uptime: os.uptime() };
+    const due = (key, ms) => { if (!this.lastSlow) this.lastSlow = {}; if (t - (this.lastSlow[key] || 0) >= ms) { this.lastSlow[key] = t; return true; } return false; };
+    const prev = this.latest || {};
+    const s = { t, cpu: this.cpuFromOs() || prev.cpu || null, mem: null, disks: prev.disks || [], net: prev.net || null, gpu: prev.gpu || null, battery: prev.battery ?? null, temp: prev.temp ?? null, online: await this.checkOnline(), uptime: os.uptime() };
     const total = os.totalmem(); const free = os.freemem();
     s.mem = { total, used: total - free, pct: Math.round((1 - free / total) * 1000) / 10 };
     if (si) {
-      const [load, mem, fsz, net] = await Promise.all([
-        si.currentLoad().catch(() => null), si.mem().catch(() => null), si.fsSize().catch(() => []), si.networkStats().catch(() => []),
-      ]);
-      if (load) s.cpu = { pct: Math.round(load.currentLoad * 10) / 10, perCore: (load.cpus || []).map((c) => Math.round(c.load)) };
-      if (mem) s.mem = { total: mem.total, used: mem.active, pct: Math.round(mem.active / mem.total * 1000) / 10, swapUsed: mem.swapused, swapTotal: mem.swaptotal };
-      s.disks = (fsz || []).filter((d) => d.size > 1e9).map((d) => ({ mount: d.mount, fs: d.type, size: d.size, used: d.used, pct: Math.round(d.use * 10) / 10 }));
-      const rx = (net || []).reduce((a, n) => a + (n.rx_sec > 0 ? n.rx_sec : 0), 0);
-      const tx = (net || []).reduce((a, n) => a + (n.tx_sec > 0 ? n.tx_sec : 0), 0);
-      s.net = { rxPerSec: Math.round(rx), txPerSec: Math.round(tx) };
-      // Slower sensors every 5th sample.
-      if (!this.latest || this.history.length % 5 === 0) {
-        const [bat, temp, gfx] = await Promise.all([si.battery().catch(() => null), si.cpuTemperature().catch(() => null), si.graphics().catch(() => null)]);
+      const jobs = [];
+      if (due('disks', 60000)) jobs.push(si.fsSize().then((fsz) => { s.disks = (fsz || []).filter((d) => d.size > 1e9).map((d) => ({ mount: d.mount, fs: d.type, size: d.size, used: d.used, pct: Math.round(d.use * 10) / 10 })); }).catch(() => {}));
+      if (due('net', 10000)) jobs.push(si.networkStats().then((net) => {
+        const rx = (net || []).reduce((a, n) => a + (n.rx_sec > 0 ? n.rx_sec : 0), 0);
+        const tx = (net || []).reduce((a, n) => a + (n.tx_sec > 0 ? n.tx_sec : 0), 0);
+        s.net = { rxPerSec: Math.round(rx), txPerSec: Math.round(tx) };
+      }).catch(() => {}));
+      if (this.visible && due('sensors', 30000)) jobs.push(Promise.all([si.battery().catch(() => null), si.cpuTemperature().catch(() => null), si.graphics().catch(() => null)]).then(([bat, temp, gfx]) => {
         s.battery = bat && bat.hasBattery ? { pct: bat.percent, charging: bat.isCharging, timeRemaining: bat.timeRemaining >= 0 ? bat.timeRemaining : null } : null;
         s.temp = temp && temp.main > 0 ? { cpu: temp.main, max: temp.max > 0 ? temp.max : null } : null;
         const g = gfx?.controllers?.find((c) => c.utilizationGpu != null || c.memoryUsed != null);
         s.gpu = g ? { model: g.model, pct: g.utilizationGpu ?? null, memUsed: g.memoryUsed != null ? g.memoryUsed * 1048576 : null, memTotal: g.memoryTotal != null ? g.memoryTotal * 1048576 : null, temp: g.temperatureGpu ?? null } : null;
-      } else {
-        s.battery = this.latest.battery; s.temp = this.latest.temp; s.gpu = this.latest.gpu;
-      }
-    } else {
-      const l = os.loadavg()[0] / os.cpus().length;
-      s.cpu = { pct: Math.round(Math.min(100, l * 100)), perCore: [] };
+      }));
+      await Promise.all(jobs);
     }
+    if (!s.cpu) { const l = os.loadavg()[0] / os.cpus().length; s.cpu = { pct: Math.round(Math.min(100, l * 100)), perCore: [] }; }
     s.process = { rss: process.memoryUsage().rss };
     this.latest = s;
     this.history.push({ t, cpu: s.cpu?.pct ?? null, mem: s.mem?.pct ?? null, rx: s.net?.rxPerSec ?? 0, tx: s.net?.txPerSec ?? 0, gpu: s.gpu?.pct ?? null });

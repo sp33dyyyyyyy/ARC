@@ -29,9 +29,18 @@ export class Core {
   spawn() { return { a: Math.random() * TAU, r: 0.35 + Math.random() * 0.75, s: (Math.random() * 0.5 + 0.2) * (Math.random() < 0.5 ? -1 : 1), z: Math.random(), life: Math.random() }; }
   resize() {
     const box = (this.c.parentElement || this.c).getBoundingClientRect();
-    const size = Math.max(60, Math.floor(Math.min(box.width, box.height || box.width)));
+    const size = Math.max(40, Math.floor(Math.min(box.width, box.height || box.width)));
+    // Follow size changes visually right away (cheap CSS scaling) and re-allocate the
+    // backing store only once the size has settled, e.g. after the Home transition.
+    this.c.style.width = `${size}px`; this.c.style.height = `${size}px`;
+    if (!this.size) return this.realloc(size);
+    clearTimeout(this._rt);
+    this._rt = setTimeout(() => this.realloc(size), 140);
+  }
+  realloc(size) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.c.width = size * dpr; this.c.height = size * dpr; this.c.style.width = `${size}px`; this.c.style.height = `${size}px`;
+    if (size === this.size && dpr === this.dpr) return;
+    this.c.width = size * dpr; this.c.height = size * dpr;
     this.dpr = dpr; this.size = size;
     if (!this.running) this.draw(0);
   }
@@ -40,9 +49,34 @@ export class Core {
   get label() { return LABELS[this.state]; }
   setLevel(v) { this.levelTarget = Math.max(0, Math.min(1, v)); }
   setAnalyser(a) { this.analyser = a; this.freq = a ? new Uint8Array(a.frequencyBinCount) : null; }
-  start() { if (this.running || this.mode === 'off' || document.hidden) return; this.running = true; this.last = performance.now(); const loop = (now) => { if (!this.running) return; const fpsCap = this.mode === 'reduced' ? 24 : 60; if (now - this.last >= 1000 / fpsCap - 1) { const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.draw(dt); } this.raf = requestAnimationFrame(loop); }; this.raf = requestAnimationFrame(loop); }
+  start() { if (this.running || this.mode === 'off' || document.hidden) return; this.running = true; this.last = performance.now(); const loop = (now) => { if (!this.running) return; const busy = this.state === 'thinking' || this.state === 'processing';
+      // While a local model is generating, ease to 30 fps so inference keeps the CPU/GPU.
+      const fpsCap = this.mode === 'reduced' ? 24 : busy ? 30 : 60; if (now - this.last >= 1000 / fpsCap - 1) { const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.draw(dt); } this.raf = requestAnimationFrame(loop); }; this.raf = requestAnimationFrame(loop); }
   stop() { this.running = false; cancelAnimationFrame(this.raf); }
   destroy() { this.stop(); this.ro.disconnect(); }
+
+  staticLayers(W, base, d) {
+    const key = `${W}|${Math.round(base)}|${this.compact}`;
+    if (this._layers?.key === key) return this._layers;
+    const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = W; const g = c.getContext('2d'); g.translate(W / 2, W / 2); return [c, g]; };
+    const [ticks, g] = mk();
+    const n = this.compact ? 60 : 120;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU; const long = i % 10 === 0; const mid = i % 5 === 0;
+      const r2 = base - (long ? 12 : mid ? 7 : 4) * d;
+      g.strokeStyle = `rgba(255,255,255,${long ? 0.55 : 0.22})`; g.lineWidth = d * (long ? 1.2 : 0.8);
+      g.beginPath(); g.moveTo(Math.cos(a) * base, Math.sin(a) * base); g.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); g.stroke();
+    }
+    let labels = null;
+    if (!this.compact && this.size > 220) {
+      const [lc, lg] = mk(); labels = lc;
+      lg.fillStyle = 'rgba(255,255,255,.32)'; lg.font = `${9 * d}px Bahnschrift, Segoe UI, sans-serif`; lg.textAlign = 'center'; lg.textBaseline = 'middle';
+      const rr = base - 24 * d;
+      for (let i = 0; i < 12; i++) { lg.save(); lg.rotate((i / 12) * TAU); lg.translate(0, -rr); lg.fillText(String(i * 30).padStart(3, '0'), 0, 0); lg.restore(); }
+    }
+    this._layers = { key, ticks, labels };
+    return this._layers;
+  }
 
   draw(dt) {
     const { ctx } = this; const W = this.c.width; const R = W / 2; const d = this.dpr;
@@ -64,25 +98,11 @@ export class Core {
     const base = R * 0.92 * p.ringScale;
     const white = (a) => `rgba(255,255,255,${Math.max(0, Math.min(1, a))})`;
 
-    // 1. outer tick ring
-    ctx.save(); ctx.rotate(t * 0.05 * p.spin * 3);
-    const ticks = this.compact ? 60 : 120;
-    for (let i = 0; i < ticks; i++) {
-      const a = (i / ticks) * TAU; const long = i % 10 === 0; const mid = i % 5 === 0;
-      const r1 = base; const r2 = base - (long ? 12 : mid ? 7 : 4) * d;
-      ctx.strokeStyle = white(long ? 0.55 : 0.22); ctx.lineWidth = d * (long ? 1.2 : 0.8);
-      ctx.beginPath(); ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); ctx.stroke();
-    }
-    ctx.restore();
-
-    // 2. technical markings ring (degree labels) — full size only
-    if (!this.compact && this.size > 220) {
-      ctx.save(); ctx.rotate(-t * 0.03 * p.spin * 3);
-      ctx.fillStyle = white(0.32); ctx.font = `${9 * d}px Bahnschrift, Segoe UI, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const rr = base - 24 * d;
-      for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU; ctx.save(); ctx.rotate(a); ctx.translate(0, -rr); ctx.fillText(String(i * 30).padStart(3, '0'), 0, 0); ctx.restore(); }
-      ctx.restore();
-    }
+    // 1-2. static rings (tick marks, degree labels) are pre-rendered once per size and
+    // only rotated each frame — far cheaper than redrawing 130 strokes + text at 60 fps.
+    const layers = this.staticLayers(W, base, d);
+    ctx.save(); ctx.rotate(t * 0.05 * p.spin * 3); ctx.drawImage(layers.ticks, -R, -R); ctx.restore();
+    if (layers.labels) { ctx.save(); ctx.rotate(-t * 0.03 * p.spin * 3); ctx.drawImage(layers.labels, -R, -R); ctx.restore(); }
 
     // 3. segmented arc ring
     ctx.save(); ctx.rotate(-t * 0.25 * p.spin);

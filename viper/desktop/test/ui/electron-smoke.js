@@ -39,6 +39,16 @@ const OUT = process.env.SHOTS || os.tmpdir();
     check('HUD is always-on-top', isOnTop);
     const trayOk = await app.evaluate(({ app: a }) => a.isReady());
     check('app ready with tray/menu initialised', trayOk);
+    const metrics = await app.evaluate(({ app: a }) => a.getAppMetrics().map((m) => ({ pid: m.pid, type: m.type, name: m.name, serviceName: m.serviceName })));
+    console.log('processes:', JSON.stringify(metrics.filter((m) => m.type === 'Utility')));
+    const core = metrics.find((m) => m.type === 'Utility' && /VIPER core|node.mojom|Node/i.test(`${m.serviceName} ${m.name}`));
+    check('core runs in its own utility process (UI never blocked by AI work)', !!core, core ? `pid ${core.pid}` : '');
+    if (core) {
+      process.kill(core.pid);
+      let back = false;
+      for (let i = 0; i < 40 && !back; i++) { await win.waitForTimeout(500); back = await win.evaluate(async () => { try { return (await fetch('/api/v1/status', { headers: { Authorization: `Bearer ${window.viperNative.token}` } })).ok; } catch { return false; } }).catch(() => false); }
+      check('core restarts automatically after being killed', back);
+    }
     const vault = await win.evaluate(async () => (await (await fetch('/api/v1/status', { headers: { Authorization: `Bearer ${window.viperNative.token}` } })).json()).vault);
     check('credential vault reports its backend', !!vault, vault);
   } catch (e) { check('electron run', false, e.message); }

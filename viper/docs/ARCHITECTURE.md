@@ -10,7 +10,7 @@
 │ │ 16 mode pages · setup wizard · HUD                                       │ │
 │ └──────┬───────────────────────────────────────────────────────────────────┘ │
 │        │ HTTP + WebSocket, 127.0.0.1, token                                   │
-│ ┌──────▼──────────── VIPER core (desktop/src/server, Node 24) ─────────────┐ │
+│ ┌──────▼────── VIPER core (desktop/src/server) — separate utility process ─┐ │
 │ │ orchestrator ─ intents fast-path ─ tool registry ─ permission engine      │ │
 │ │ model manager ─ Foundry Local / Ollama / OpenAI-compatible backends       │ │
 │ │ memory · reminders · automation · notifications · briefing · monitor      │ │
@@ -22,6 +22,22 @@
         │ local HTTP                        │ local processes
   Foundry Local / Ollama / llama.cpp   whisper.cpp · Piper · SD WebUI (optional)
 ```
+
+## Processes and responsiveness
+
+- The **core runs in an Electron utility process** (`src/main/core-host.js`), not in the main
+  process, so database work, file indexing or streaming never stalls windows, the tray or the HUD.
+  Main-process-only features (screenshots, clipboard, notifications, Recycle Bin, HUD) are reached
+  through a small message bridge. If the core process dies, the main process restarts it and reloads
+  the windows. The credential vault key is kept encrypted with DPAPI by the main process and passed
+  to the core at start-up.
+- The system monitor reads CPU/memory from the OS each tick without spawning processes; disks,
+  network and GPU/temperature/battery (which spawn PowerShell/WMI on Windows) are sampled every
+  60 s, 10 s and 30 s respectively, and sensors only while VIPER is visible.
+- With automatic thread settings, Ollama is given one core less than the machine has
+  (`limits.reserveUiCore`), keeping the interface smooth during generation.
+- The animated core pre-renders its static rings, drops to 30 fps while the model is generating
+  and pauses when minimised; panels avoid live backdrop blur.
 
 ## Request flow
 

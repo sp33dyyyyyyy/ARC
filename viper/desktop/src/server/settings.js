@@ -25,7 +25,7 @@ function defaults() {
       stt: { backend: 'whisper.cpp', model: 'base.en' },
       tts: { backend: 'piper', model: 'en_GB-alan-medium' },
     },
-    limits: { numCtx: 4096, numThreads: 0, gpuLayers: -1, keepAlive: '5m', maxContextMessages: 40, temperature: 0.6 },
+    limits: { numCtx: 4096, numThreads: 0, reserveUiCore: true, gpuLayers: -1, keepAlive: '5m', maxContextMessages: 40, temperature: 0.6 },
     personality: {
       name: 'VIPER', userName: '', address: 'sir', humour: 0.35, formality: 0.7, verbosity: 'concise',
       proactivity: 0.4, customInstructions: '',

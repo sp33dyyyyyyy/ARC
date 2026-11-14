@@ -35,7 +35,7 @@ p { margin: 0 0 .6em; } small, .small { font-size: 12px; } .mist { color: var(--
 .mono { font-family: var(--mono); font-size: 12.5px; }
 
 /* ---------- shell ---------- */
-.titlebar { position: fixed; inset: 0 0 auto 0; height: var(--title); display: flex; align-items: center; gap: 12px; padding: 0 0 0 14px; -webkit-app-region: drag; border-bottom: 1px solid var(--line); z-index: 50; background: rgba(0,0,0,.85); backdrop-filter: blur(10px); }
+.titlebar { position: fixed; inset: 0 0 auto 0; height: var(--title); display: flex; align-items: center; gap: 12px; padding: 0 0 0 14px; -webkit-app-region: drag; border-bottom: 1px solid var(--line); z-index: 50; background: #000; }
 .brand { display: flex; align-items: center; gap: 10px; font-stretch: condensed; font-weight: 600; letter-spacing: .32em; font-size: 13px; }
 .brand svg { width: 18px; height: 18px; }
 .titlebar .crumbs { color: var(--mist); font-size: 12.5px; }
@@ -71,7 +71,8 @@ p { margin: 0 0 .6em; } small, .small { font-size: 12px; } .mist { color: var(--
 .shell.no-right .rail { padding: 0; border: 0; }
 
 /* ---------- instrument panels (bracket corners, no shadows) ---------- */
-.panel { position: relative; background: var(--glass); border: 1px solid var(--line); padding: 14px 16px; border-radius: var(--r); backdrop-filter: blur(6px); }
+/* No backdrop-filter here: live blur behind an animated canvas repaints every frame and caused lag. */
+.panel { position: relative; background: var(--glass); border: 1px solid var(--line); padding: 14px 16px; border-radius: var(--r); contain: layout paint; }
 .panel::before, .panel::after { content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--line-hot); border-style: solid; pointer-events: none; }
 .panel::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; } .panel::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
 .panel.quiet { background: none; } .panel.quiet::before, .panel.quiet::after { display: none; }
@@ -131,14 +132,33 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 canvas.core { display: block; }
 .core-label { position: absolute; bottom: -2px; left: 0; right: 0; text-align: center; color: var(--mist); font-size: 12.5px; letter-spacing: .08em; }
 
-/* ---------- home ---------- */
-.home { display: grid; grid-template-rows: minmax(260px, 1fr) auto; height: 100%; }
-.home .core-wrap { min-height: 0; }
-.home .greeting { position: absolute; top: 18px; left: 28px; } .home .greeting h1 { font-size: 34px; } .home .greeting p { color: var(--mist); }
-.transcript-live { min-height: 22px; text-align: center; color: var(--ink-2); font-size: 15px; margin: 0 auto; max-width: 70ch; padding: 0 20px; }
+/* ---------- home ----------
+   Idle: the core fills the stage. Chatting: the core fades and shrinks into the
+   top-left corner, the greeting gives way to a slim bar and the thread takes over. */
+.home { display: flex; flex-direction: column; height: 100%; min-height: 0; --t: .65s; }
+.home-hero { position: relative; flex: 1 1 0px; min-height: 0; transition: flex var(--t) var(--ease); }
+.home .greeting { position: absolute; top: 18px; left: 28px; transition: opacity .35s var(--ease), transform .45s var(--ease); z-index: 1; }
+.home .greeting h1 { font-size: 34px; } .home .greeting p { color: var(--mist); }
+.home .core-wrap { position: absolute; left: 50%; top: 50%; width: min(78%, 92vh); height: calc(100% - 40px); transform: translate(-50%, -50%); transition: left var(--t) var(--ease), top var(--t) var(--ease), width var(--t) var(--ease), height var(--t) var(--ease), transform var(--t) var(--ease), opacity var(--t) var(--ease); }
+.home .hero-label { position: absolute; bottom: 6px; left: 0; right: 0; transition: opacity .3s var(--ease); }
+.home .hero-label .core-label { position: static; }
+.home-bar { position: absolute; inset: 0 28px 0 92px; display: flex; align-items: center; gap: 12px; opacity: 0; pointer-events: none; transition: opacity .4s var(--ease) .15s; }
+.home-bar .home-title { font-stretch: condensed; letter-spacing: .3em; font-weight: 600; font-size: 13px; }
+.home-bar .core-label { position: static; text-align: left; }
+.home-thread { flex: 0 0 0px; min-height: 0; overflow-y: auto; opacity: 0; transition: flex var(--t) var(--ease), opacity .45s var(--ease) .2s; padding: 0; }
+.home-thread .msg { padding-left: 28px; padding-right: 28px; }
+.home .dock { padding: 0 28px 22px; display: flex; flex-direction: column; gap: 10px; max-width: 876px; width: 100%; margin: 0 auto; }
+.home .suggest, .home .home-hint { transition: opacity .3s var(--ease), max-height .4s var(--ease); max-height: 120px; overflow: hidden; }
+.home.chatting .home-hero { flex: 0 0 72px; border-bottom: 1px solid var(--line); }
+.home.chatting .greeting { opacity: 0; transform: translateY(-8px); pointer-events: none; }
+.home.chatting .core-wrap { left: 46px; top: 36px; width: 52px; height: 52px; opacity: .9; }
+.home.chatting .hero-label { opacity: 0; }
+.home.chatting .home-bar { opacity: 1; pointer-events: auto; }
+.home.chatting .home-thread { flex: 1 1 0px; opacity: 1; padding: 14px 0; }
+.home.chatting .suggest, .home.chatting .home-hint { opacity: 0; max-height: 0; }
+.home.instant, .home.instant * { transition: none !important; }
+.transcript-live { min-height: 0; text-align: center; color: var(--ink-2); font-size: 15px; margin: 0 auto; max-width: 70ch; padding: 0 20px; }
 .transcript-live.partial { color: var(--mist); font-style: italic; }
-.dock { padding: 0 28px 22px; display: flex; flex-direction: column; gap: 10px; }
-.reply-panel { max-height: 30vh; overflow-y: auto; }
 .suggest { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .suggest button { border: 1px solid var(--line); background: none; padding: 5px 12px; border-radius: 20px; color: var(--ink-2); cursor: pointer; font-size: 12.5px; } .suggest button:hover { border-color: var(--line-hot); color: var(--ink); }
 

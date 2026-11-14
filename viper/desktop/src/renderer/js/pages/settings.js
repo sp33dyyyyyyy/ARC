@@ -85,6 +85,7 @@ export async function render(view, { app, api, params }) {
         h('div.panel', {}, h('h3', {}, 'Model resources'), h('div.col', {},
           num('numCtx', 'Context window (tokens)', 'Larger remembers more of the conversation but uses more memory. 4096 suits 8 GB PCs.', 1024, 131072, 512),
           num('numThreads', 'CPU threads (0 = automatic)', 'Limit how many processor threads inference may use.', 0, 128),
+          h('div.list', {}, row('Keep a CPU core free for the interface', 'With automatic threads, Ollama uses one core less so VIPER stays smooth while the model is answering.', toggle(l.reserveUiCore !== false, (v) => save('limits', { reserveUiCore: v })))),
           num('gpuLayers', 'GPU layers (-1 = automatic, 0 = CPU only)', 'Ollama only. Lower values reduce GPU memory use.', -1, 999),
           field('Keep model loaded for', h('input.input', { value: l.keepAlive, onchange: (e) => save('limits', { keepAlive: e.target.value }) }), 'e.g. 5m, 30m, 0 to unload immediately after each reply'))),
         h('div.panel', {}, h('h3', {}, 'Generation'), h('div.col', {},

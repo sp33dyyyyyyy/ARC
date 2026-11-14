@@ -89,6 +89,12 @@ class OllamaBackend {
     const o = { temperature: extra.temperature ?? l.temperature ?? 0.6 };
     if (l.numCtx) o.num_ctx = l.numCtx;
     if (l.numThreads > 0) o.num_thread = l.numThreads;
+    else if (l.reserveUiCore !== false) {
+      // Leave one core for VIPER's interface and the rest of Windows so the UI stays smooth
+      // while generating (Ollama otherwise claims every physical core).
+      const physical = this.physicalCores || Math.max(1, Math.floor(require('node:os').cpus().length / 2));
+      if (physical >= 4) o.num_thread = physical - 1;
+    }
     if (l.gpuLayers >= 0) o.num_gpu = l.gpuLayers;
     if (extra.maxTokens) o.num_predict = extra.maxTokens;
     return o;

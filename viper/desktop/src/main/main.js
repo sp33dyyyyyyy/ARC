@@ -2,7 +2,9 @@
 // VIPER desktop shell (Electron main process). Hosts the VIPER core in-process,
 // and provides the window, tray, floating HUD, global shortcut, OS credential
 // vault (DPAPI via safeStorage), screen capture, notifications and updates.
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, globalShortcut, clipboard, desktopCapturer, Notification, safeStorage, dialog, screen, nativeImage, session, crashReporter } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, globalShortcut, clipboard, desktopCapturer, Notification, safeStorage, dialog, screen, nativeImage, session, crashReporter, utilityProcess } = require('electron');
+const { EventEmitter } = require('node:events');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -18,9 +20,65 @@ app.setAppUserModelId('com.viper.desktop');
 // Chromium speech/microphone needs no Google services; disable background throttling only for audio.
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling');
 
-function dpapiEncryptor() {
+// ---------------- core process ----------------
+// The VIPER core runs in a utility process (src/main/core-host.js). `svc` below is a
+// thin facade with the same shape the rest of this file uses.
+let child = null; let callSeq = 0; const calls = new Map();
+function coreCall(method, ...args) {
+  if (!child) return Promise.resolve(null);
+  return new Promise((resolve, reject) => { const id = ++callSeq; calls.set(id, { resolve, reject }); child.postMessage({ type: 'call', id, method, args }); });
+}
+function makeFacade(ready) {
+  const bus = new EventEmitter();
+  let cache = ready.settings;
+  return {
+    url: ready.url, localToken: ready.token, paths: ready.paths, bus,
+    settings: { get: (sec) => JSON.parse(JSON.stringify(cache[sec])), set: (sec, patch) => { coreCall('settings.set', sec, patch).catch(() => {}); }, _update: (sec, v) => { cache = { ...cache, [sec]: v }; } },
+    monitor: { setVisible: (v) => { coreCall('monitor.setVisible', v).catch(() => {}); } },
+    notify: { send: (n) => coreCall('notify.send', n) },
+    log: { warn: (...a) => coreCall('log', 'warn', ...a.map(String)).catch(() => {}), error: (...a) => coreCall('log', 'error', ...a.map((x) => (x?.stack || String(x)))).catch(() => {}), info: (...a) => coreCall('log', 'info', ...a.map(String)).catch(() => {}) },
+    shutdown: async () => { try { await Promise.race([coreCall('shutdown'), new Promise((r) => setTimeout(r, 4000))]); } finally { child?.kill(); child = null; } },
+  };
+}
+// Vault master key: random 256-bit key stored encrypted with the OS keystore (DPAPI on Windows).
+function vaultKey() {
   if (!safeStorage.isEncryptionAvailable()) return null;
-  return { kind: process.platform === 'win32' ? 'dpapi' : 'os-keystore', encrypt: (s) => safeStorage.encryptString(s), decrypt: (b) => safeStorage.decryptString(Buffer.from(b)) };
+  const dir = require('../server/paths').defaultDataDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const f = path.join(dir, 'vault.key.protected');
+  try { if (fs.existsSync(f)) return safeStorage.decryptString(fs.readFileSync(f)); } catch { /* unreadable: create a new one */ }
+  const key = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(f, safeStorage.encryptString(key));
+  return key;
+}
+function startCore() {
+  return new Promise((resolve, reject) => {
+    child = utilityProcess.fork(path.join(__dirname, 'core-host.js'), [], { serviceName: 'VIPER core', stdio: 'inherit' });
+    const key = vaultKey();
+    child.on('message', async (m) => {
+      if (m.type === 'ready') { resolve(m); return; }
+      if (m.type === 'fatal') { reject(new Error(m.error)); return; }
+      if (m.type === 'call-result') { const c = calls.get(m.id); calls.delete(m.id); if (c) (m.error ? c.reject(new Error(m.error)) : c.resolve(m.result)); return; }
+      if (m.type === 'event' && svc) { if (m.name === 'settings.changed') svc.settings._update(m.data.section, m.data.value); svc.bus.emit(m.name, m.data); return; }
+      if (m.type === 'bridge') {
+        let result;
+        try { result = await bridge[m.method](...(m.args || [])); } catch (e) { result = { ok: false, error: e.message }; }
+        child?.postMessage({ type: 'bridge-result', id: m.id, result });
+      }
+    });
+    child.once('exit', (code) => {
+      if (quitting) return;
+      // Auto-recovery: restart the core and reload the windows if it ever dies.
+      setTimeout(async () => {
+        try {
+          const ready = await startCore();
+          const prevBus = svc?.bus; svc = makeFacade(ready); if (prevBus) svc.bus = prevBus;
+          for (const w of BrowserWindow.getAllWindows()) w.loadURL(`${svc.url}${w === hudWin ? '/hud.html' : '/'}`);
+        } catch (e) { dialog.showErrorBox('VIPER core stopped', `The VIPER core exited (code ${code}) and could not restart: ${e.message}`); }
+      }, 1000);
+    });
+    child.postMessage({ type: 'start', version: app.getVersion(), vaultKey: key, vaultKind: process.platform === 'win32' ? 'dpapi' : 'os-keystore' });
+  });
 }
 
 // ---------------- bridge used by the core ----------------
@@ -170,15 +228,14 @@ ipcMain.handle('viper:wake', (e) => { if (senderOk(e) && hudWin && !hudWin.isVis
 
 // ---------------- lifecycle ----------------
 app.whenReady().then(async () => {
-  const { createViper } = require('../server/server');
   try {
-    svc = await createViper({ bridge, encryptor: dpapiEncryptor() || undefined, version: app.getVersion() });
+    svc = makeFacade(await startCore());
   } catch (e) {
     dialog.showErrorBox('VIPER could not start', `${e.message}\n\nLogs: ${path.join(app.getPath('appData'), 'VIPER', 'logs')}`);
     app.exit(1); return;
   }
-  process.on('uncaughtException', (err) => svc.log.error('uncaught', err));
-  process.on('unhandledRejection', (err) => svc.log.error('unhandled rejection', err));
+  process.on('uncaughtException', (err) => svc?.log.error('uncaught', err));
+  process.on('unhandledRejection', (err) => svc?.log.error('unhandled rejection', err));
   // Microphone/camera only for VIPER's own pages; camera only if enabled in Privacy.
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) => {
     const ours = (details.requestingUrl || wc.getURL()).startsWith(svc.url);

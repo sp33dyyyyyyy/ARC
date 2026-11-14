@@ -198,7 +198,8 @@ function wireEvents() {
   api.on('system.sample', (s) => {
     app.sample = { ...s, static: app.sample?.static };
     spark.cpu.push(s.cpu?.pct ?? 0); spark.mem.push(s.mem?.pct ?? 0); if (spark.cpu.length > 60) { spark.cpu.shift(); spark.mem.shift(); }
-    if (!document.hidden && Math.random() < 0.5) renderRail();
+    // Rebuilding the rail is cheap but not free; refresh it at most every 5 s.
+    if (!document.hidden && Date.now() - (app.railAt || 0) > 5000) { app.railAt = Date.now(); renderRail(); }
   });
   api.on('models.health', (hl) => { app.health = hl; app.updateCore(); renderRail(); });
   api.on('models.perf', (p) => { if (p.ok) app.lastPerf = p; });
