@@ -36,7 +36,8 @@ export async function render(view, { app, api, params }) {
     if (!items.length) list.append(h('small.mist', {}, 'No research yet.'));
     for (const r of items) list.append(h('div.li', {}, h('div.t', { style: { cursor: 'pointer' }, onclick: async () => show(await api.get(`/research/${r.id}`)) }, h('b', {}, r.title), h('small', {}, `${r.mode} · ${when(r.created_at)}`)), btn('', async () => { if (await ask('Delete research?', r.title, { danger: true, confirmLabel: 'Delete' })) { await api.del(`/research/${r.id}`); loadList(); } }, { cls: 'sm ghost icon', ico: 'trash', title: 'Delete' })));
     const refs = await api.get('/research/references').catch(() => []);
-    const box = view.querySelector('#refs'); clear(box);
+    const box = view.querySelector('#refs'); if (!box) return; // page was left while loading
+    clear(box);
     if (!refs.length) box.append(h('small.mist', {}, 'Pages read during research are saved here for offline reference.'));
     for (const x of refs.slice(0, 30)) box.append(h('div.notif', {}, h('b', {}, x.title), h('small', {}, x.url)));
   }

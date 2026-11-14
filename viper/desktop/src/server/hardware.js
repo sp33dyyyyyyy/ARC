@@ -20,6 +20,8 @@ async function detectHardware(force = false) {
       const [cpu, g] = await Promise.all([si.cpu(), si.graphics()]);
       hw.cpu.model = `${cpu.manufacturer} ${cpu.brand}`.trim();
       hw.cpu.physicalCores = cpu.physicalCores;
+      // Intel 12th gen+ hybrid CPUs: inference runs best on the performance cores only.
+      if (cpu.performanceCores && cpu.efficiencyCores && cpu.performanceCores < cpu.physicalCores) { hw.cpu.performanceCores = cpu.performanceCores; hw.cpu.efficiencyCores = cpu.efficiencyCores; }
       hw.gpus = (g.controllers || []).map((c) => ({ model: c.model, vendor: c.vendor, vramGB: c.vram ? Math.round(c.vram / 1024 * 10) / 10 : 0, dynamic: !!c.vramDynamic }));
       // Pick the GPU with the most dedicated VRAM; integrated GPUs report shared memory (vramDynamic).
       const dedicated = hw.gpus.filter((x) => !x.dynamic).sort((a, b) => b.vramGB - a.vramGB);

@@ -10,7 +10,9 @@ const fs = require('node:fs');
 
 const ROOT = path.join(__dirname, '..', '..');
 const ICON = path.join(ROOT, 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
-let svc = null; let mainWin = null; let hudWin = null; let tray = null; let quitting = false; let currentShortcut = null;
+let svc = null; let mainWin = null; let hudWin = null; let tray = null; let trayMenu = null; let quitting = false; let currentShortcut = null;
+// Main-process-only handle for automated end-to-end tests (not reachable from any web page).
+global.viperDiagnostics = { tray: () => tray, trayMenu: () => trayMenu, mainWindow: () => mainWin, hudWindow: () => hudWin };
 const startHidden = process.argv.includes('--hidden');
 
 crashReporter.start({ uploadToServer: false }); // crash dumps stay local
@@ -61,7 +63,9 @@ function vaultKey() {
 }
 function startCore() {
   return new Promise((resolve, reject) => {
-    child = utilityProcess.fork(path.join(__dirname, 'core-host.js'), [], { serviceName: 'VIPER core', stdio: 'inherit' });
+    // Real Documents/Downloads/Desktop locations (OneDrive folder backup moves them).
+    const known = {}; for (const k of ['documents', 'downloads', 'desktop']) { try { known[k] = app.getPath(k); } catch { /* unavailable */ } }
+    child = utilityProcess.fork(path.join(__dirname, 'core-host.js'), [], { serviceName: 'VIPER core', stdio: 'inherit', env: { ...process.env, VIPER_KNOWN_FOLDERS: JSON.stringify(known) } });
     const key = vaultKey();
     child.on('message', async (m) => {
       if (m.type === 'ready') { resolve(m); return; }
@@ -170,7 +174,7 @@ function createTray() {
   tray.setToolTip('VIPER');
   const build = () => {
     const v = svc.settings.get('voice');
-    tray.setContextMenu(Menu.buildFromTemplate([
+    tray.setContextMenu(trayMenu = Menu.buildFromTemplate([
       { label: 'Open VIPER', click: showMain },
       { label: 'Floating HUD', click: () => toggleHud() },
       { type: 'separator' },

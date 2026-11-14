@@ -21,6 +21,8 @@ export const app = {
   registerCore(core) {
     this.cores.add(core);
     core.setMode(this.settings?.ui?.animations || 'full');
+    core.setFps(this.settings?.ui?.fpsLimit || 60);
+    core.setAdaptive(this.settings?.performance?.adaptiveQuality !== false);
     core.setState(this.coreState);
     return () => { this.cores.delete(core); core.destroy(); };
   },
@@ -97,7 +99,7 @@ function applyUi() {
   $('#shell').classList.toggle('no-left', !ui.leftPanel);
   $('#shell').classList.toggle('no-right', !ui.rightPanel);
   document.body.classList.toggle('reduced', ui.animations !== 'full');
-  for (const c of app.cores) c.setMode(ui.animations);
+  for (const c of app.cores) { c.setMode(ui.animations); c.setFps(ui.fpsLimit || 60); }
   renderRail();
 }
 function winControls() {
@@ -241,7 +243,7 @@ function wireEvents() {
     renderRail();
   });
   api.on('system.alert', () => { app.warningUntil = Date.now() + 6000; app.updateCore(); setTimeout(() => app.updateCore(), 6100); });
-  api.on('settings.changed', async (d) => { app.settings[d.section] = d.value; if (d.section === 'ui') applyUi(); if (d.section === 'voice') { await configureVoice(); micButton(); } });
+  api.on('settings.changed', async (d) => { app.settings[d.section] = d.value; if (d.section === 'ui') applyUi(); if (d.section === 'performance') for (const c of app.cores) c.setAdaptive(d.value.adaptiveQuality !== false); if (d.section === 'voice') { await configureVoice(); micButton(); } });
   api.on('remote.changed', async () => { app.status = await api.get('/status').catch(() => app.status); renderRail(); });
   api.on('plugins.changed', () => { loadPluginPages(); loadPluginWidgets(); });
   api.on('ws.close', () => { app.health = {}; app.updateCore(); });
@@ -305,5 +307,8 @@ async function boot() {
   }
   app.render(location.hash.replace('#/', '') || 'home');
   app.updateCore();
+  // Fetch and compile every page module while the app is idle so switching pages is instant.
+  const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1500));
+  idle(() => { for (const [m] of NAV) import(`./pages/${m}.js`).catch(() => {}); }, { timeout: 4000 });
 }
 boot();

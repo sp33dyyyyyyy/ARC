@@ -4,6 +4,23 @@ const { readNDJSON } = require('./stream');
 const { fetchWithTimeout } = require('../util');
 const { guessCapabilities } = require('./openai');
 
+/**
+ * Threads for CPU inference. llama.cpp is fastest with one thread per *performance* core;
+ * hyper-threads and Intel E-cores slow it down. A configurable number of cores is left free
+ * so VIPER's interface and Windows stay responsive while a reply is generated.
+ */
+function inferenceThreads(l, cpu) {
+  if (l.numThreads > 0) return l.numThreads;
+  if (l.reserveUiCore === false) return 0; // let the engine decide
+  const os = require('node:os');
+  const physical = cpu?.physicalCores || Math.max(1, Math.floor(os.cpus().length / 2));
+  const fast = cpu?.performanceCores || physical;
+  const reserve = Number.isFinite(l.reserveCores) ? l.reserveCores : 1;
+  // On hybrid CPUs the E-cores absorb the UI, so all P-cores can be used.
+  const n = cpu?.performanceCores ? fast : fast - reserve;
+  return physical >= 4 ? Math.max(2, n) : 0;
+}
+
 class OllamaBackend {
   constructor({ getUrl, getLimits, log }) {
     this.id = 'ollama'; this.label = 'Ollama'; this.getUrl = getUrl; this.getLimits = getLimits; this.log = log;
@@ -88,13 +105,8 @@ class OllamaBackend {
     const l = this.getLimits();
     const o = { temperature: extra.temperature ?? l.temperature ?? 0.6 };
     if (l.numCtx) o.num_ctx = l.numCtx;
-    if (l.numThreads > 0) o.num_thread = l.numThreads;
-    else if (l.reserveUiCore !== false) {
-      // Leave one core for VIPER's interface and the rest of Windows so the UI stays smooth
-      // while generating (Ollama otherwise claims every physical core).
-      const physical = this.physicalCores || Math.max(1, Math.floor(require('node:os').cpus().length / 2));
-      if (physical >= 4) o.num_thread = physical - 1;
-    }
+    const t = inferenceThreads(l, this.cpu);
+    if (t) o.num_thread = t;
     if (l.gpuLayers >= 0) o.num_gpu = l.gpuLayers;
     if (extra.maxTokens) o.num_predict = extra.maxTokens;
     return o;
@@ -135,7 +147,7 @@ class OllamaBackend {
     yield {
       type: 'done',
       usage: final ? { prompt_tokens: final.prompt_eval_count, completion_tokens: final.eval_count } : null,
-      stats: final ? { evalCount: final.eval_count, evalDurationNs: final.eval_duration, loadDurationNs: final.load_duration } : null,
+      stats: final ? { evalCount: final.eval_count, evalDurationNs: final.eval_duration, loadDurationNs: final.load_duration, promptDurationNs: final.prompt_eval_duration } : null,
     };
   }
   async embed({ model, input }) {
@@ -146,4 +158,4 @@ class OllamaBackend {
   }
 }
 
-module.exports = { OllamaBackend };
+module.exports = { OllamaBackend, inferenceThreads };

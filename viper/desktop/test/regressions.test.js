@@ -57,3 +57,24 @@ test('web fetching refuses private-network targets', async () => {
   await assert.rejects(assertPublicUrl(new URL('http://127.0.0.1:47800/')), /private-network/);
   await assert.rejects(assertPublicUrl(new URL('file:///etc/passwd')), /http/);
 });
+
+test('allowed folders: OneDrive-moved Documents is found and a missing folder is a clear 404', async (t) => {
+  const fs = require('node:fs'); const path = require('node:path'); const os = require('node:os');
+  const { defaultFolders } = require('../src/server/settings');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'home-'));
+  fs.mkdirSync(path.join(home, 'OneDrive', 'Documents'), { recursive: true }); fs.mkdirSync(path.join(home, 'Downloads'));
+  const saved = process.env.VIPER_KNOWN_FOLDERS; delete process.env.VIPER_KNOWN_FOLDERS;
+  const f = defaultFolders(home);
+  assert.equal(f[0], path.join(home, 'OneDrive', 'Documents'));
+  assert.equal(f[1], path.join(home, 'Downloads'));
+  process.env.VIPER_KNOWN_FOLDERS = JSON.stringify({ documents: 'D:\\Docs', downloads: 'D:\\Down', desktop: 'D:\\Desk' });
+  assert.deepEqual(defaultFolders(home), ['D:\\Docs', 'D:\\Down', 'D:\\Desk']);
+  if (saved === undefined) delete process.env.VIPER_KNOWN_FOLDERS; else process.env.VIPER_KNOWN_FOLDERS = saved;
+  const svc = await startViper('folders');
+  t.after(() => svc.shutdown());
+  const gone = path.join(svc.dataDir, 'missing');
+  svc.settings.set('privacy', { allowedFolders: [gone, svc.dataDir] });
+  const r = await svc.call('POST', '/files/browse', {});
+  assert.equal(r.path, svc.dataDir, 'defaults to the first folder that exists');
+  await assert.rejects(svc.call('POST', '/files/browse', { path: gone }), (e) => e.status === 404 && /Folder not found/.test(e.message));
+});

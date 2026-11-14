@@ -256,8 +256,11 @@ module.exports = {
     r.post(`${P}/spreadsheet`, async ({ body }) => svc.files.analyzeSpreadsheet(body.path));
     r.post(`${P}/codebase`, async ({ body }) => svc.files.analyzeCodebase(body.path));
     r.post(`${P}/browse`, async ({ body }) => {
-      const dir = path.resolve(body.path || svc.settings.get('privacy').allowedFolders[0]);
+      const roots = svc.settings.get('privacy').allowedFolders;
+      // Default to the first allowed folder that exists on this PC.
+      const dir = path.resolve(body.path || roots.find((r) => fs.existsSync(r)) || roots[0] || '.');
       if (!svc.permissions.isPathAllowed(dir)) throw new HttpError(403, 'Outside allowed folders');
+      if (!fs.existsSync(dir)) throw new HttpError(404, `Folder not found: ${dir}. Update your allowed folders in Settings → Privacy.`);
       const entries = (await fsp.readdir(dir, { withFileTypes: true })).filter((e) => !e.name.startsWith('.')).slice(0, 500).map((e) => ({ name: e.name, path: path.join(dir, e.name), dir: e.isDirectory(), supported: e.isFile() && isSupported(e.name) }));
       entries.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
       return { path: dir, parent: svc.permissions.isPathAllowed(path.dirname(dir)) ? path.dirname(dir) : null, entries, roots: svc.settings.get('privacy').allowedFolders };

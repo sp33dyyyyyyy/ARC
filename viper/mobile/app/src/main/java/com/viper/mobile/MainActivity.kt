@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private var imageTarget: ((String) -> Unit)? = null
     private var photoUri: Uri? = null
     private var pairStatus = mutableStateOf("")
+    private var incomingCode = mutableStateOf("")
 
     private val perms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     private val scan = registerForActivityResult(ScanContract()) { r -> r.contents?.let { pairWith(it) } }
@@ -53,7 +54,19 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) want += Manifest.permission.POST_NOTIFICATIONS
         perms.launch(want.toTypedArray())
         ConnectionService.update(this)
+        handleIntent(intent)
         setContent { ViperTheme { Surface(Modifier.fillMaxSize(), color = Void) { Root() } } }
+    }
+    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); handleIntent(intent) }
+
+    /** A pairing code shared from another app (text) or opened as a viper://pair link pre-fills the form; the user still taps Pair. */
+    private fun handleIntent(i: android.content.Intent?) {
+        val code = when (i?.action) {
+            android.content.Intent.ACTION_SEND -> i.getStringExtra(android.content.Intent.EXTRA_TEXT)
+            android.content.Intent.ACTION_VIEW -> i.data?.takeIf { it.scheme == "viper" && it.host == "pair" }?.toString()
+            else -> null
+        } ?: return
+        if (app.client.state.value == Conn.UNPAIRED) { incomingCode.value = code; pairStatus.value = "Pairing code received. Check the PC name, then tap Pair." }
     }
 
     fun requestSmsPermission() = perms.launch(arrayOf(Manifest.permission.SEND_SMS))
@@ -114,8 +127,10 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun PairScreen() {
-        var manual by remember { mutableStateOf("") }
+        val incoming by incomingCode
+        var manual by remember(incoming) { mutableStateOf(incoming) }
         val status by pairStatus; val err by app.client.lastError.collectAsState()
+        val preview = remember(manual) { runCatching { PairingPayload.parse(manual) }.getOrNull() }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(20.dp))
             VCore("idle", 0f, Modifier.fillMaxWidth(0.7f).aspectRatio(1f))
@@ -124,6 +139,7 @@ class MainActivity : ComponentActivity() {
             VButton("Scan pairing code", { scan.launch(ScanOptions().setPrompt("Scan the VIPER pairing code").setBeepEnabled(false).setOrientationLocked(false).setDesiredBarcodeFormats(ScanOptions.QR_CODE)) }, Modifier.fillMaxWidth(), primary = true)
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(manual, { manual = it }, Modifier.fillMaxWidth(), label = { Text("Or paste the pairing code text") }, maxLines = 4)
+            preview?.let { Text("PC: ${it.name} · ${it.hosts.joinToString()}", color = Ink2, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
             VButton("Pair", { pairWith(manual) }, Modifier.fillMaxWidth().padding(top = 8.dp), enabled = manual.isNotBlank())
             if (status.isNotBlank()) Text(status, color = Ink, modifier = Modifier.padding(top = 12.dp))
             err?.let { Text(it, color = Mist, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }

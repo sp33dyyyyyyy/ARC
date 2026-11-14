@@ -118,12 +118,41 @@ test('orchestrator', async (t) => {
     assert.equal(svc.orchestrator.listConversations()[0].title, 'Snake facts');
     assert.match(svc.orchestrator.exportConversation(r.conversationId), /# Snake facts[\s\S]*Pythons are snakes/);
   });
-  await t.test('memories are injected into the system prompt', async () => {
+  await t.test('memories and time go into the current turn, not the system prompt', async () => {
     script = async () => ({ content: 'ok' });
     await chat(svc, 'what do you know about my preferences?');
-    const sys = llm.calls[llm.calls.length - 1].messages[0].content;
-    assert.match(sys, /The user prefers short responses/);
+    const msgs = llm.calls[llm.calls.length - 1].messages;
+    const sys = msgs[0].content; const user = msgs[msgs.length - 1].content;
+    assert.doesNotMatch(sys, /The user prefers short responses/);
     assert.match(sys, /untrusted DATA/);
+    assert.match(user, /^\[Context\]\nLocal time: [\s\S]*The user prefers short responses[\s\S]*\[\/Context\]\n\nwhat do you know about my preferences\?$/);
+  });
+  await t.test('system prompt + tools are byte-identical across turns (prompt-cache reuse)', async () => {
+    script = async () => ({ content: 'ok' });
+    const a = await chat(svc, 'hello there');
+    const first = llm.calls[llm.calls.length - 1];
+    await new Promise((r) => setTimeout(r, 1100));
+    await chat(svc, 'and what about now?', { conversationId: a.conversationId });
+    const second = llm.calls[llm.calls.length - 1];
+    assert.equal(second.messages[0].content, first.messages[0].content);
+    assert.deepEqual(second.tools, first.tools);
+    // the earlier turn is resent exactly as stored, so only the new turn needs processing
+    assert.equal(second.messages[1].content, 'hello there');
+  });
+  await t.test('tool selection is relevance-filtered but emitted in a stable order', async () => {
+    const names = (q) => svc.orchestrator.selectTools(q, 'chat').map((x) => x.name);
+    const a = names('open notepad and set a reminder'); const b = names('set a reminder and open notepad');
+    assert.deepEqual(a, b);
+    assert.equal(a[0], 'system_status');
+  });
+  await t.test('warm-up pre-fills the cache without recording a performance sample', async () => {
+    const before = svc.db.get('SELECT COUNT(*) AS n FROM model_perf').n;
+    const r = await svc.orchestrator.warmup('manual');
+    assert.ok(r && !r.error, JSON.stringify(r));
+    const call = llm.calls[llm.calls.length - 1];
+    assert.equal(call.messages[0].content, llm.calls[llm.calls.length - 2].messages[0].content);
+    assert.equal(call.max_tokens, 1);
+    assert.equal(svc.db.get('SELECT COUNT(*) AS n FROM model_perf').n, before);
   });
   await t.test('context is trimmed to the configured window', async () => {
     svc.settings.set('limits', { numCtx: 1800 });

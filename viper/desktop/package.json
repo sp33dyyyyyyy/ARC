@@ -1,7 +1,7 @@
 {
   "name": "viper",
   "productName": "VIPER",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "VIPER - Virtual Intelligence Personal Executive Response. A local-first AI assistant for Windows.",
   "main": "src/main/main.js",
   "author": "VIPER Project",
@@ -13,7 +13,8 @@
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:electron": "node test/ui/electron-smoke.js",
     "dist:win": "electron-builder --win nsis --x64",
-    "dist:dir": "electron-builder --win dir --x64"
+    "dist:dir": "electron-builder --win dir --x64",
+    "test:e2e": "node test/e2e/viper-e2e.js"
   },
   "dependencies": {
     "croner": "11.0.0",
@@ -67,11 +68,17 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico",
       "requestedExecutionLevel": "asInvoker",
-      "artifactName": "VIPER-Setup-${version}.${ext}"
+      "artifactName": "VIPER-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -84,7 +91,8 @@
       "deleteAppDataOnUninstall": false,
       "uninstallDisplayName": "VIPER",
       "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "VIPER-Windows-Setup.${ext}"
     },
     "publish": [
       {
@@ -97,6 +105,9 @@
     "electronLanguages": [
       "en-US",
       "en-GB"
-    ]
+    ],
+    "portable": {
+      "artifactName": "VIPER-Portable.${ext}"
+    }
   }
 }

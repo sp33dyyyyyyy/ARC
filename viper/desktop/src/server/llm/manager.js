@@ -3,6 +3,7 @@
 // each role (chat, code, vision, embeddings), streams completions with
 // performance measurement, and recovers from backend crashes.
 const { spawn } = require('node:child_process');
+const os = require('node:os');
 const { OllamaBackend } = require('./ollama');
 const { FoundryBackend } = require('./foundry');
 const { OpenAICompatBackend } = require('./openai');
@@ -27,7 +28,7 @@ class ModelManager {
     this.active = new Map(); // requestId -> info (current AI tasks)
     this.modelCache = { at: 0, list: [] };
     this.recovering = false;
-    require('../hardware').detectHardware().then((hw) => { this.backends.ollama.physicalCores = hw.cpu.physicalCores || null; }).catch(() => {});
+    require('../hardware').detectHardware().then((hw) => { this.backends.ollama.cpu = hw.cpu; }).catch(() => {});
   }
 
   backend(id) {
@@ -112,13 +113,14 @@ class ModelManager {
   /**
    * Stream a chat completion with metrics + one automatic recovery attempt.
    */
-  async *chat({ role = 'chat', backend, model, messages, tools, options, signal, requestId, label }) {
+  async *chat({ role = 'chat', backend, model, messages, tools, options, signal, requestId, label, measure = true }) {
     if (!model) {
       const r = await this.resolve(role);
       backend = r.backend; model = r.model;
       if (!model) throw Object.assign(new Error(r.reason), { code: 'NO_MODEL' });
     }
     const be = this.backend(backend);
+    await this.ensureResident(backend, model).catch((e) => this.log.debug('residency', e.message));
     const info = { id: requestId, backend, model, role, label: label || role, startedAt: Date.now(), tokens: 0 };
     if (requestId) { this.active.set(requestId, info); this.bus.publish('ai.task', { ...info, state: 'started' }); }
     let attempt = 0;
@@ -135,8 +137,8 @@ class ModelManager {
               const genMs = Date.now() - (first || t0);
               const outTokens = ev.usage?.completion_tokens || tokens;
               const tps = ev.stats?.evalDurationNs ? ev.stats.evalCount / (ev.stats.evalDurationNs / 1e9) : (genMs > 0 ? outTokens / (genMs / 1000) : 0);
-              const perf = { backend, model, ttftMs: first ? first - t0 : null, tokens: outTokens, tokPerS: Math.round(tps * 10) / 10 };
-              this.recordPerf(perf, true);
+              const perf = { backend, model, ttftMs: first ? first - t0 : null, tokens: outTokens, tokPerS: Math.round(tps * 10) / 10, promptTokens: ev.usage?.prompt_tokens ?? null, loadMs: ev.stats?.loadDurationNs ? Math.round(ev.stats.loadDurationNs / 1e6) : null, promptMs: ev.stats?.promptDurationNs ? Math.round(ev.stats.promptDurationNs / 1e6) : null };
+              if (measure) this.recordPerf(perf, true);
               yield { ...ev, perf };
               continue;
             }
@@ -146,7 +148,7 @@ class ModelManager {
         } catch (e) {
           if (signal?.aborted) throw e;
           const connErr = /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|not running|other side closed|terminated/i.test(e.message + (e.cause?.message || ''));
-          this.recordPerf({ backend, model, ttftMs: null, tokens: 0, tokPerS: 0 }, false);
+          if (measure) this.recordPerf({ backend, model, ttftMs: null, tokens: 0, tokPerS: 0 }, false);
           if (connErr && !emitted && attempt === 0 && this.settings.get('backend').autoRecover) {
             attempt++;
             this.bus.publish('models.recovering', { backend, model, error: e.message });
@@ -160,6 +162,39 @@ class ModelManager {
     } finally {
       if (requestId) { this.active.delete(requestId); this.bus.publish('ai.task', { ...info, state: 'finished', durationMs: Date.now() - info.startedAt }); }
     }
+  }
+
+  inUse(backend, name) { for (const t of this.active.values()) if (t.backend === backend && t.model === name) return true; return false; }
+
+  /**
+   * Keep memory bounded. Before a model runs, other resident models beyond the profile's
+   * limit are unloaded (least recently used first) — or all of them when free RAM would not
+   * fit the incoming model — so chat, code and vision models are never all in RAM at once
+   * on a 16 GB laptop. Idle models are also released by the engine after `keepAlive`.
+   */
+  async ensureResident(backendId, model) {
+    const be = this.backends[backendId];
+    const max = this.settings.get('performance').maxLoadedModels;
+    if (!be?.loaded || !be.unload || !(max >= 1) || !this.health[backendId]?.ok) return [];
+    const key = `${backendId}:${model}`;
+    if (this._resident === key && Date.now() - this._residentAt < 5000) return [];
+    const loaded = await be.loaded();
+    const self = loaded.find((m) => m.name === model);
+    const others = loaded.filter((m) => m.name !== model && !this.inUse(backendId, m.name))
+      .sort((a, b) => String(b.expiresAt || '').localeCompare(String(a.expiresAt || ''))); // most recently used first
+    let keep = Math.max(0, max - 1);
+    if (!self && others.length) {
+      const info = await this.modelInfo(backendId, model).catch(() => null);
+      const need = (info?.sizeBytes || 0) * 1.25 + 1.5 * 1073741824;
+      if (os.freemem() < need) keep = 0;
+    }
+    const dropped = [];
+    for (const m of others.slice(keep)) {
+      try { await be.unload(m.name); dropped.push(m.name); this.log.info(`unloaded ${m.name} to make room for ${model}`); this.bus.publish('models.unloaded', { backend: backendId, model: m.name, reason: `make room for ${model}` }); }
+      catch (e) { this.log.debug(`unload ${m.name}`, e.message); }
+    }
+    this._resident = key; this._residentAt = Date.now();
+    return dropped;
   }
 
   /** Non-streaming convenience wrapper. */

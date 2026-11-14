@@ -17,6 +17,14 @@ class LogicTest {
         assertEquals("abc", p.token)
     }
 
+    @Test fun acceptsBase64AndLinkForms() {
+        val json = """{"v":1,"app":"viper","name":"PC","hosts":["10.0.2.2"],"port":47801,"fp":"$fp","token":"t1","exp":0}"""
+        val b64 = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(json.toByteArray())
+        assertEquals("t1", PairingPayload.parse(b64).token)
+        assertEquals(listOf("10.0.2.2"), PairingPayload.parse("viper://pair?c=$b64").hosts)
+        assertThrows(IllegalArgumentException::class.java) { PairingPayload.parse("hello world") }
+    }
+
     @Test fun rejectsForeignQrCodes() {
         assertThrows(IllegalArgumentException::class.java) { PairingPayload.parse("""{"v":1,"app":"other","hosts":["1.2.3.4"],"port":1,"fp":"$fp","token":"x"}""") }
         assertThrows(IllegalArgumentException::class.java) { PairingPayload.parse("""{"v":1,"app":"viper","hosts":["1.2.3.4"],"port":1,"fp":"AA:BB","token":"x"}""") }

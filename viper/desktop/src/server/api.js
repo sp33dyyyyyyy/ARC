@@ -29,6 +29,14 @@ function coreRoutes(r, svc) {
   // Hardware + recommendations
   r.get(`${P}/hardware`, async ({ query }) => detectHardware(query.refresh === '1'));
   r.get(`${P}/recommendation`, async () => svc.models.recommendation(await detectHardware()));
+  r.get(`${P}/performance`, async () => svc.performance.status());
+  r.post(`${P}/performance/preset`, async ({ body }) => {
+    if (!['auto', 'eco', 'balanced', 'performance'].includes(body.preset)) throw new HttpError(400, 'preset must be auto, eco, balanced or performance');
+    const st = svc.performance.apply(body.preset);
+    svc.scheduleWarmup?.('preset changed', 500);
+    return st;
+  });
+  r.post(`${P}/models/warmup`, async () => (await svc.orchestrator.warmup('manual')) || { skipped: true, reason: 'No chat model available or engine offline' });
 
   // Models / backends
   r.post(`${P}/models/health`, async () => svc.models.checkHealth(), { scope: 'read' });

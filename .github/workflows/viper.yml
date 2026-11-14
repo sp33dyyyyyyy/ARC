@@ -7,10 +7,14 @@ on:
     paths: ['viper/**', '.github/workflows/viper.yml']
   workflow_dispatch:
 
+env:
+  E2E_MODEL: qwen2.5:0.5b
+
 jobs:
   desktop-windows:
-    name: Desktop (Windows) — tests + installer
+    name: Windows — tests, installer + portable, installed-app E2E
     runs-on: windows-latest
+    timeout-minutes: 90
     defaults: { run: { working-directory: viper/desktop } }
     steps:
       - uses: actions/checkout@v4
@@ -18,31 +22,56 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - name: Unit + integration tests
-        run: npm test
-      - name: Electron smoke test (real window)
-        continue-on-error: true
-        run: |
-          npm i --no-save playwright-core@1.63.0
-          npm run test:electron
-      - name: Build NSIS installer
-        run: npx electron-builder --win nsis --x64 --publish never
-      - name: Silent install check
         shell: pwsh
         run: |
-          Start-Process -FilePath (Get-ChildItem dist\VIPER-Setup-*.exe).FullName -ArgumentList '/S' -Wait
-          if (!(Test-Path "$env:LOCALAPPDATA\Programs\VIPER\VIPER.exe")) { throw 'VIPER.exe not installed' }
-          if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\VIPER.lnk")) { throw 'Start menu shortcut missing' }
+          New-Item -ItemType Directory -Force e2e-out | Out-Null
+          npm test *>&1 | Tee-Object -FilePath e2e-out/unit-tests.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build installer (NSIS) and portable EXE
+        run: npx electron-builder --win nsis portable --x64 --publish never
+      - name: Install Ollama (local AI engine used by the E2E test)
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe -OutFile $env:RUNNER_TEMP\OllamaSetup.exe
+          Start-Process "$env:RUNNER_TEMP\OllamaSetup.exe" -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES' -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          Start-Process $exe -ArgumentList 'serve' -WindowStyle Hidden
+          for ($i = 0; $i -lt 60; $i++) { try { Invoke-RestMethod http://127.0.0.1:11434/api/version | Out-Null; break } catch { Start-Sleep 2 } }
+          & $exe --version
+      - name: End-to-end test of the installed application
+        id: e2e
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          npm i --no-save playwright-core@1.63.0
+          $env:E2E_INSTALLER = (Resolve-Path dist\VIPER-Windows-Setup.exe).Path
+          $env:E2E_PORTABLE = (Resolve-Path dist\VIPER-Portable.exe).Path
+          $env:E2E_OUT = (Resolve-Path e2e-out).Path
+          node test/e2e/viper-e2e.js
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Checksums
+        shell: pwsh
+        run: Get-FileHash dist\VIPER-Windows-Setup.exe, dist\VIPER-Portable.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content e2e-out\sha256-windows.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: VIPER-Setup
+          name: VIPER-Windows
           path: |
-            viper/desktop/dist/VIPER-Setup-*.exe
-            viper/desktop/dist/VIPER-Setup-*.exe.blockmap
+            viper/desktop/dist/VIPER-Windows-Setup.exe
+            viper/desktop/dist/VIPER-Windows-Setup.exe.blockmap
+            viper/desktop/dist/VIPER-Portable.exe
             viper/desktop/dist/latest.yml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: e2e-windows, path: viper/desktop/e2e-out }
+      - name: Fail if the E2E test failed
+        if: steps.e2e.outcome != 'success'
+        run: exit 1
 
   android:
-    name: VIPER Mobile APK
+    name: Android — unit tests + signed release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults: { run: { working-directory: viper/mobile } }
     steps:
       - uses: actions/checkout@v4
@@ -50,32 +79,121 @@ jobs:
         with: { distribution: temurin, java-version: 21 }
       - name: Android SDK packages (preinstalled SDK on the runner)
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
-      - run: ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
+      - name: Release signing key
+        env:
+          KS_B64: ${{ secrets.VIPER_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.VIPER_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.VIPER_KEY_ALIAS }}
+        run: |
+          # Uses the repository's signing key when it is configured as secrets; otherwise a
+          # one-off key is generated for this build (no keys are stored in the repository).
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/viper.jks"
+            echo "VIPER_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"; echo "VIPER_KEY_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"; echo "VIPER_KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
+            echo "signing=repository key" > "$RUNNER_TEMP/signing.txt"
+          else
+            PW=$(openssl rand -hex 16)
+            echo "::add-mask::$PW"
+            keytool -genkeypair -keystore "$RUNNER_TEMP/viper.jks" -storepass "$PW" -keypass "$PW" -alias viper -keyalg RSA -keysize 3072 -validity 9125 -dname "CN=VIPER Mobile" >/dev/null 2>&1
+            echo "VIPER_KEYSTORE_PASSWORD=$PW" >> "$GITHUB_ENV"; echo "VIPER_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"; echo "VIPER_KEY_ALIAS=viper" >> "$GITHUB_ENV"
+            echo "signing=per-build key (no repository key configured)" > "$RUNNER_TEMP/signing.txt"
+          fi
+          echo "VIPER_KEYSTORE=$RUNNER_TEMP/viper.jks" >> "$GITHUB_ENV"
+      - run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+      - name: Collect APK, signature check and unit-test summary
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk out/VIPER-Mobile.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs out/VIPER-Mobile.apk > out/apk-signature.txt
+          cat "$RUNNER_TEMP/signing.txt" >> out/apk-signature.txt
+          (cd out && sha256sum VIPER-Mobile.apk > sha256-android.txt)
+          python3 - <<'EOF'
+          import glob, json, xml.etree.ElementTree as ET
+          t = f = s = 0; cases = []
+          for p in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r = ET.parse(p).getroot(); t += int(r.get('tests')); f += int(r.get('failures')) + int(r.get('errors')); s += int(r.get('skipped'))
+              cases += [c.get('name') for c in r.iter('testcase')]
+          json.dump({'tests': t, 'failures': f, 'skipped': s, 'cases': cases}, open('out/android-unit-tests.json', 'w'), indent=1)
+          print(t, 'tests,', f, 'failures')
+          EOF
       - uses: actions/upload-artifact@v4
-        with: { name: VIPER-Mobile, path: 'viper/mobile/app/build/outputs/apk/**/*.apk' }
+        with: { name: VIPER-Mobile, path: viper/mobile/out }
+
+  android-e2e:
+    name: Android — emulator E2E against a real VIPER core
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: VIPER core dependencies
+        working-directory: viper/desktop
+        run: npm ci --omit=dev --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with: { name: VIPER-Mobile, path: apk }
+      - name: Install Ollama and the test model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/version && break; sleep 2; done
+          ollama pull "$E2E_MODEL"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the APK on an emulator (Android 14, Pixel 6 profile)
+        id: e2e
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none
+          script: cd viper/desktop && E2E_OUT=$GITHUB_WORKSPACE/e2e-android node ../mobile/e2e/android-e2e.js $GITHUB_WORKSPACE/apk/VIPER-Mobile.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: e2e-android, path: e2e-android }
+      - name: Fail if the E2E test failed
+        if: steps.e2e.outcome != 'success'
+        run: exit 1
 
   release:
-    name: Publish download (GitHub Release)
-    needs: [desktop-windows, android]
-    if: github.event_name != 'pull_request'
+    name: Test report + GitHub Release
+    needs: [desktop-windows, android, android-e2e]
+    if: always() && github.event_name != 'pull_request' && needs.desktop-windows.result == 'success' && needs.android.result == 'success' && needs.android-e2e.result == 'success'
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
-      - name: Create or update the release
+      - name: Source archive, test report (PDF) and checksums
+        run: |
+          set -e
+          mkdir -p out
+          cp artifacts/VIPER-Windows/* out/
+          cp artifacts/VIPER-Mobile/VIPER-Mobile.apk out/
+          git archive --format=zip --prefix=VIPER-Source/ -o out/VIPER-Source.zip HEAD viper .github
+          (cd out && sha256sum VIPER-Windows-Setup.exe VIPER-Portable.exe VIPER-Mobile.apk VIPER-Source.zip > SHA256SUMS.txt)
+          node viper/scripts/make-report.js artifacts out/SHA256SUMS.txt "${GITHUB_SHA}" out/report.html
+          google-chrome --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer --print-to-pdf=out/VIPER-Test-Report.pdf "file://$PWD/out/report.html"
+          rm out/report.html
+          ls -la out
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
           set -e
-          mkdir -p out
-          cp artifacts/VIPER-Setup/* out/
-          cp artifacts/VIPER-Mobile/debug/app-debug.apk out/VIPER-Mobile.apk
-          VERSION=$(grep -oE 'VIPER-Setup-[0-9.]+\.exe$' <<< "$(ls out)" | head -1 | sed -E 's/VIPER-Setup-(.*)\.exe/\1/')
+          VERSION=$(sed -nE 's/^version: *//p' out/latest.yml)
           TAG="v${VERSION}"
-          NOTES="VIPER ${VERSION} for Windows 10/11 and VIPER Mobile for Android. Unsigned build: Windows/browsers may warn; choose Keep / More info -> Run anyway. Built from ${SHA}."
+          NOTES="VIPER ${VERSION}: Windows installer, portable EXE and VIPER Mobile for Android, with the automated test report for this exact build (VIPER-Test-Report.pdf) and SHA-256 checksums. Built from ${SHA}. The Windows files are not code-signed yet: Windows/browsers may warn — choose Keep / More info → Run anyway."
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release edit "$TAG" --repo "$REPO" --target "$SHA" --notes "$NOTES" --latest
             gh release upload "$TAG" out/* --repo "$REPO" --clobber

@@ -125,7 +125,9 @@ class RemoteLink {
     const qr = await QR.toDataURL(JSON.stringify(payload), { errorCorrectionLevel: 'M', margin: 1, scale: 6, color: { dark: '#000000', light: '#ffffff' } });
     setTimeout(() => { if (this.pairing?.token === token) { this.pairing = null; if (!this.cfg().enabled) this.stop(); this.svc.bus.publish('remote.changed', this.status()); } }, PAIR_TTL + 1000).unref();
     this.svc.bus.publish('remote.changed', this.status());
-    return { qr, host: addrs[0]?.address || '127.0.0.1', hosts: addrs, port: this.port, fingerprint: this.tls.fingerprint, expiresAt: this.pairing.expiresAt };
+    // The same payload as text, for phones without a working camera (paste or share it to VIPER Mobile).
+    const code = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    return { qr, code, host: addrs[0]?.address || '127.0.0.1', hosts: addrs, port: this.port, fingerprint: this.tls.fingerprint, expiresAt: this.pairing.expiresAt };
   }
   cancelPairing() { this.pairing = null; if (!this.cfg().enabled) this.stop(); }
 

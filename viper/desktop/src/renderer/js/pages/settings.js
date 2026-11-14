@@ -80,18 +80,40 @@ export async function render(view, { app, api, params }) {
     }
     if (tab === 'performance') {
       const l = s.limits;
+      const [st, loaded, perfRows] = await Promise.all([api.get('/performance'), api.get('/models/loaded').catch(() => []), api.get('/models/perf').catch(() => [])]);
       const num = (key, label, hint, min, max, step = 1) => field(label, h('input.input', { type: 'number', min, max, step, value: l[key], onchange: (e) => save('limits', { [key]: Number(e.target.value) }) }), hint);
+      const hw = st.hardware;
+      const presetBtn = (id, label) => h(`button${st.preset === id ? '.on' : ''}`, { onclick: async () => { try { await api.post('/performance/preset', { preset: id }); app.settings = await api.get('/settings'); toast('Performance profile applied', id === 'auto' ? `Automatic → ${st.presets[st.recommended].label}` : st.presets[id].label); draw(); } catch (e) { toastError(e); } } }, label);
+      const active = st.presets[st.applied] || {};
       body.append(h('div.grid.g2', {},
+        h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'Performance profile', h('span.r', {}, h('span.tag', {}, `Active: ${active.label || st.applied}`))),
+          h('div.seg', { style: { margin: '6px 0 10px' } }, presetBtn('auto', `Automatic (${st.presets[st.recommended].label})`), presetBtn('eco', 'Eco'), presetBtn('balanced', 'Balanced'), presetBtn('performance', 'Performance')),
+          h('p.small', {}, active.summary || ''),
+          hw ? h('p.small.mist', {}, `Detected: ${st.reason}`) : null,
+          hw && !hw.gpu?.vramGB ? h('p.small.mist', {}, 'No dedicated graphics memory: AI runs on the processor. Small models (1–4B) give the fastest replies; 7–8B models work but answer more slowly.') : null),
+        h('div.panel', {}, h('h3', {}, 'Interface'), h('div.col', {},
+          field('Frame-rate limit', select([['30', '30 fps'], ['45', '45 fps'], ['60', '60 fps']], String(s.ui.fpsLimit || 60), (v) => save('ui', { fpsLimit: Number(v) })), 'The core drops to 30 fps while the AI is generating and stops completely when VIPER is minimised.'),
+          field('Animation', select([['full', 'Full'], ['reduced', 'Reduced (24 fps, no transitions)'], ['off', 'Off (still image)']], s.ui.animations, (v) => save('ui', { animations: v }))),
+          h('div.list', {}, row('Adaptive quality', 'Automatically reduces particle and bar detail if drawing becomes slow, instead of dropping frames.', toggle(s.performance.adaptiveQuality !== false, (v) => save('performance', { adaptiveQuality: v })))))),
+        h('div.panel', {}, h('h3', {}, 'AI memory use'), h('div.col', {},
+          field('Models kept in memory at once', select([['1', '1 (recommended for 16 GB)'], ['2', '2'], ['3', '3']], String(s.performance.maxLoadedModels || 1), (v) => save('performance', { maxLoadedModels: Number(v) })), 'Before a different model runs (e.g. vision after chat), other idle models are unloaded so they never all occupy RAM together.'),
+          field('Unload an idle model after', h('input.input', { value: l.keepAlive, onchange: (e) => save('limits', { keepAlive: e.target.value }) }), 'e.g. 2m, 10m, 30m. 0 unloads immediately after each reply.'),
+          h('div.list', {}, row('Warm up the chat model', 'Loads the model and pre-processes VIPER\'s instructions in the background after start-up, so the first reply begins sooner.', toggle(s.performance.warmup !== false, (v) => save('performance', { warmup: v })))),
+          h('div.row.wrap', {}, btn('Warm up now', async (e) => busy(e.currentTarget, async () => { const r = await api.post('/models/warmup'); if (r.skipped) toast('Nothing to warm up', r.reason, 'warn'); else if (r.error) toast('Warm-up failed', r.error, 'error'); else toast('Model ready', `${r.model} loaded and primed in ${(r.ms / 1000).toFixed(1)} s`); draw(); }), { cls: 'sm', ico: 'play' })),
+          h('div.list', {}, loaded.length ? loaded.map((m) => h('div.li', {}, h('div.t', {}, h('b', {}, m.name), h('small', {}, `${m.backend}${m.sizeBytes ? ` · ${(m.sizeBytes / 1073741824).toFixed(1)} GB` : ''}${m.expiresAt ? ` · unloads ${new Date(m.expiresAt).toLocaleTimeString()}` : ''}`)), btn('Unload', async (e) => busy(e.currentTarget, async () => { await api.post('/models/unload', { backend: m.backend, model: m.name }); draw(); }), { cls: 'sm' }))) : h('small.mist', {}, 'No model is loaded in memory right now.')))),
         h('div.panel', {}, h('h3', {}, 'Model resources'), h('div.col', {},
-          num('numCtx', 'Context window (tokens)', 'Larger remembers more of the conversation but uses more memory. 4096 suits 8 GB PCs.', 1024, 131072, 512),
-          num('numThreads', 'CPU threads (0 = automatic)', 'Limit how many processor threads inference may use.', 0, 128),
-          h('div.list', {}, row('Keep a CPU core free for the interface', 'With automatic threads, Ollama uses one core less so VIPER stays smooth while the model is answering.', toggle(l.reserveUiCore !== false, (v) => save('limits', { reserveUiCore: v })))),
-          num('gpuLayers', 'GPU layers (-1 = automatic, 0 = CPU only)', 'Ollama only. Lower values reduce GPU memory use.', -1, 999),
-          field('Keep model loaded for', h('input.input', { value: l.keepAlive, onchange: (e) => save('limits', { keepAlive: e.target.value }) }), 'e.g. 5m, 30m, 0 to unload immediately after each reply'))),
+          num('numCtx', 'Context window (tokens)', 'Larger remembers more of the conversation but uses more memory and slows the first token.', 1024, 131072, 512),
+          num('numThreads', 'CPU threads (0 = automatic)', 'Automatic uses one thread per performance core, minus the cores kept free below.', 0, 128),
+          num('reserveCores', 'Cores kept free for the interface', 'Only with automatic threads. Ignored on CPUs with efficiency cores (they keep Windows responsive).', 0, 4),
+          num('gpuLayers', 'GPU layers (-1 = automatic, 0 = CPU only)', 'Ollama only. Lower values reduce GPU memory use.', -1, 999))),
         h('div.panel', {}, h('h3', {}, 'Generation'), h('div.col', {},
           num('temperature', 'Temperature', 'Lower is more focused; higher is more creative.', 0, 2, 0.05),
           num('maxContextMessages', 'Messages kept in context', 'Older messages are summarised automatically.', 4, 200),
-          h('div.list', {}, row('Automatically restart a crashed AI engine', null, toggle(s.backend.autoRecover, (v) => save('backend', { autoRecover: v }))))))));
+          h('div.list', {}, row('Automatically restart a crashed AI engine', null, toggle(s.backend.autoRecover, (v) => save('backend', { autoRecover: v })))))),
+        h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'Measured speed (last 30 days)'),
+          perfRows.length ? h('table.tbl', {}, h('thead', {}, h('tr', {}, ['Model', 'Replies', 'Avg tokens/s', 'Avg first token', 'Failures'].map((t) => h('th', {}, t)))),
+            h('tbody', {}, perfRows.map((r) => h('tr', {}, h('td', {}, `${r.model} (${r.backend})`), h('td', {}, String(r.runs)), h('td', {}, String(r.avg_tps ?? '—')), h('td', {}, r.avg_ttft != null ? `${r.avg_ttft} ms` : '—'), h('td', {}, String(r.failures))))))
+            : h('small.mist', {}, 'Speed is measured on every reply from the real engine. Nothing recorded yet.'))));
     }
     if (tab === 'proactive') {
       const p = s.proactive;

@@ -3,10 +3,25 @@ const os = require('node:os');
 const path = require('node:path');
 const { jsonParse } = require('./util');
 
+/**
+ * The user's real Documents / Downloads / Desktop. The desktop shell passes the locations Windows
+ * reports (they live under OneDrive when folder backup is on); otherwise common locations are probed.
+ */
+function defaultFolders(home) {
+  let known = {}; try { known = JSON.parse(process.env.VIPER_KNOWN_FOLDERS || '{}'); } catch { /* ignore */ }
+  const fs = require('node:fs');
+  const pick = (key, name) => {
+    if (known[key]) return known[key];
+    const cands = [path.join(home, name), path.join(home, 'OneDrive', name)];
+    return cands.find((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } }) || cands[0];
+  };
+  return [...new Set([pick('documents', 'Documents'), pick('downloads', 'Downloads'), pick('desktop', 'Desktop')])];
+}
+
 function defaults() {
   const home = os.homedir();
   return {
-    app: { setupComplete: false, setupStep: 0, firstRunAt: null, version: '1.0.0' },
+    app: { setupComplete: false, setupStep: 0, firstRunAt: null, version: require('../../package.json').version },
     backend: {
       active: 'ollama', // 'foundry' | 'ollama' | 'openai'
       foundry: { url: '', cliPath: 'foundry' },
@@ -25,7 +40,9 @@ function defaults() {
       stt: { backend: 'whisper.cpp', model: 'base.en' },
       tts: { backend: 'piper', model: 'en_GB-alan-medium' },
     },
-    limits: { numCtx: 4096, numThreads: 0, reserveUiCore: true, gpuLayers: -1, keepAlive: '5m', maxContextMessages: 40, temperature: 0.6 },
+    limits: { numCtx: 4096, numThreads: 0, reserveUiCore: true, reserveCores: 1, gpuLayers: -1, keepAlive: '10m', maxContextMessages: 40, temperature: 0.6 },
+    // Performance profile (see performance.js). 'auto' picks ECO/BALANCED/PERFORMANCE from the hardware.
+    performance: { preset: 'auto', applied: '', appliedAt: 0, maxLoadedModels: 1, warmup: true, monitorMs: 2000, adaptiveQuality: true },
     personality: {
       name: 'VIPER', userName: '', address: 'sir', humour: 0.35, formality: 0.7, verbosity: 'concise',
       proactivity: 0.4, customInstructions: '',
@@ -38,7 +55,7 @@ function defaults() {
     },
     privacy: {
       webAccess: false, // live internet research/fetching (explicit opt-in)
-      allowedFolders: [path.join(home, 'Documents'), path.join(home, 'Downloads'), path.join(home, 'Desktop')],
+      allowedFolders: defaultFolders(home),
       saveTranscripts: true, temporaryMemory: false, cameraEnabled: false,
     },
     permissions: {
@@ -51,7 +68,7 @@ function defaults() {
     },
     approvedScripts: [], // [{ id, name, path, args: [] }]
     ui: {
-      animations: 'full', leftPanel: true, rightPanel: true, compactSidebar: false,
+      animations: 'full', fpsLimit: 60, leftPanel: true, rightPanel: true, compactSidebar: false,
       widgets: ['clock', 'system', 'model', 'network', 'phone', 'tasks', 'notifications', 'plugins'],
       hudShortcut: 'CommandOrControl+Shift+Space', hudOpacity: 0.92, hudCompact: false,
       launchAtStartup: false, startMinimized: false, closeToTray: true, showHudOnStart: false,
@@ -116,4 +133,4 @@ class Settings {
   }
 }
 
-module.exports = { Settings, defaults, deepMerge };
+module.exports = { Settings, defaults, deepMerge, defaultFolders };

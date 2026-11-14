@@ -5,11 +5,12 @@
 const fs = require('node:fs');
 const { uid, now, estimateTokens, jsonParse } = require('./util');
 const { ftsQuery } = require('./db');
-const { buildSystemPrompt, textToolInstructions, parseTextToolCall } = require('./personality');
+const { buildSystemPrompt, turnContext, textToolInstructions, parseTextToolCall } = require('./personality');
 const { IntentRouter } = require('./intents');
 
 const BASE_TOOLS = ['system_status', 'open_app', 'search_files', 'set_reminder', 'remember', 'switch_mode', 'notify_me', 'open_url', 'open_folder'];
 const MAX_TOOL_ROUNDS = 5;
+const deviceContext = (device) => `This request comes from the user's paired phone (${device.name}); keep replies phone-friendly.`;
 
 function wrapUntrusted(source, text) {
   const clean = String(text || '').replace(/<<<\/?(?:EXTERNAL|END)[^>]*>>>/gi, '');
@@ -93,11 +94,53 @@ class Orchestrator {
   }
 
   // ---------- prompt ----------
-  systemPrompt({ mode = 'chat', query = '', nativeTools = true, automation = false, device = null } = {}) {
+  systemPrompt({ mode = 'chat', query = '', nativeTools = true, automation = false, device = null, dynamic = true } = {}) {
     const settings = this.svc.settings;
-    const memories = automation ? [] : this.svc.memory.relevant(query);
-    const userContext = device ? `This request comes from the user's paired phone (${device.name}); keep replies phone-friendly.` : '';
-    return buildSystemPrompt({ personality: settings.get('personality'), memories, mode, nativeTools, userContext });
+    const memories = automation || !dynamic ? [] : this.svc.memory.relevant(query);
+    const userContext = device && dynamic ? deviceContext(device) : '';
+    return buildSystemPrompt({ personality: settings.get('personality'), memories, mode, nativeTools, userContext, dynamic });
+  }
+  turnContext({ query = '', device = null } = {}) {
+    return turnContext({ memories: this.svc.memory.relevant(query), userContext: device ? deviceContext(device) : '' });
+  }
+
+  /** Native or text-protocol tools for a model, and the tool set for this request. */
+  async toolPlan(target, { text = '', mode = 'chat', role = 'chat' } = {}) {
+    const info = await this.svc.models.modelInfo(target.backend, target.model);
+    // Ollama reports exact capabilities; Foundry's catalog flags tool support. Other
+    // OpenAI-compatible servers are assumed to support native tools until they fail.
+    const knownCaps = target.backend === 'ollama' || target.backend === 'foundry';
+    const native = !this.noNativeTools.has(`${target.backend}:${target.model}`) && (knownCaps ? (info?.capabilities?.includes('tools') ?? false) : true);
+    const toolDefs = role === 'vision' ? [] : this.selectTools(text, mode).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+    return { native, toolDefs };
+  }
+
+  /**
+   * Load the chat model and pre-fill its prompt cache with the static prefix of a chat turn
+   * (system prompt + base tools), so the first real reply only processes the user's message.
+   */
+  async warmup(reason = 'manual') {
+    const { svc } = this;
+    if (!svc.settings.get('performance').warmup && reason !== 'manual') return null;
+    if (this.warming) return this.warming;
+    const target = await svc.models.resolve('chat');
+    if (!target.model || !svc.models.health[target.backend]?.ok) return null;
+    const key = `${target.backend}:${target.model}`;
+    this.warming = (async () => {
+      const t0 = Date.now();
+      try {
+        const { native, toolDefs } = await this.toolPlan(target, { text: '', mode: 'chat' });
+        let sys = this.systemPrompt({ mode: 'chat', nativeTools: native, dynamic: false });
+        if (!native && toolDefs.length) sys += `\n\n${textToolInstructions(toolDefs)}`;
+        await svc.models.complete({ ...target, messages: [{ role: 'system', content: sys }, { role: 'user', content: 'Hello' }], tools: native && toolDefs.length ? toolDefs : undefined, options: { maxTokens: 1 }, measure: false, requestId: uid('wu_'), label: 'Warming up the AI model' });
+        const ms = Date.now() - t0;
+        this.warmedKey = key;
+        svc.log.info(`warm-up (${reason}) of ${key} took ${ms} ms`);
+        svc.bus.publish('models.warm', { ...target, ms, reason });
+        return { ...target, ms };
+      } catch (e) { svc.log.debug('warm-up failed', e.message); return { ...target, error: e.message }; } finally { this.warming = null; }
+    })();
+    return this.warming;
   }
 
   selectTools(text, mode) {
@@ -111,8 +154,13 @@ class Orchestrator {
       if (mode === 'code' && /code|workspace|git|test/.test(tool.name)) s += 2;
       if ((tool.category === 'web.access') && !web) s = -1;
       return { tool, s };
-    }).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
-    return scored.slice(0, 14).map((x) => x.tool);
+    }).filter((x) => x.s > 0);
+    // The base tools are always sent first, in a fixed order; request-specific tools are
+    // appended after them. The serialised prefix (system prompt + base tools) is therefore
+    // identical on every turn and the engine's prompt cache covers it.
+    const base = BASE_TOOLS.map((n) => all.find((x) => x.name === n)).filter(Boolean);
+    const extras = scored.filter((x) => !BASE_TOOLS.includes(x.tool.name)).sort((a, b) => b.s - a.s).slice(0, Math.max(0, 14 - base.length)).map((x) => x.tool);
+    return [...base, ...extras.sort((a, b) => all.indexOf(a) - all.indexOf(b))];
   }
 
   buildHistory(convId, systemTokens) {
@@ -205,20 +253,18 @@ class Orchestrator {
       const reason = target.reason || 'No model available.';
       return this.finish(convId, requestId, { content: `${reason}`, meta: { route: 'error', code: 'NO_MODEL' } }, input);
     }
-    const info = await svc.models.modelInfo(target.backend, target.model);
-    // Ollama reports exact capabilities; Foundry's catalog flags tool support. Other
-    // OpenAI-compatible servers are assumed to support native tools until they fail.
-    const knownCaps = target.backend === 'ollama' || target.backend === 'foundry';
-    let native = !this.noNativeTools.has(`${target.backend}:${target.model}`) && (knownCaps ? (info?.capabilities?.includes('tools') ?? false) : true);
-    const toolDefs = role === 'vision' ? [] : this.selectTools(input.text, input.mode).map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }));
+    const plan = await this.toolPlan(target, { text: input.text, mode: input.mode, role });
+    let native = plan.native; const toolDefs = plan.toolDefs;
     const buildSys = () => {
-      let s = this.systemPrompt({ mode: input.mode, query: input.text, nativeTools: native, device: input.device });
+      let s = this.systemPrompt({ mode: input.mode, nativeTools: native, dynamic: false });
       if (!native && toolDefs.length) s += `\n\n${textToolInstructions(toolDefs)}`;
       return s;
     };
     let sys = buildSys();
     const { history, dropped, oldestKept } = this.buildHistory(convId, estimateTokens(sys) + (native ? estimateTokens(JSON.stringify(toolDefs)) : 0));
     const messages = [{ role: 'system', content: sys }, ...history.map(({ created_at, ...m }) => m)];
+    // Time, relevant memories and device context belong to this turn only (cache-friendly prefix).
+    { const last = messages[messages.length - 1]; if (last?.role === 'user') last.content = this.turnContext({ query: input.text, device: input.device }) + last.content; }
     // Images belong to this turn only: attach them to the current user message rather than
     // storing them, so later text-only turns never send old images to a text model.
     if (images.length) { const last = messages[messages.length - 1]; if (last?.role === 'user') last.images = images; }

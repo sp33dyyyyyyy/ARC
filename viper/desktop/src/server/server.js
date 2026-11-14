@@ -25,6 +25,7 @@ const { AutomationEngine } = require('./automation');
 const { Briefing } = require('./briefing');
 const { TaskWatch } = require('./tasks');
 const { Orchestrator } = require('./orchestrator');
+const { PerformanceProfile } = require('./performance');
 const { Router, dispatch, send } = require('./http');
 const { coreRoutes } = require('./api');
 const { headlessBridge } = require('./bridge');
@@ -44,9 +45,18 @@ async function createViper(opts = {}) {
   const db = new Database(paths.db);
   const settings = new Settings(db, bus);
   const vault = new Vault(db, opts.encryptor || fileKeyEncryptor(paths.data));
+  // Repair allowed folders saved by older versions that point at a Documents/Desktop folder
+  // which Windows moved into OneDrive.
+  {
+    const pv = settings.get('privacy');
+    const known = require('./settings').defaultFolders(require('node:os').homedir());
+    const fixed = [...new Set(pv.allowedFolders.map((f) => (fs.existsSync(f) ? f : known.find((k) => path.basename(k) === path.basename(f) && fs.existsSync(k)) || f)))];
+    if (fixed.join('|') !== pv.allowedFolders.join('|')) settings.set('privacy', { allowedFolders: fixed });
+  }
   const bridge = opts.bridge || headlessBridge(paths);
 
-  const svc = { version: opts.version || '1.0.0', paths, logger, log, bus, db, settings, vault, bridge, events: {} };
+  const svc = { version: opts.version || require('../../package.json').version, paths, logger, log, bus, db, settings, vault, bridge, events: {} };
+  svc.performance = await new PerformanceProfile({ settings, log: logger.scope('perf'), bus }).init();
   svc.permissions = new Permissions({ settings, bus, db, log: logger.scope('perm') });
   svc.models = new ModelManager({ settings, vault, db, bus, log: logger.scope('models') });
   svc.monitor = new SystemMonitor({ bus, log: logger.scope('monitor'), settings, models: svc.models });
@@ -84,8 +94,22 @@ async function createViper(opts = {}) {
   svc.events.onSettingsChanged = (section) => {
     if (section === 'proactive') svc.briefing.scheduleProactive();
     if (section === 'remote') svc.remote?.applySettings?.();
-    if (section === 'backend' || section === 'models') { svc.models.modelCache.at = 0; svc.models.checkHealth(); }
+    if (section === 'backend' || section === 'models') { svc.models.modelCache.at = 0; svc.models.checkHealth().then(() => scheduleWarmup('model changed')).catch(() => {}); }
   };
+  // Warm the chat model in the background: at startup (after the UI has had time to paint),
+  // when the chat model changes, and when the engine comes online later.
+  let warmTimer = null;
+  const scheduleWarmup = (reason, ms = 1500) => {
+    if (opts.noBackground) return;
+    clearTimeout(warmTimer);
+    warmTimer = setTimeout(async () => {
+      const r = await svc.models.resolve('chat').catch(() => ({}));
+      if (r.model && `${r.backend}:${r.model}` !== svc.orchestrator.warmedKey) svc.orchestrator.warmup(reason).catch(() => {});
+    }, ms);
+    warmTimer.unref?.();
+  };
+  svc.scheduleWarmup = scheduleWarmup;
+  bus.on('event', (e) => { if (e.type === 'models.health') { const a = settings.get('backend').active; if (e.data?.[a]?.ok && !svc._wasOnline) scheduleWarmup('engine online', 4000); svc._wasOnline = !!e.data?.[a]?.ok; } });
 
   // ---------- local HTTP server ----------
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
@@ -144,7 +168,7 @@ async function createViper(opts = {}) {
   for (const m of FEATURE_MODULES) { try { const mod = require(m); await mod.start?.(svc); } catch { /* optional */ } }
 
   svc.shutdown = async () => {
-    clearInterval(svc.healthTimer);
+    clearInterval(svc.healthTimer); clearTimeout(warmTimer);
     svc.orchestrator.cancelAll();
     svc.monitor.stop(); svc.reminders.stop(); svc.automation.stop();
     for (const m of FEATURE_MODULES) { try { await require(m).stop?.(svc); } catch { /* optional */ } }

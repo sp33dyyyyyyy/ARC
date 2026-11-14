@@ -1,6 +1,7 @@
 import { h, clear, icon, btn, busy, toast, toastError, field, select, progress, readFileAs, ask, when } from '../ui.js';
 
 export async function render(view, { app, api }) {
+  const abort = new AbortController(); // removes window listeners when leaving the page
   let status = null; let styles = { styles: [], aspects: [] }; let selected = null; let reference = null;
   const st = { prompt: '', negative: '', style: 'none', aspect: '1:1', resolution: 768, steps: app.settings.image.defaultSteps, cfg: app.settings.image.defaultCfg, count: 1, seed: -1, strength: 0.6 };
   const statusBox = h('div.panel'); const stage = h('div.panel', { style: { minHeight: '360px' } }); const gallery = h('div.imgs'); const prog = h('div');
@@ -73,7 +74,7 @@ export async function render(view, { app, api }) {
     const wrap = h('div.compare', {}, h('img', { src: a, alt: 'Before' }), after, handle);
     const set = (x) => { const r = wrap.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (x - r.left) / r.width)); after.style.clipPath = `inset(0 0 0 ${p * 100}%)`; handle.style.left = `${p * 100}%`; };
     after.style.inset = '0'; after.querySelector('img').style.cssText = 'width:100%;height:100%;object-fit:contain'; after.style.clipPath = 'inset(0 0 0 50%)';
-    let drag = false; wrap.addEventListener('pointerdown', (e) => { drag = true; set(e.clientX); }); window.addEventListener('pointerup', () => { drag = false; }); wrap.addEventListener('pointermove', (e) => drag && set(e.clientX));
+    let drag = false; wrap.addEventListener('pointerdown', (e) => { drag = true; set(e.clientX); }); window.addEventListener('pointerup', () => { drag = false; }, { signal: abort.signal }); wrap.addEventListener('pointermove', (e) => drag && set(e.clientX));
     return h('div', {}, wrap, h('small.mist', {}, 'Drag to compare before and after.'));
   }
   function editDialog(img, inpaint) {
@@ -84,7 +85,7 @@ export async function render(view, { app, api }) {
     im.onload = () => { canvas.width = im.naturalWidth; canvas.height = im.naturalHeight; const g = canvas.getContext('2d'); g.drawImage(im, 0, 0); if (inpaint) { mask = document.createElement('canvas'); mask.width = canvas.width; mask.height = canvas.height; mctx = mask.getContext('2d'); mctx.fillStyle = '#000'; mctx.fillRect(0, 0, mask.width, mask.height); } };
     let painting = false;
     const paint = (e) => { if (!painting || !mctx) return; const r = canvas.getBoundingClientRect(); const x = (e.clientX - r.left) * canvas.width / r.width; const y = (e.clientY - r.top) * canvas.height / r.height; const rad = canvas.width / 24; mctx.fillStyle = '#fff'; mctx.beginPath(); mctx.arc(x, y, rad, 0, 7); mctx.fill(); const g = canvas.getContext('2d'); g.fillStyle = 'rgba(255,255,255,.45)'; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); };
-    canvas.addEventListener('pointerdown', (e) => { painting = true; paint(e); }); canvas.addEventListener('pointermove', paint); window.addEventListener('pointerup', () => { painting = false; });
+    canvas.addEventListener('pointerdown', (e) => { painting = true; paint(e); }); canvas.addEventListener('pointermove', paint); window.addEventListener('pointerup', () => { painting = false; }, { signal: abort.signal });
     import('../ui.js').then(({ modal }) => modal({ title: inpaint ? 'Inpaint' : 'Edit image', wide: true, body: h('div.col', {}, inpaint ? h('p.small.mist', {}, 'Paint over the area to replace.') : null, canvas, promptIn, field('Change strength', h('input', { type: 'range', min: 0.1, max: 0.95, step: 0.05, value: strength, oninput: (e) => { strength = Number(e.target.value); } }))),
       actions: [{ label: 'Cancel', cls: 'ghost' }, { label: 'Apply', cls: 'primary', onClick: () => act('/image/edit', { imageId: img.id, prompt: promptIn.value, strength, mask: inpaint ? mask.toDataURL('image/png') : null }) }] }));
   }
@@ -98,5 +99,5 @@ export async function render(view, { app, api }) {
   }
   const off = api.on('image.progress', (p) => { clear(prog).append(h('div.panel', {}, h('div.row', {}, h('span.grow', {}, `Generating… ${Math.round((p.progress || 0) * 100)}%${p.step ? ` · step ${p.step}/${p.steps}` : ''}`), h('small.mist', {}, p.eta ? `${Math.round(p.eta)} s left` : '')), progress(p.progress || 0), p.preview ? h('img', { src: p.preview, alt: 'Preview', style: { maxHeight: '160px', marginTop: '8px' } }) : null)); });
   drawStatus(); drawGen(); loadHistory();
-  return off;
+  return () => { off(); abort.abort(); };
 }

@@ -20,7 +20,7 @@ class SystemMonitor {
   start() {
     const tick = async () => {
       try { await this.sample(); } catch (e) { this.log.debug('monitor sample', e.message); }
-      this.timer = setTimeout(tick, this.visible ? 2000 : 15000);
+      this.timer = setTimeout(tick, this.visible ? Math.max(1000, this.settings?.get('performance')?.monitorMs || 2000) : 15000);
     };
     tick();
   }
