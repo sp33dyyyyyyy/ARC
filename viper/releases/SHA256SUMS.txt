@@ -1,0 +1,2 @@
+b5d6734a1f5d334f379e13b304775ca8b81b69c7f0172ae890f94c3e75288e91  viper/releases/VIPER-Mobile-1.0.0.apk
+e0856d16a3960c00715ea01f91154e4e7bb01266fbbff5452f458d7169c58407  viper/desktop/dist/VIPER-Setup-1.0.0.exe

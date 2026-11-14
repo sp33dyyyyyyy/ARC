@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIPER HUD</title>
+<link rel="stylesheet" href="/css/viper.css">
+<link rel="stylesheet" href="/css/hud.css">
+</head>
+<body class="hud">
+<div class="hud-frame" id="hud">
+  <div class="hud-core drag" id="core-wrap"><canvas class="core" id="core"></canvas></div>
+  <div class="hud-status" id="status">Standing by</div>
+  <div class="hud-task hidden" id="task"></div>
+  <div class="hud-out md" id="out" aria-live="polite"></div>
+  <div class="hud-pops" id="pops"></div>
+  <form class="hud-cmd" id="cmd"><input id="cmd-in" placeholder="Command…" aria-label="Command" autocomplete="off"><button type="button" class="btn icon sm" id="mic" title="Talk (click to start/stop)" aria-label="Talk"></button></form>
+  <div class="hud-ctrl">
+    <button class="btn icon sm ghost" id="b-compact" title="Compact / expand" aria-label="Compact or expand"></button>
+    <button class="btn icon sm ghost" id="b-main" title="Open VIPER" aria-label="Open VIPER"></button>
+    <button class="btn icon sm ghost" id="b-close" title="Hide HUD" aria-label="Hide HUD"></button>
+  </div>
+</div>
+<script type="module" src="/js/hud.js"></script>
+</body>
+</html>

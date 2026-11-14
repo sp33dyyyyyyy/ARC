@@ -1,0 +1,19 @@
+html, body.hud { background: transparent !important; overflow: hidden; }
+.hud-frame { position: absolute; inset: 6px; display: flex; flex-direction: column; gap: 6px; padding: 10px; background: rgba(0,0,0,.82); border: 1px solid var(--line-2); border-radius: 14px; backdrop-filter: blur(14px); }
+.hud-frame::before, .hud-frame::after { content: ""; position: absolute; width: 12px; height: 12px; border: solid var(--line-hot); pointer-events: none; }
+.hud-frame::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; border-top-left-radius: 14px; } .hud-frame::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; border-bottom-right-radius: 14px; }
+.drag { -webkit-app-region: drag; } .hud-frame button, .hud-frame input, .hud-out { -webkit-app-region: no-drag; }
+.hud-core { height: 150px; flex: none; display: grid; place-items: center; }
+.hud-status { text-align: center; font-size: 12px; color: var(--mist); letter-spacing: .06em; }
+.hud-task { font-size: 11.5px; color: var(--ink-2); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-out { flex: 1; overflow-y: auto; font-size: 13px; min-height: 0; padding: 4px 2px; }
+.hud-out .q { color: var(--mist); margin-bottom: 4px; }
+.hud-cmd { display: flex; gap: 6px; align-items: center; flex: none; } .hud-cmd input { flex: 1; min-width: 0; background: rgba(255,255,255,.04); border: 1px solid var(--line-2); border-radius: 20px; padding: 5px 12px; outline: none; color: var(--ink); }
+.hud-cmd input:focus { border-color: var(--line-hot); }
+.hud-ctrl { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; }
+.hud-pops { position: absolute; left: 10px; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.hud-pop { background: var(--ink); color: var(--void); padding: 8px 10px; border-radius: 8px; font-size: 12.5px; animation: toastIn .3s var(--ease); pointer-events: auto; } .hud-pop b { display: block; font-weight: 500; }
+body.compact .hud-frame { padding: 6px; justify-content: center; border-radius: 50% 50% 14px 14px; }
+body.compact .hud-core { height: 128px; } body.compact .hud-out, body.compact .hud-cmd input, body.compact .hud-task, body.compact .hud-pops { display: none; }
+body.compact .hud-cmd { justify-content: center; } body.compact .hud-status { font-size: 11px; }
+body.compact .hud-ctrl { top: auto; bottom: 6px; right: 6px; } body.compact #b-main, body.compact #b-close { display: none; }

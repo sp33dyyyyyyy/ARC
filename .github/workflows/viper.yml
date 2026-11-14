@@ -1,0 +1,46 @@
+name: VIPER build & test
+
+on:
+  push:
+    paths: ['viper/**', '.github/workflows/viper.yml']
+  pull_request:
+    paths: ['viper/**', '.github/workflows/viper.yml']
+  workflow_dispatch:
+
+jobs:
+  desktop-windows:
+    name: Desktop (Windows) — tests + installer
+    runs-on: windows-latest
+    defaults: { run: { working-directory: viper/desktop } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - name: Unit + integration tests
+        run: npm test
+      - name: Electron smoke test (real window)
+        run: npm run test:electron
+      - name: Build NSIS installer
+        run: npx electron-builder --win nsis --x64 --publish never
+      - name: Silent install check
+        shell: pwsh
+        run: |
+          Start-Process -FilePath (Get-ChildItem dist\VIPER-Setup-*.exe).FullName -ArgumentList '/S' -Wait
+          if (!(Test-Path "$env:LOCALAPPDATA\Programs\VIPER\VIPER.exe")) { throw 'VIPER.exe not installed' }
+          if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\VIPER.lnk")) { throw 'Start menu shortcut missing' }
+      - uses: actions/upload-artifact@v4
+        with: { name: VIPER-Setup, path: 'viper/desktop/dist/VIPER-Setup-*.exe' }
+
+  android:
+    name: VIPER Mobile APK
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: viper/mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - run: ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
+      - uses: actions/upload-artifact@v4
+        with: { name: VIPER-Mobile, path: 'viper/mobile/app/build/outputs/apk/**/*.apk' }

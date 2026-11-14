@@ -1,0 +1,93 @@
+{
+  "name": "viper",
+  "productName": "VIPER",
+  "version": "1.0.0",
+  "description": "VIPER - Virtual Intelligence Personal Executive Response. A local-first AI assistant for Windows.",
+  "main": "src/main/main.js",
+  "author": "VIPER Project",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "server": "node src/server/standalone.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:electron": "node test/ui/electron-smoke.js",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:dir": "electron-builder --win dir --x64"
+  },
+  "dependencies": {
+    "croner": "11.0.0",
+    "electron-updater": "6.8.11",
+    "imapflow": "2.11.0",
+    "mailparser": "^3.9.0",
+    "mammoth": "1.13.0",
+    "node-forge": "1.4.3",
+    "nodemailer": "10.5.0",
+    "pdfjs-dist": "6.5.438",
+    "qrcode": "1.5.4",
+    "quickjs-emscripten": "0.32.0",
+    "sql.js": "1.16.0",
+    "systeminformation": "5.33.22",
+    "ws": "8.23.0",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.1"
+  },
+  "build": {
+    "appId": "com.viper.desktop",
+    "productName": "VIPER",
+    "copyright": "VIPER Project",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "plugins-examples/**/*",
+      "build/icon.*",
+      "build/tray*.png",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/pdfjs-dist/**",
+      "node_modules/quickjs-emscripten*/**",
+      "node_modules/@jitl/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "VIPER-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "VIPER",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "uninstallDisplayName": "VIPER",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sp33dyyyyyyy",
+        "repo": "ARC",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

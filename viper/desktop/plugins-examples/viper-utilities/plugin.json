@@ -1,0 +1,21 @@
+{
+  "id": "viper.utilities",
+  "name": "VIPER Utilities",
+  "version": "1.0.0",
+  "description": "Example plugin: unit conversion tool, a world clock widget, a scratchpad page that remembers notes, and a dice roller.",
+  "main": "main.js",
+  "permissions": ["storage"],
+  "contributes": {
+    "tools": [
+      { "name": "convert_units", "label": "Convert units", "risk": "read", "keywords": ["convert", "celsius", "fahrenheit", "km", "miles", "kg", "pounds"],
+        "description": "Convert between common units (km/miles, kg/lb, celsius/fahrenheit, m/ft, l/gal).",
+        "parameters": { "type": "object", "properties": { "value": { "type": "number" }, "from": { "type": "string" }, "to": { "type": "string" } }, "required": ["value", "from", "to"] } },
+      { "name": "roll_dice", "label": "Roll dice", "risk": "read", "keywords": ["dice", "roll", "d20"],
+        "description": "Roll dice using notation like 2d6 or 1d20+3.",
+        "parameters": { "type": "object", "properties": { "notation": { "type": "string" } }, "required": ["notation"] } }
+    ],
+    "widgets": [ { "id": "clocks", "title": "World clock" } ],
+    "pages": [ { "id": "scratchpad", "title": "Scratchpad", "description": "Notes kept by the plugin's own sandboxed storage." } ],
+    "actions": [ { "id": "log_note", "label": "Append a note to the scratchpad" } ]
+  }
+}
