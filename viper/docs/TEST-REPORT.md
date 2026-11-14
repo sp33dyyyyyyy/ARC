@@ -30,11 +30,18 @@ OpenAI-compatible models; auto-selection picking a vision model for chat; stream
 before the HTTP reply; late socket events after shutdown; leaked test-runner env in workspace
 commands; HUD layout; unsupported `window.prompt` in Electron.
 
+## Verified on real Windows (GitHub Actions `windows-latest`, run 43554154553)
+
+- All 90 desktop tests pass on Windows.
+- Electron smoke test 10/10 on Windows, with the credential vault using **Windows DPAPI**.
+- NSIS installer builds natively, installs silently, and places `VIPER.exe` plus the Start-menu shortcut.
+- Android job: unit tests + debug and release APK build pass.
+
 ## Not verified here (needs real hardware or accounts)
 
 | Area | Status |
 |---|---|
-| **Installer on real Windows** | Built but not run on Windows. Under Wine the app's core started (SQLite created, "core listening" logged) but the silent NSIS install aborted (exit 2), which is a Wine limitation we could not rule out. The CI workflow installs it silently on a real `windows-latest` runner and checks the shortcuts. |
+| Interactive install on a desktop PC | Silent install verified on a Windows server runner; the interactive installer wizard and SmartScreen prompt were not clicked through. |
 | Windows-only tools | PowerShell Core Audio volume, window management, Start-menu/Store app discovery, `taskkill`, event log, DPAPI vault, global shortcuts, tray, login item, `desktopCapturer` screenshots: implemented, not executed on Windows. |
 | Microsoft Foundry Local | Windows/macOS only, unavailable here. Implemented against the Microsoft Learn REST reference (Oct 2026) and tested with an OpenAI-compatible server; catalogue/download/load endpoints untested against the real service. |
 | Live microphone, wake word, barge-in | No microphone. VAD/wake logic and the STT/TTS engines are tested; real-room accuracy is not. |
