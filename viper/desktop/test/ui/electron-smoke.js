@@ -1,6 +1,7 @@
 // Launches the real Electron app (under Xvfb on Linux), checks the main window, the
 // preload bridge, navigation, chat round-trip and the floating HUD window.
-const { _electron: electron } = require('playwright');
+let pw; try { pw = require('playwright'); } catch { pw = require('playwright-core'); }
+const { _electron: electron } = pw;
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
