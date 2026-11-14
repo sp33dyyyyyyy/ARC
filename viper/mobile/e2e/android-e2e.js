@@ -173,18 +173,25 @@ async function startCore() {
   await tap(/^Send$/);
   const arrived = await until(() => { const c = conv()[0]; if (!c) return null; const m = svc.orchestrator.messages(c.id).find((x) => x.role === 'user' && x.content === question); return m ? { c, m } : null; }, 20000);
   check('Chat', 'message typed on the phone reaches the Windows/PC backend', !!arrived && arrived.m.meta?.device, arrived ? `stored in conversation ${arrived.c.id} from device "${arrived.m.meta?.device}"` : 'not received');
-  // Watch the phone's screen while the reply is generated: the text must grow over time.
-  const seen = [];
+  // Watch the phone's screen while the reply is generated: the app's text must grow over time,
+  // and the reply the PC's model produced must be what the phone shows (Markdown is rendered,
+  // so compare normalised words, not raw characters).
+  const words = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const screenWords = () => words(dump().filter((n) => n.pkg === PKG && n.text && n.text !== question && !/^(Message|Send|Stop|Image|Camera|New|Chat|Home|PC|More|Hold to talk|VIPER|You)$/.test(n.text) && !/^Connected to /.test(n.text)).map((n) => n.text).join(' '));
+  const seen = []; let shownOk = false;
   const finished = await until(() => {
-    const txt = dump().map((n) => n.text).filter((t) => /one|two|three/i.test(t) && t !== question).sort((a, b) => b.length - a.length)[0] || '';
-    if (txt && (!seen.length || seen[seen.length - 1] !== txt.length)) seen.push(txt.length);
+    const sw = screenWords();
+    if (!seen.length || seen[seen.length - 1] !== sw.length) seen.push(sw.length);
     const last = svc.orchestrator.messages(arrived?.c.id || '').filter((m) => m.role === 'assistant').pop();
-    return last && txt.length >= Math.min(last.content.length, 40) ? last : null;
+    if (!last) return null;
+    const rw = words(last.content).split(' ');
+    shownOk = sw.includes(rw.slice(0, 6).join(' ')) || sw.includes(rw.slice(-6).join(' '));
+    return shownOk ? last : null;
   }, 180000, 250);
   svc.bus.off('event', onTok);
   screenshot('a06-chat-reply');
   check('Chat', 'AI reply from the PC\'s local model appears on the phone', !!finished, finished ? finished.content.slice(0, 160) : 'no reply shown');
-  check('Chat', 'reply streams to the phone progressively (text observed growing)', seen.length >= 2 && tokens.length > 5, `phone screen lengths ${seen.slice(0, 8).join('→')}; ${tokens.length} tokens streamed; first token ${tokens[0] ? tokens[0] - tSend : '?'} ms after Send`);
+  check('Chat', 'reply streams to the phone progressively (text observed growing)', new Set(seen).size >= 3 && tokens.length > 5, `phone screen lengths ${seen.slice(0, 8).join('→')}; ${tokens.length} tokens streamed; first token ${tokens[0] ? tokens[0] - tSend : '?'} ms after Send`);
   metrics.phoneChat = { tokens: tokens.length, firstTokenMs: tokens[0] ? tokens[0] - tSend : null, totalMs: tokens.length ? tokens[tokens.length - 1] - tSend : null, observedLengths: seen };
 
   // ===== voice capture =====
@@ -193,8 +200,10 @@ async function startCore() {
   if (ptt) {
     const [x1, y1, x2, y2] = ptt.b; const x = Math.round((x1 + x2) / 2); const y = Math.round((y1 + y2) / 2);
     let sawListening = false;
-    const press = new Promise((res) => { try { execFileSync('adb', ['shell', `input swipe ${x} ${y} ${x} ${y} 3500`], { timeout: 20000 }); } catch { /* ignore */ } res(); });
-    await sleep(1500); sawListening = !!find(dump(), /Listening — release to send/);
+    // Hold the button for 6 s in the background while the screen is inspected mid-press.
+    const press = new Promise((res) => { const p = require('node:child_process').spawn('adb', ['shell', `input swipe ${x} ${y} ${x} ${y} 6000`]); p.on('close', res); p.on('error', res); });
+    await sleep(2500); sawListening = !!find(dump(), /Listening — release to send/);
+    screenshot('a07-voice-listening');
     await press;
     const handled = await until(() => find(dump(), /Transcribing|Speech recognition unavailable|PC offline/), 20000, 700);
     check('Voice', 'hold-to-talk records from the microphone (emulator virtual mic)', sawListening, sawListening ? 'UI switched to "Listening — release to send"' : 'listening state not shown');

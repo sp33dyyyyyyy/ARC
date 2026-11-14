@@ -85,16 +85,29 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
                         events.tryEmit(e)
                     } catch (_: Exception) { }
                 }
+                // The PC closes with 4001 when it revokes this phone. OkHttp reports the peer's close in
+                // onClosing; answer it and act at once instead of waiting for the socket to time out.
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    webSocket.close(1000, null)
+                    if (code == 4001) revoked()
+                }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (code == 4001) { lastError.value = "This phone's access was revoked on the PC."; store.pairing = null; state.value = Conn.UNPAIRED; wanted = false; return }
+                    if (code == 4001 || state.value == Conn.UNPAIRED) { revoked(); return }
                     state.value = Conn.OFFLINE; scheduleReconnect()
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    if (response?.code == 401) { lastError.value = "The PC no longer recognises this phone. Pair again."; state.value = Conn.UNPAIRED; store.pairing = null; wanted = false; return }
+                    if (response?.code == 401) { revoked("The PC no longer recognises this phone. Pair again."); return }
+                    if (state.value == Conn.UNPAIRED) return
                     lastError.value = t.message; state.value = Conn.OFFLINE; scheduleReconnect()
                 }
             })
         }
+    }
+
+    private fun revoked(msg: String = "This phone's access was revoked on the PC. Pair again to reconnect.") {
+        wanted = false; reconnectJob?.cancel(); ws = null
+        lastError.value = msg; store.pairing = null; client = null; host = null
+        state.value = Conn.UNPAIRED
     }
 
     fun disconnect() { wanted = false; reconnectJob?.cancel(); ws?.close(1000, "bye"); ws = null; if (state.value != Conn.UNPAIRED) state.value = Conn.OFFLINE }

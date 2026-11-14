@@ -105,5 +105,9 @@ test('VIPER Mobile link: pairing, pinning, scopes, streaming, revocation, transf
     svc.remote.revoke(creds.deviceId);
     assert.equal(await closed, 4001);
     assert.equal((await req('GET', `${base}/api/v1/system/snapshot`, { fp: payload.fp, auth: auth() })).status, 401);
+    // A revoked phone that tries to reconnect gets an explicit 401 (so it returns to pairing).
+    const again = new WebSocket(`wss://127.0.0.1:${payload.port}/api/v1/ws`, { headers: { Authorization: auth() }, rejectUnauthorized: false });
+    const status = await new Promise((resolve) => { again.on('unexpected-response', (_q, res) => resolve(res.statusCode)); again.on('open', () => resolve('opened')); again.on('error', (e) => resolve(e.message)); });
+    assert.equal(status, 401);
   });
 });

@@ -77,7 +77,8 @@ class RemoteLink {
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url, 'https://x');
       const dev = url.pathname === '/api/v1/ws' && this.authenticate(req.headers.authorization || `Bearer ${url.searchParams.get('auth') || ''}`, req.socket.remoteAddress);
-      if (!dev) { socket.destroy(); return; }
+      // Tell the phone plainly that its credentials are no longer valid, so it can return to pairing.
+      if (!dev) { try { socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); } catch { socket.destroy(); } return; }
       this.wss.handleUpgrade(req, socket, head, (ws) => this.onSocket(ws, dev));
     });
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(this.cfg().port, '0.0.0.0', resolve); });
