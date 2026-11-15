@@ -119,7 +119,7 @@ function winControls() {
 }
 function micButton() {
   const b = $('#mic-toggle'); const muted = app.settings.voice.micMuted;
-  clear(b).append(icon(muted ? 'micoff' : 'mic'), muted ? 'Mic off' : (app.voice.state === 'standby' ? 'Wake word on' : 'Mic ready'));
+  clear(b).append(icon(muted ? 'micoff' : 'mic'), h('span.lbl', {}, muted ? 'Mic off' : (app.voice.state === 'standby' ? 'Wake word on' : 'Mic ready')));
   b.classList.toggle('muted', muted);
   b.setAttribute('aria-pressed', String(muted));
 }

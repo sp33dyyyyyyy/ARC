@@ -26,11 +26,13 @@ const collect = (win) => win.evaluate((sel) => {
     // label overflow: any text-bearing child extends beyond the control
     let overflow = el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible';
     for (const c of el.querySelectorAll('*')) { const cr = c.getBoundingClientRect(); if (cr.width && (cr.right > r.right + 1 || cr.left < r.left - 1) && (c.innerText || '').trim()) overflow = true; }
+    // Regression guard: text placed straight into a control (not via the .lbl wrapper) is not optically centred.
+    const bare = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
     const ta = cs.textAlign; const jc = cs.justifyContent;
     const centeredH = el.matches('.btn, .tag, .seg button, .suggest button') || ((ta === 'center' || jc === 'center') && !el.matches('.nav-item'));
     const lb = el.querySelector(':scope > .lbl')?.getBoundingClientRect();
     const ic = el.querySelector(':scope > svg')?.getBoundingClientRect(); const gap = parseFloat(cs.columnGap) || 0;
-    out.push({ iconW: ic && ic.width && lb ? -(ic.width + gap) : 0, lx0: lb && lb.width ? lb.left : null, lx1: lb && lb.width ? lb.right : null, text: text.slice(0, 40), cls: (el.className && typeof el.className === 'string' ? el.className : el.tagName).slice(0, 40), x: r.left, y: r.top, w: r.width, h: r.height, overflow, centeredH, hasText: !!text });
+    out.push({ bare, iconW: ic && ic.width && lb ? -(ic.width + gap) : 0, lx0: lb && lb.width ? lb.left : null, lx1: lb && lb.width ? lb.right : null, text: text.slice(0, 40), cls: (el.className && typeof el.className === 'string' ? el.className : el.tagName).slice(0, 40), x: r.left, y: r.top, w: r.width, h: r.height, overflow, centeredH, hasText: !!text });
   }
   // Collapsed controls: switches, inputs and selects squeezed below a usable size.
   const collapsed = [];
@@ -120,6 +122,7 @@ async function auditApp(app, win, { pages, sizes = [[1440, 900], [1100, 720], [9
       if (g.viewOverflowX) issues.push({ size: `${w}x${h}`, page, kind: 'layout', msg: 'page content wider than its panel (horizontal scrollbar)' });
       for (const c of g.collapsed) issues.push({ size: `${w}x${h}`, page, kind: 'collapsed', msg: `control squeezed too small: ${c}` });
       for (const l of g.leaks) issues.push({ size: `${w}x${h}`, page, kind: 'text', msg: `placeholder text shown to the user: "${l}"` });
+      for (const c of g.controls) if (c.bare) issues.push({ size: `${w}x${h}`, page, kind: 'vertical', msg: `"${c.text}" label is not wrapped for optical centring (built without ui.js h())` });
       for (const c of g.controls) if (c.overflow) issues.push({ size: `${w}x${h}`, page, kind: 'overflow', msg: `label overflows its control: "${c.text}"` });
       for (const o of overlaps(g.controls)) issues.push({ size: `${w}x${h}`, page, kind: 'overlap', msg: o });
       const m = await measure(app, g.controls.filter((c) => c.hasText || /icon/.test(c.cls)), g.dpr);
