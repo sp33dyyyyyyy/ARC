@@ -1,14 +1,16 @@
 import { h, icon, clear, toast, toastError, btn, busy, bytes, field, select, ask, progress } from '../ui.js';
+import { modelTable } from '../components/model-table.js';
 
 const BE = { foundry: 'Microsoft Foundry Local', ollama: 'Ollama', openai: 'OpenAI-compatible server' };
 const ROLES = [['chat', 'General chat'], ['code', 'Coding'], ['vision', 'Vision'], ['embeddings', 'Embeddings']];
+// (Planning, debugging and code-review roles for the Code Agent are in Intelligence → AI Configuration.)
 
 export async function render(view, { app, api }) {
   let hw = null; let rec = null; let installed = []; let perf = []; let catalog = null; let catBackend = app.settings.backend.active;
   const head = h('div.view-head', {}, h('div', {}, h('h1', {}, 'Models'), h('div.sub', {}, 'Local AI engines and the models VIPER runs on this PC. Nothing here uses a cloud service.')),
     h('div.actions', {}, btn('Refresh', () => load(true), { ico: 'refresh' })));
-  const backends = h('div.grid.g3'); const hwBox = h('div.panel'); const roles = h('div.panel'); const inst = h('div.panel'); const cat = h('div.panel'); const dl = h('div');
-  view.append(head, backends, h('div.grid.g2', { style: { marginTop: '14px' } }, hwBox, roles), dl, h('div', { style: { marginTop: '14px' } }, inst), h('div', { style: { marginTop: '14px' } }, cat));
+  const backends = h('div.grid.g3'); const hwBox = h('div.panel'); const roles = h('div.panel'); const inst = h('div.panel'); const cat = h('div.panel'); const dl = h('div'); const caps = h('div.panel');
+  view.append(head, backends, h('div.grid.g2', { style: { marginTop: '14px' } }, hwBox, roles), dl, h('div', { style: { marginTop: '14px' } }, inst), h('div', { style: { marginTop: '14px' } }, caps), h('div', { style: { marginTop: '14px' } }, cat));
 
   async function load(force) {
     try {
@@ -69,7 +71,9 @@ export async function render(view, { app, api }) {
     roles.append(h('p.small.mist', {}, 'Speech recognition, voices and image models are managed in Voice and Image Studio.'));
   }
   function perfFor(m) { return perf.find((p) => p.backend === m.backend && p.model === m.id); }
+  function drawCaps() { clear(caps).append(h('h3', {}, icon('gauge'), 'Capabilities on this PC', h('span.r', {}, btn('Benchmark', () => app.go('benchmark'), { cls: 'sm ghost' }))), modelTable(installed, perf, app)); }
   function drawInstalled() {
+    drawCaps();
     clear(inst).append(h('h3', {}, 'Installed models', h('span.r', {}, `${installed.length}`)));
     if (!installed.length) { inst.append(h('div.empty', {}, h('b', {}, 'No models installed'), 'Download one from the catalogue below — the recommended model is a good start.')); return; }
     const tbl = h('table.tbl', {}, h('thead', {}, h('tr', {}, ['Model', 'Engine', 'Size', 'Capabilities', 'Status', 'Measured speed', ''].map((t) => h('th', {}, t)))));

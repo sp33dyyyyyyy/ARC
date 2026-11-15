@@ -77,6 +77,7 @@ class RemoteLink {
 
   async applySettings() {
     if (this.cfg().enabled || this.pairing) await this.start(); else await this.stop();
+    if (this.server && this.cfg().discovery === false && this.udp) { try { this.udp.close(); } catch { /* closed */ } this.udp = null; } else if (this.server) this.startDiscovery();
     this.svc.bus.publish('remote.changed', this.status());
   }
   async start() {
@@ -107,7 +108,7 @@ class RemoteLink {
    */
   startDiscovery() {
     const port = this.cfg().discoveryPort ?? 47802;
-    if (!port || this.udp) return;
+    if (!port || this.udp || this.cfg().discovery === false) return;
     const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     sock.on('message', (msg, rinfo) => {
       const j = jsonParse(msg.toString('utf8').slice(0, 512), null);

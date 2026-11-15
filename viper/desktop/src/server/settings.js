@@ -98,7 +98,7 @@ function defaults() {
       sms: { provider: 'none', twilio: { accountSid: '', from: '' } },
       emailAccountId: '', selfRecipientId: '',
     },
-    remote: { enabled: false, port: 47801, localPort: 47800 },
+    remote: { enabled: false, port: 47801, localPort: 47800, discoveryPort: 47802, discovery: true, confirmPairing: true },
     image: { backend: 'a1111', a1111Url: 'http://127.0.0.1:7860', defaultSteps: 25, defaultCfg: 7 },
     research: { maxSources: 5, searchEngine: 'duckduckgo' },
     // Code Agent: where new projects go, how many run at once, and what needs approval.

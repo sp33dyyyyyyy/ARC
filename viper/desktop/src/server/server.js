@@ -33,7 +33,7 @@ const { coreRoutes } = require('./api');
 const { headlessBridge } = require('./bridge');
 const { timingSafeEqualStr } = require('./util');
 
-const FEATURE_MODULES = ['./files/index', './research', './image', './code', './agent/index', './voice/index', './comms/index', './remote/index', './plugins/index'];
+const FEATURE_MODULES = ['./files/index', './research', './image', './code', './agent/index', './studio', './voice/index', './comms/index', './remote/index', './plugins/index'];
 const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2', '.wav': 'audio/wav', '.webp': 'image/webp' };
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";

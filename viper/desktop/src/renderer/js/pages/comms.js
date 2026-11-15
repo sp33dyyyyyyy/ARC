@@ -16,7 +16,7 @@ export async function render(view, { app, api, params }) {
   return off;
 }
 
-const PANES = {
+export const PANES = {
   async inbox(body, { api, app, go }) {
     const accounts = await api.get('/comms/accounts');
     const acctBox = h('div.panel', {}, h('h3', {}, icon('comms'), 'Accounts', h('span.r', {}, btn('Add account', () => addAccount(api, () => go('inbox')), { cls: 'sm primary', ico: 'plus' }))),
@@ -132,10 +132,10 @@ function smsConfig(api, app) {
   const s = app.settings.notifications.sms;
   const m = { provider: s.provider, accountSid: s.twilio.accountSid, from: s.twilio.from, twilioToken: '' };
   const box = h('div.col');
-  const draw = () => clear(box).append(field('Provider', select([['none', 'Off'], ['phone', 'My paired Android phone (carrier rates apply)'], ['twilio', 'Twilio SMS gateway (paid)']], m.provider, (v) => { m.provider = v; draw(); })),
+  const draw = () => clear(box).append(...[field('Provider', select([['none', 'Off'], ['phone', 'My paired Android phone (carrier rates apply)'], ['twilio', 'Twilio SMS gateway (paid)']], m.provider, (v) => { m.provider = v; draw(); })),
     m.provider === 'twilio' ? h('div.grid.g2', {}, field('Account SID', h('input.input', { value: m.accountSid, oninput: (e) => { m.accountSid = e.target.value; } })), field('From number', h('input.input', { value: m.from, oninput: (e) => { m.from = e.target.value; } })), field('Auth token (stored encrypted)', h('input.input', { type: 'password', placeholder: '••••••', oninput: (e) => { m.twilioToken = e.target.value; } }))) : null,
     m.provider === 'phone' ? h('p.small.mist', {}, 'Your phone asks you to approve every SMS before it is sent, and needs the SMS permission enabled in VIPER Mobile.') : null,
-    btn('Save SMS settings', async () => { app.settings.notifications = await api.post('/comms/sms/config', m); toast('SMS settings saved'); }, { cls: 'sm' }));
+    btn('Save SMS settings', async () => { app.settings.notifications = await api.post('/comms/sms/config', m); toast('SMS settings saved'); }, { cls: 'sm' })].filter(Boolean));
   draw();
   return box;
 }

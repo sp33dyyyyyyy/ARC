@@ -9,7 +9,7 @@ test('database, settings, vault and memory', async (t) => {
   const svc = await startViper('core');
   t.after(() => svc.shutdown());
 
-  await t.test('schema migrated', () => { assert.equal(svc.db.version, 1); assert.ok(svc.db.get("SELECT name FROM sqlite_master WHERE name = 'memories_fts'")); });
+  await t.test('schema migrated', () => { assert.equal(svc.db.version, 2); assert.ok(svc.db.get("SELECT name FROM sqlite_master WHERE name = 'memories_fts'")); });
   await t.test('settings persist and deep-merge', () => {
     svc.settings.set('personality', { userName: 'Tony', humour: 0.9 });
     const p = svc.settings.get('personality');

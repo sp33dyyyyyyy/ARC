@@ -1,11 +1,15 @@
 import { h, clear, icon, btn, busy, toast, toastError, field, toggle, select, ask, prompt, when, download } from '../ui.js';
 import { aiStatus } from '../components/ai-status.js';
+import { PANES as COMMS } from './comms.js';
 
-const TABS = [['general', 'General'], ['personality', 'Personality'], ['privacy', 'Privacy & permissions'], ['performance', 'Performance'], ['proactive', 'Proactive assistant'], ['activity', 'Activity log'], ['about', 'About']];
+const TABS = [['appearance', 'Appearance'], ['voice', 'Voice'], ['backend', 'AI Backend'], ['performance', 'Performance'], ['privacy', 'Privacy'], ['security', 'Security'], ['mobile', 'Mobile Connection'], ['notifications', 'Notifications'], ['startup', 'Startup'], ['updates', 'Updates']];
+// Tabs from earlier versions still open the section that now holds their settings.
+const LEGACY = { general: 'appearance', personality: 'voice', proactive: 'notifications', activity: 'security', about: 'updates' };
 const WIDGETS = [['clock', 'Date and time'], ['system', 'PC status'], ['model', 'AI engine'], ['network', 'Internet'], ['phone', 'Connected phone'], ['tasks', 'Active tasks'], ['notifications', 'Notifications'], ['plugins', 'Plugin widgets']];
 
 export async function render(view, { app, api, params }) {
-  let tab = params?.tab || 'general';
+  let tab = LEGACY[params?.tab] || params?.tab || 'appearance';
+  if (!TABS.some(([id]) => id === tab)) tab = 'appearance';
   const tabs = h('div.tabs', { role: 'tablist' }); const body = h('div');
   view.append(h('div.view-head', {}, h('div', {}, h('h1', {}, 'Settings'), h('div.sub', {}, 'Changes apply immediately.'))), tabs, body);
   const save = async (section, patch) => { try { app.settings[section] = await api.patch(`/settings/${section}`, patch); } catch (e) { toastError(e); } };
@@ -14,18 +18,12 @@ export async function render(view, { app, api, params }) {
   const cleanups = [];
   const draw = async () => {
     while (cleanups.length) cleanups.pop()();
-    clear(tabs).append(...TABS.map(([id, l]) => h(`button${tab === id ? '.on' : ''}`, { role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; draw(); } }, l)));
+    clear(tabs).append(...TABS.map(([id, l]) => h(`button${tab === id ? '.on' : ''}`, { role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; app.params = { tab }; history.replaceState(null, '', `#/settings:${tab}`); document.dispatchEvent(new CustomEvent('viper:nav')); draw(); } }, l)));
     clear(body);
     const s = app.settings;
-    if (tab === 'general') {
+    if (tab === 'appearance') {
       const ui = s.ui;
       body.append(h('div.grid.g2', {},
-        h('div.panel', {}, h('h3', {}, 'Startup and window'), h('div.list', {},
-          row('Launch VIPER when Windows starts', null, toggle(ui.launchAtStartup, (v) => save('ui', { launchAtStartup: v }))),
-          row('Start minimised to the tray', null, toggle(ui.startMinimized, (v) => save('ui', { startMinimized: v }))),
-          row('Closing the window keeps VIPER running in the tray', 'Wake word, reminders and automations keep working.', toggle(ui.closeToTray, (v) => save('ui', { closeToTray: v }))),
-          row('Show the floating HUD on start', null, toggle(ui.showHudOnStart, (v) => save('ui', { showHudOnStart: v }))),
-          row('Startup Voice Greeting', 'After the AI model passes its start-up check, VIPER says “VIPER systems online. Local intelligence operational.” Never plays if start-up fails.', toggle(s.voice.startupGreeting, (v) => save('voice', { startupGreeting: v }))))),
         h('div.panel', {}, h('h3', {}, 'Floating HUD'), h('div.col', {},
           field('Global shortcut', h('input.input', { value: ui.hudShortcut, onchange: (e) => save('ui', { hudShortcut: e.target.value.trim() }) }), 'Electron accelerator format, e.g. CommandOrControl+Shift+Space'),
           field(`Opacity (${Math.round(ui.hudOpacity * 100)}%)`, h('input', { type: 'range', min: 0.4, max: 1, step: 0.02, value: ui.hudOpacity, onchange: (e) => save('ui', { hudOpacity: Number(e.target.value) }) })),
@@ -37,8 +35,22 @@ export async function render(view, { app, api, params }) {
           row('Show the status panel', null, toggle(ui.rightPanel, (v) => save('ui', { rightPanel: v }))),
           ...WIDGETS.map(([id, l]) => row(l, null, toggle(ui.widgets.includes(id), (v) => save('ui', { widgets: v ? [...new Set([...app.settings.ui.widgets, id])] : app.settings.ui.widgets.filter((x) => x !== id) }))))))));
     }
-    if (tab === 'personality') {
-      const p = s.personality;
+    if (tab === 'startup') {
+      const ui = s.ui;
+      body.append(h('div.grid.g2', {},
+        h('div.panel', {}, h('h3', {}, 'Startup and window'), h('div.list', {},
+          row('Launch VIPER when Windows starts', null, toggle(ui.launchAtStartup, (v) => save('ui', { launchAtStartup: v }))),
+          row('Start minimised to the tray', null, toggle(ui.startMinimized, (v) => save('ui', { startMinimized: v }))),
+          row('Closing the window keeps VIPER running in the tray', 'Wake word, reminders and automations keep working.', toggle(ui.closeToTray, (v) => save('ui', { closeToTray: v }))),
+          row('Show the floating HUD on start', null, toggle(ui.showHudOnStart, (v) => save('ui', { showHudOnStart: v }))),
+          row('Startup Voice Greeting', 'After the AI model passes its start-up check, VIPER says “VIPER systems online. Local intelligence operational.” Never plays if start-up fails.', toggle(s.voice.startupGreeting, (v) => save('voice', { startupGreeting: v }))))),
+        h('div.panel', {}, h('h3', {}, 'AI at start-up'), h('div.list', {},
+          row('Start the AI engine automatically when VIPER opens', 'Finds Ollama or Foundry Local, starts it if needed, loads your model and checks it answers.', toggle(s.backend.autoStart !== false, (v) => save('backend', { autoStart: v }))),
+          row('Warm up the chat model after start-up', 'The first reply begins sooner.', toggle(s.performance.warmup !== false, (v) => save('performance', { warmup: v }))),
+          row('Start the phone link with VIPER', 'Lets paired phones reconnect without opening VIPER first.', toggle(s.remote.enabled, (v) => save('remote', { enabled: v })))))));
+    }
+    if (tab === 'voice') {
+      const p = s.personality; const v0 = s.voice;
       const slider = (key, label, lo, hi) => h('div', {}, h('div.row', {}, h('span.grow', {}, label), h('small.mist', {}, `${lo} ↔ ${hi}`)), h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: p[key], onchange: (e) => save('personality', { [key]: Number(e.target.value) }) }));
       body.append(h('div.grid.g2', {},
         h('div.panel', {}, h('h3', {}, 'Identity'), h('div.col', {},
@@ -48,9 +60,16 @@ export async function render(view, { app, api, params }) {
           field('Reply length', select([['concise', 'Concise'], ['detailed', 'Detailed']], p.verbosity, (v) => save('personality', { verbosity: v }))))),
         h('div.panel', {}, h('h3', {}, 'Character'), h('div.col', {}, slider('humour', 'Humour', 'none', 'dry wit'), slider('formality', 'Formality', 'casual', 'formal'), slider('proactivity', 'Proactivity', 'only when asked', 'suggests next steps'),
           field('Extra instructions', h('textarea.input', { rows: 4, placeholder: 'e.g. Use metric units. Prefer British spelling.', onchange: (e) => save('personality', { customInstructions: e.target.value }) }, p.customInstructions)))),
-        h('div.panel', {}, h('h3', {}, 'Voice'), h('p.small.mist', {}, 'Voice selection, speaking rate and wake words live in the Voice page.'), btn('Open Voice settings', () => app.go('voice'), { cls: 'sm' }))));
+        h('div.panel', {}, h('h3', {}, 'Speech'), h('div.list', {},
+          row('Speak replies aloud', null, toggle(v0.speakReplies, (v) => save('voice', { speakReplies: v }))),
+          row('Wake word', `Listens locally for “${(v0.wakeWords || []).join('” or “')}”.`, toggle(v0.wakeEnabled, (v) => save('voice', { wakeEnabled: v }))),
+          row('Push-to-talk', null, toggle(v0.pushToTalk, (v) => save('voice', { pushToTalk: v }))),
+          row('Noise suppression', null, toggle(v0.noiseSuppression, (v) => save('voice', { noiseSuppression: v })))),
+          field(`Speaking rate (${Number(v0.rate || 1).toFixed(2)}×)`, h('input', { type: 'range', min: 0.6, max: 1.6, step: 0.05, value: v0.rate || 1, onchange: (e) => save('voice', { rate: Number(e.target.value) }) })),
+          h('p.small.mist', {}, 'Voice selection, microphone, transcription model and wake-word tuning are in the Voice Assistant page.'), btn('Open Voice Assistant', () => app.go('voice'), { cls: 'sm' }))));
     }
-    if (tab === 'privacy') {
+    if (tab === 'privacy' || tab === 'security') {
+      const P_ = tab === 'privacy'; const S_ = tab === 'security';
       const info = await api.get('/permissions/info');
       const perms = s.permissions;
       const permList = h('div.list');
@@ -60,27 +79,48 @@ export async function render(view, { app, api, params }) {
       const scripts = h('div.list');
       for (const sc of s.approvedScripts) scripts.append(h('div.li', {}, icon('terminal'), h('div.t', {}, h('b', {}, sc.name), h('small', {}, `${sc.path} ${(sc.args || []).join(' ')}`)), btn('', async () => { app.settings.approvedScripts = await api.patch('/settings/approvedScripts', s.approvedScripts.filter((x) => x !== sc)); draw(); }, { cls: 'sm ghost icon', ico: 'trash', title: 'Remove' })));
       body.append(h('div.grid.g2', {},
-        h('div.panel', {}, h('h3', {}, 'Data and privacy'), h('div.list', {},
+        !P_ ? null : h('div.panel', {}, h('h3', {}, 'Data and privacy'), h('div.list', {},
           row('Web access', 'Research and the assistant may search the web and download pages. Web content is always treated as untrusted.', toggle(s.privacy.webAccess, (v) => save('privacy', { webAccess: v }))),
           row('Save voice transcripts', null, toggle(s.privacy.saveTranscripts, (v) => save('privacy', { saveTranscripts: v }))),
           row('Temporary memory mode', 'New memories are kept in RAM only.', toggle(s.privacy.temporaryMemory, (v) => save('privacy', { temporaryMemory: v }))),
           row('Camera', 'Allow Vision mode to use the webcam when you start it.', toggle(s.privacy.cameraEnabled, (v) => save('privacy', { cameraEnabled: v }))))),
-        h('div.panel', {}, h('h3', {}, 'Allowed folders'), h('p.small.mist', {}, 'File tools, search, automations and File Intelligence can only touch these folders.'), folders,
+        !P_ ? null : h('div.panel', {}, h('h3', {}, 'Allowed folders'), h('p.small.mist', {}, 'File tools, search, automations and File Intelligence can only touch these folders.'), folders,
           h('div.row', { style: { marginTop: '8px' } }, btn('Add folder', async () => {
             const p = window.viperNative?.pickFolder ? await window.viperNative.pickFolder() : await prompt('Add allowed folder', { label: 'Full folder path' });
             if (p) { await save('privacy', { allowedFolders: [...new Set([...s.privacy.allowedFolders, p])] }); draw(); }
           }, { cls: 'sm', ico: 'plus' }))),
-        h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'Permissions'), h('p.small.mist', {}, 'Ask shows a confirmation for each action. Destructive actions are always confirmed, and any action following web, email or document content is confirmed regardless of these settings.'), permList),
-        h('div.panel', {}, h('h3', {}, 'Approved scripts'), h('p.small.mist', {}, 'VIPER can run only these scripts (.ps1, .bat, .cmd, .py, .js). It cannot run arbitrary commands.'), scripts,
+        !S_ ? null : h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'Permissions'), h('p.small.mist', {}, 'Ask shows a confirmation for each action. Destructive actions are always confirmed, and any action following web, email or document content is confirmed regardless of these settings.'), permList),
+        !S_ ? null : h('div.panel', {}, h('h3', {}, 'Approved scripts'), h('p.small.mist', {}, 'VIPER can run only these scripts (.ps1, .bat, .cmd, .py, .js). It cannot run arbitrary commands.'), scripts,
           btn('Add script', async () => {
             const path = window.viperNative?.pickFile ? await window.viperNative.pickFile([{ name: 'Scripts', extensions: ['ps1', 'bat', 'cmd', 'py', 'js', 'sh'] }]) : await prompt('Script path', { label: 'Full path to the script' });
             if (!path) return; const name = await prompt('Script name', { label: 'Name VIPER will use (e.g. "backup photos")' }); if (!name) return;
             app.settings.approvedScripts = await api.patch('/settings/approvedScripts', [...s.approvedScripts, { id: Date.now().toString(36), name, path, args: [] }]); draw();
           }, { cls: 'sm', ico: 'plus' })),
-        h('div.panel', {}, h('h3', {}, 'Delete data'), h('p.small.mist', {}, 'Permanently remove conversations, memories, automations, notifications, indexed documents and logs from this PC.'),
+        !P_ ? null : h('div.panel', {}, h('h3', {}, 'Delete data'), h('p.small.mist', {}, 'Permanently remove conversations, memories, automations, notifications, indexed documents and logs from this PC.'),
           h('div.row.wrap', {}, btn('Clear activity log', async () => { if (await ask('Clear activity log?', 'The record of actions VIPER has taken will be deleted.', { danger: true, confirmLabel: 'Clear' })) { await api.post('/activity/clear'); toast('Activity log cleared'); } }, { cls: 'sm' }),
             btn('Clear transcripts', async () => { await api.post('/transcripts/clear'); toast('Transcripts cleared'); }, { cls: 'sm' }),
             btn('Delete everything', async () => { const t = await prompt('Delete all VIPER data', { label: 'Type DELETE EVERYTHING to confirm' }); if (t === 'DELETE EVERYTHING') { await api.post('/data/delete-all', { confirm: t }); toast('All data deleted'); } }, { cls: 'sm danger' })))));
+    }
+    if (tab === 'backend') {
+      const m = s.models || {};
+      body.append(h('div.grid.g2', {},
+        h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'AI start-up'),
+          (() => { const st = aiStatus(app, { compact: true }); cleanups.push(st.destroy); return st.el; })(),
+          h('div.list', { style: { marginTop: '8px' } },
+            row('Start the AI engine automatically when VIPER opens', 'Finds Ollama or Foundry Local, starts it if it is not running, loads your model and checks it answers before showing VIPER ONLINE — READY.', toggle(s.backend.autoStart !== false, (v) => save('backend', { autoStart: v }))),
+            row('Reconnect automatically if the engine stops', 'Up to 3 automatic recoveries in 10 minutes, then VIPER waits for you to press Retry.', toggle(s.backend.autoRecover !== false, (v) => save('backend', { autoRecover: v }))),
+            row('Stop the engine when VIPER quits — only if VIPER started it', 'An engine you started yourself (or that other apps use) is never stopped.', toggle(s.backend.stopOwnedOnExit !== false, (v) => save('backend', { stopOwnedOnExit: v })))),
+          h('div.row.wrap', { style: { marginTop: '8px' } },
+            field('Ollama location (optional)', h('input.input', { value: s.backend.ollama.path || '', placeholder: 'Detected automatically', style: { minWidth: '320px' }, onchange: (e) => save('backend', { ollama: { path: e.target.value.trim() } }) })),
+            btn('Restart AI', async (e) => busy(e.currentTarget, () => api.post('/ai/startup/retry')), { cls: 'sm', ico: 'refresh' }))),
+        h('div.panel', {}, h('h3', {}, 'Engine and models'), h('dl.kv', {}, h('dt', {}, 'Engine'), h('dd', {}, s.backend.active || s.backend.type || 'automatic'), h('dt', {}, 'Chat model'), h('dd', {}, m.chat?.model || 'automatic'), h('dt', {}, 'Coding model'), h('dd', {}, m.code?.model || 'automatic (best installed coder model)'), h('dt', {}, 'Vision model'), h('dd', {}, m.vision?.model || 'automatic')),
+          h('div.row.wrap', { style: { marginTop: '10px' } }, btn('Model Manager', () => app.go('models'), { cls: 'sm', ico: 'models' }), btn('AI Configuration', () => app.go('aiconfig'), { cls: 'sm', ico: 'sparkle' }), btn('Benchmark models', () => app.go('benchmark'), { cls: 'sm', ico: 'gauge' }))),
+        h('div.panel', {}, h('h3', {}, 'Code Agent'), h('div.col', {},
+          field('Projects folder', h('input.input', { value: s.agent?.projectsRoot || '', placeholder: 'Documents\\VIPER Projects (default)', onchange: (e) => save('agent', { projectsRoot: e.target.value.trim() }) }), 'New projects are created here. It must be inside an allowed folder.'),
+          field('Projects built at the same time', select([['1', '1 (recommended)'], ['2', '2'], ['3', '3']], String(s.agent?.maxConcurrentRuns || 1), (v) => save('agent', { maxConcurrentRuns: Number(v) })), 'Others wait in the queue. Model calls are always one at a time.'),
+          h('div.list', {},
+            row('Install packages without asking', 'Off: every pip/npm/dotnet install needs your approval because it downloads code from the internet.', toggle(!!s.agent?.allowInstall, (v) => save('agent', { allowInstall: v }))),
+            row('Git checkpoints', 'Commit a checkpoint before and after each run so changes can be rolled back.', toggle(s.agent?.gitCheckpoints !== false, (v) => save('agent', { gitCheckpoints: v }))))))));
     }
     if (tab === 'performance') {
       const l = s.limits;
@@ -95,15 +135,6 @@ export async function render(view, { app, api, params }) {
           h('p.small', {}, active.summary || ''),
           hw ? h('p.small.mist', {}, `Detected: ${st.reason}`) : null,
           hw && !hw.gpu?.vramGB ? h('p.small.mist', {}, 'No dedicated graphics memory: AI runs on the processor. Small models (1–4B) give the fastest replies; 7–8B models work but answer more slowly.') : null),
-        h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'AI start-up'),
-          (() => { const st = aiStatus(app, { compact: true }); cleanups.push(st.destroy); return st.el; })(),
-          h('div.list', { style: { marginTop: '8px' } },
-            row('Start the AI engine automatically when VIPER opens', 'Finds Ollama or Foundry Local, starts it if it is not running, loads your model and checks it answers before showing VIPER ONLINE — READY.', toggle(s.backend.autoStart !== false, (v) => save('backend', { autoStart: v }))),
-            row('Reconnect automatically if the engine stops', 'Up to 3 automatic recoveries in 10 minutes, then VIPER waits for you to press Retry.', toggle(s.backend.autoRecover !== false, (v) => save('backend', { autoRecover: v }))),
-            row('Stop the engine when VIPER quits — only if VIPER started it', 'An engine you started yourself (or that other apps use) is never stopped.', toggle(s.backend.stopOwnedOnExit !== false, (v) => save('backend', { stopOwnedOnExit: v })))),
-          h('div.row.wrap', { style: { marginTop: '8px' } },
-            field('Ollama location (optional)', h('input.input', { value: s.backend.ollama.path || '', placeholder: 'Detected automatically', style: { minWidth: '320px' }, onchange: (e) => save('backend', { ollama: { path: e.target.value.trim() } }) })),
-            btn('Restart AI', async (e) => busy(e.currentTarget, () => api.post('/ai/startup/retry')), { cls: 'sm', ico: 'refresh' }))),
         h('div.panel', {}, h('h3', {}, 'Interface'), h('div.col', {},
           field('Frame-rate limit', select([['30', '30 fps'], ['45', '45 fps'], ['60', '60 fps']], String(s.ui.fpsLimit || 60), (v) => save('ui', { fpsLimit: Number(v) })), 'The core drops to 30 fps while the AI is generating and stops completely when VIPER is minimised.'),
           field('Animation', select([['full', 'Full'], ['reduced', 'Reduced (24 fps, no transitions)'], ['off', 'Off (still image)']], s.ui.animations, (v) => save('ui', { animations: v }))),
@@ -128,10 +159,16 @@ export async function render(view, { app, api, params }) {
             h('tbody', {}, perfRows.map((r) => h('tr', {}, h('td', {}, `${r.model} (${r.backend})`), h('td', {}, String(r.runs)), h('td', {}, String(r.avg_tps ?? '—')), h('td', {}, r.avg_ttft != null ? `${r.avg_ttft} ms` : '—'), h('td', {}, String(r.failures))))))
             : h('small.mist', {}, 'Speed is measured on every reply from the real engine. Nothing recorded yet.'))));
     }
-    if (tab === 'proactive') {
+    if (tab === 'notifications') {
       const p = s.proactive;
+      const push = await api.get('/notifications/push').catch(() => null);
+      body.append(h('div.panel', { style: { marginBottom: '14px' } }, h('h3', {}, 'How VIPER speaks to you'), h('div.row.wrap', {},
+        field('Form of address', h('input.input', { value: s.personality.address, placeholder: 'sir', onchange: (e) => save('personality', { address: e.target.value }) }), 'Used in notifications: “Task complete, sir.” Leave empty for none.'),
+        btn('View notification history', () => app.go('notifications'), { cls: 'sm', ico: 'bell' }))));
+      if (push) body.append(pushPanel(push, api));
+      const alerts = h('div'); body.append(alerts); await COMMS.alerts(alerts, { api, app });
       const timeIn = (obj, key) => h('input.input', { type: 'time', value: p[obj].time, style: { width: '120px' }, onchange: (e) => save('proactive', { [obj]: { time: e.target.value } }) });
-      body.append(h('div.panel', {}, h('h3', {}, 'Proactive assistant'), h('p.small.mist', {}, 'Everything here is optional, transparent and listed in the activity log. VIPER never reads private content to be proactive — only system metrics, its own reminders and automation results.'),
+      body.append(h('div.panel', { style: { marginTop: '14px' } }, h('h3', {}, 'Proactive assistant'), h('p.small.mist', {}, 'Everything here is optional, transparent and listed in the activity log. VIPER never reads private content to be proactive — only system metrics, its own reminders and automation results.'),
         h('div.list', {},
           row('Enable proactive assistance', null, toggle(p.enabled, (v) => save('proactive', { enabled: v }))),
           row('Morning briefing', 'Spoken and sent as a notification.', h('div.row', {}, timeIn('morningBriefing'), toggle(p.morningBriefing.enabled, (v) => save('proactive', { morningBriefing: { enabled: v } })))),
@@ -142,12 +179,19 @@ export async function render(view, { app, api, params }) {
           row('Tell me when an automation fails', null, toggle(p.failedAutomations, (v) => save('proactive', { failedAutomations: v })))),
         h('div.row', { style: { marginTop: '10px' } }, btn('Preview morning briefing', async (e) => busy(e.currentTarget, async () => { const b = await api.get('/briefing?kind=morning'); toast(b.title, b.text, 'info', 12000); app.voice.speak(b.text); }), { cls: 'sm', ico: 'play' }))));
     }
-    if (tab === 'activity') {
+    if (tab === 'security') {
       const list = await api.get('/activity?limit=300');
       const tbl = h('table.tbl', {}, h('thead', {}, h('tr', {}, ['When', 'Who', 'Action', 'Detail', 'Risk', 'Outcome'].map((t) => h('th', {}, t)))), h('tbody', {}, list.map((a) => h('tr', {}, h('td', {}, when(a.ts)), h('td', {}, a.actor), h('td', {}, a.action), h('td.mono', { style: { maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis' } }, (a.detail || '').slice(0, 160)), h('td', {}, a.risk), h('td', {}, a.outcome)))));
       body.append(h('div.panel', {}, h('h3', {}, 'Every action VIPER has taken', h('span.r', {}, btn('Export', () => download('viper-activity.json', JSON.stringify(list, null, 2), 'application/json'), { cls: 'sm' }))), list.length ? h('div', { style: { overflowX: 'auto' } }, tbl) : h('div.empty', {}, 'No actions recorded yet.')));
     }
-    if (tab === 'about') {
+    if (tab === 'mobile') {
+      const box = h('div'); body.append(h('div.panel', { style: { marginBottom: '14px' } }, h('h3', {}, 'Connected devices'), h('p.small.mist', {}, 'Device permissions, connection state and pairing history are in Manage → Connected Devices.'), btn('Open Connected Devices', () => app.go('devices'), { cls: 'sm', ico: 'phone' })), box);
+      await COMMS.phone(box, { api, app });
+      body.append(h('div.panel', { style: { marginTop: '14px' } }, h('h3', {}, 'Pairing security'), h('div.list', {},
+        row('Approve each new phone on this PC', 'A scanned code alone is not enough: VIPER asks you here before the phone is paired.', toggle(s.remote.confirmPairing !== false, (v) => save('remote', { confirmPairing: v }))),
+        row('Answer LAN discovery from paired phones', 'Lets a paired phone find this PC again after its IP address changes. Replies only to phones that already know this PC\'s certificate.', toggle(s.remote.discovery !== false, (v) => save('remote', { discovery: v }))))));
+    }
+    if (tab === 'updates') {
       const st = await api.get('/status');
       const logs = await api.get('/logs/recent');
       body.append(h('div.grid.g2', {},
@@ -161,4 +205,23 @@ export async function render(view, { app, api, params }) {
   };
   draw();
   return () => { while (cleanups.length) cleanups.pop()(); };
+}
+
+function pushPanel(push, api) {
+  const f = push.fcm || {};
+  const st = f.enabled && f.serviceAccount && f.projectId && f.appId && f.apiKey ? 'Configured' : 'Not configured';
+  const inp = (key, label, ph) => field(label, h('input.input', { value: f[key] || '', placeholder: ph, 'data-k': key }));
+  const box = h('div.panel', { style: { marginBottom: '14px' } }, h('h3', {}, icon('bell'), 'Push when VIPER Mobile is closed', h('span.r', {}, h('span.tag', {}, st))),
+    h('p.small.mist', {}, 'Without push, the phone gets notifications while VIPER Mobile is connected or its “Stay connected” service is running — closing the app fully, or losing the network, stops delivery. Firebase Cloud Messaging (your own free Firebase project) wakes the phone even when the app is closed. Push messages carry only a short phrase such as “I need your input, sir.” and an id; the details are fetched from this PC over the encrypted link.'),
+    h('div.grid.g2', {}, inp('projectId', 'Firebase project ID', 'my-viper'), inp('appId', 'Android app ID', '1:123:android:abc'), inp('apiKey', 'Web API key', 'AIza…'), inp('senderId', 'Sender ID', '123456789')),
+    field('Service account key (JSON)', h('textarea.input', { rows: 3, placeholder: f.serviceAccount ? 'Stored encrypted — paste a new key to replace it' : 'Paste the JSON key from Firebase → Project settings → Service accounts', 'data-k': 'serviceAccount' }), 'Stored in VIPER\'s encrypted vault, never in settings files.'),
+    h('div.row.wrap', {},
+      h('label.row', {}, toggle(f.enabled, () => {}, 'Enable push'), h('span.small', {}, 'Enabled')),
+      btn('Save', async (e) => busy(e.currentTarget, async () => {
+        const body = { enabled: box.querySelector('.switch input').checked };
+        for (const el of box.querySelectorAll('[data-k]')) { const v = el.value.trim(); if (el.dataset.k === 'serviceAccount') { if (v) body.serviceAccount = v; } else body[el.dataset.k] = v; }
+        try { await api.post('/notifications/push', body); toast('Push settings saved', 'Phones register when they next connect.'); } catch (err) { toastError(err); }
+      }), { cls: 'sm primary' })),
+    push.devices?.length ? h('p.small.mist', {}, `Registered phones: ${push.devices.map((d) => `${d.name} (${d.registered ? 'registered' : 'not yet'})`).join(', ')}`) : null);
+  return box;
 }

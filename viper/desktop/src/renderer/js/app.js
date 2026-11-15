@@ -16,7 +16,18 @@ export const CATEGORIES = [
 ];
 const NAV = [...new Map(CATEGORIES.flatMap((c) => c.items).map(([m, l]) => [m.split(':')[0], [m.split(':')[0], l]])).values()];
 const ALIASES = { code: 'agent' };
-const labelFor = (mode, params) => { const key = params?.tab ? `${mode}:${params.tab}` : mode; for (const c of CATEGORIES) for (const [m, l] of c.items) if (m === key || m === mode) return { label: l, category: c.label }; return { label: mode, category: '' }; };
+// Pages reachable from inside other pages rather than the sidebar.
+const HIDDEN = [['codestudio', 'Classic editor', 'make']];
+NAV.push(...HIDDEN.map(([m, l]) => [m, l]));
+const labelFor = (mode, params) => {
+  const key = params?.tab ? `${mode}:${params.tab}` : mode;
+  for (const c of CATEGORIES) for (const [m, l] of c.items) if (m === key) return { label: l, category: c.label };
+  for (const c of CATEGORIES) for (const [m, l] of c.items) if (m === mode) return { label: l, category: c.label };
+  if (CATEGORIES.find((c) => c.id === mode.split(':')[0])) return { label: mode, category: '' };
+  const hidden = HIDDEN.find(([m]) => m === mode); if (hidden) return { label: hidden[1], category: CATEGORIES.find((c) => c.id === hidden[2])?.label || '' };
+  if (mode === 'settings') return { label: 'Settings', category: '' };
+  return { label: mode, category: '' };
+};
 
 export const app = {
   api, settings: null, status: null, sample: null, health: {}, tasks: [], aiTasks: new Map(), notifications: [],
@@ -109,11 +120,12 @@ function markActive() {
 }
 function buildNav() {
   const nav = $('#nav'); clear(nav);
-  const st = navState(); const open = new Set(st.open || ['prompt', 'make', 'manage']);
+  const st = navState(); const open = new Set(st.open || ['prompt']);
   for (const cat of CATEGORIES) {
-    const items = h('div.nav-items', { role: 'group', 'aria-label': cat.label });
-    for (const [mode, label, ico] of cat.items) items.append(h('button.nav-item', { 'data-mode': mode, onclick: () => app.go(mode), title: label }, icon(ico || mode), h('span.lbl', {}, label)));
-    if (cat.id === 'intel') for (const p of app.pluginPages) items.append(h('button.nav-item', { 'data-mode': `plugin:${p.id}`, onclick: () => app.go(`plugin:${p.id}`), title: p.title }, icon('plugins'), h('span.lbl', {}, p.title)));
+    const inner = h('div.nav-items-in');
+    const items = h('div.nav-items', { role: 'group', 'aria-label': cat.label }, inner);
+    for (const [mode, label, ico] of cat.items) inner.append(h('button.nav-item', { 'data-mode': mode, onclick: () => app.go(mode), title: label }, icon(ico || mode), h('span.lbl', {}, label)));
+    if (cat.id === 'intel') for (const p of app.pluginPages) inner.append(h('button.nav-item', { 'data-mode': `plugin:${p.id}`, onclick: () => app.go(`plugin:${p.id}`), title: p.title }, icon('plugins'), h('span.lbl', {}, p.title)));
     const head = h('button.nav-head', { type: 'button', 'aria-expanded': String(open.has(cat.id)), title: cat.label, onclick: () => {
       const el = head.parentElement; const isOpen = el.classList.toggle('open'); head.setAttribute('aria-expanded', String(isOpen));
       const s2 = navState(); s2.open = [...document.querySelectorAll('.nav-cat.open')].map((x) => x.dataset.cat); saveNavState(s2);
@@ -312,6 +324,7 @@ function wireEvents() {
 
   document.addEventListener('visibilitychange', () => api.post('/system/visibility', { visible: !document.hidden }).catch(() => {}));
   window.addEventListener('popstate', () => { const [m, tab] = (location.hash.replace('#/', '') || 'home').split(':'); app.render(m, tab ? { tab } : null); });
+  document.addEventListener('viper:nav', () => markActive());
   // push-to-talk hotkey (desktop): hold Ctrl+Space inside the app
   document.addEventListener('keydown', (e) => { if (e.code === 'Space' && e.ctrlKey && !e.repeat && !app.pttDown) { app.pttDown = true; app.voice.pttStart().catch(toastError); e.preventDefault(); } });
   document.addEventListener('keyup', (e) => { if (e.code === 'Space' && app.pttDown) { app.pttDown = false; app.voice.pttStop(); } });

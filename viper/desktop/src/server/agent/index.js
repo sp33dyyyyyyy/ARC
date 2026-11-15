@@ -122,6 +122,9 @@ class CodeAgent {
     run.status = status;
     this.db.run('UPDATE agent_runs SET status = ?, updated_at = ?, finished_at = ? WHERE id = ?', status, now(), ['completed', 'failed', 'cancelled'].includes(status) ? now() : null, run.id);
     this.svc.bus.publish('agent.run', { runId: run.id, projectId: run.project_id, status, ...extra });
+    // Also listed in Background Tasks / the status panel's active tasks.
+    const state = status === 'completed' ? 'done' : ['failed', 'cancelled', 'interrupted'].includes(status) ? 'failed' : 'running';
+    this.svc.bus.publish('task.update', { id: `agent:${run.id}`, label: `Code Agent: ${run.plan?.title || String(run.request).slice(0, 60)}`, kind: 'agent', state, detail: status, link: { type: 'agent_run', id: run.id, projectId: run.project_id }, runId: run.id });
   }
   savePlan(run) { this.db.run('UPDATE agent_runs SET plan = ?, updated_at = ? WHERE id = ?', JSON.stringify(run.plan), now(), run.id); this.svc.bus.publish('agent.plan', { runId: run.id, projectId: run.project_id, plan: run.plan }); }
   step(run, id, status, detail) {

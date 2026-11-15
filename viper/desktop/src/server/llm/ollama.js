@@ -42,6 +42,8 @@ class OllamaBackend {
       const r = await fetchWithTimeout(`${this.base()}/api/show`, { method: 'POST', body: JSON.stringify({ model: name }) }, 8000);
       if (r.ok) {
         const j = await r.json();
+        const ctxKey = Object.keys(j.model_info || {}).find((k) => k.endsWith('.context_length'));
+        if (ctxKey) (this._ctxLen ||= new Map()).set(name, j.model_info[ctxKey]);
         if (Array.isArray(j.capabilities)) {
           caps = j.capabilities.map((c) => (c === 'completion' ? 'chat' : c === 'embedding' ? 'embeddings' : c));
           if (caps.includes('embeddings')) caps = caps.filter((c) => c !== 'chat');
@@ -63,7 +65,7 @@ class OllamaBackend {
       out.push({
         id: m.name, name: m.name, backend: 'ollama', installed: true,
         family: m.details?.family, parameterSize: m.details?.parameter_size, quantization: m.details?.quantization_level,
-        sizeBytes: m.size, capabilities: await this.capabilities(m.name),
+        sizeBytes: m.size, capabilities: await this.capabilities(m.name), contextLength: this._ctxLen?.get(m.name) || null,
         loaded: loaded.some((l) => l.name === m.name),
       });
     }
