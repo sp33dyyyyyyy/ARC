@@ -234,3 +234,11 @@ test('guards: runaway repetition is detected; a fix that removes tests is recogn
   assert.deepEqual(testNames("test('mean', () => {}); it('formats', () => {});"), ['mean', 'formats']);
   assert.ok(isTestFile('test_calc.py') && isTestFile('stats.test.js') && isTestFile('tests/x.py') && !isTestFile('calc.py'));
 });
+
+test('model-written commands: known mistakes are corrected', () => {
+  const { normalizeCommand } = require('../src/server/agent/index');
+  assert.equal(normalizeCommand('python3 -m unittest discover test_calc.py'), 'python3 -m unittest discover -v');
+  assert.equal(normalizeCommand('python -m unittest discover -s tests.py'), 'python -m unittest discover -v');
+  assert.equal(normalizeCommand('python -m unittest discover -s tests'), 'python -m unittest discover -s tests', 'a folder is fine');
+  assert.equal(normalizeCommand('npm test'), 'npm test');
+});

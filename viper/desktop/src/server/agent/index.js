@@ -282,6 +282,7 @@ class CodeAgent {
     if (!j || !Array.isArray(j.files) || !j.files.length) throw new Error(`The model did not return a usable plan.${text ? ` (It replied: ${text.slice(0, 160)})` : ''}`);
     j.files = j.files.map((f) => (typeof f === 'string' ? { path: f, purpose: '' } : f)).filter((f) => safeRel(project.path, f.path)).slice(0, 12);
     if (!j.files.length) throw new Error('The plan only listed files outside the project folder.');
+    for (const k of ['build', 'test', 'run']) if (typeof j[k] === 'string') j[k] = normalizeCommand(j[k]);
     return j;
   }
 
@@ -478,7 +479,8 @@ class CodeAgent {
         if (r.blocked || r.declined || fixes >= MAX_FIX_ATTEMPTS) { this.step(run, id, 'failed', r.blocked || r.declined ? r.output : `Still failing after ${fixes} fix attempt(s)`); break; }
         fixes++;
         this.step(run, id, 'running', `Failed (exit ${r.code}); fixing — attempt ${fixes} of ${MAX_FIX_ATTEMPTS}`);
-        await this.fix(run, project, spec, id, s.command, r.output, tc, signal);
+        const fx = await this.fix(run, project, spec, id, s.command, r.output, tc, signal);
+        if (fx?.command) { s.command = fx.command; spec[id === 'launch' ? 'run' : id] = fx.command; this.savePlan(run); }
         await this.checkpoint(run, project, tc, `fix after ${id} failure (${fixes})`);
       }
       if (results[id] && !results[id].ok && !results[id].skipped) break; // don't test a broken build
@@ -541,9 +543,20 @@ class CodeAgent {
     const pick = await this.llm(run, 'debug', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: [
       `The ${stage} command failed: ${command}`, `OUTPUT (data):\n${err}`, `PROJECT FILES: ${files.join(', ')}`,
       'A failing assertion can be wrong itself: work out the correct expected value by hand. Change the test only if its expected value is genuinely wrong; otherwise change the code.',
-      'FIX_TARGET_JSON: reply with JSON {"file": the single project file to change, "reason": short explanation of the cause}.',
+      'FIX_TARGET_JSON: reply with JSON {"file": the single project file to change, "reason": short explanation of the cause}. If the COMMAND itself is wrong (wrong arguments, missing tool), reply {"command": the corrected command, "reason": ...} instead.',
     ].join('\n\n') }], { json: true, maxTokens: 300, signal, label: 'Code Agent · analysing the error' });
     const j = extractJson(pick) || {};
+    // The command itself can be wrong (bad arguments, a test runner that is not installed): let the
+    // model correct it — but only to a command VIPER's policy allows without asking.
+    if (BAD_COMMAND.test(err) || (typeof j.command === 'string' && j.command.trim() && j.command.trim() !== command)) {
+      const proposed = typeof j.command === 'string' && j.command.trim() ? normalizeCommand(j.command.trim()) : null;
+      const fixedCmd = proposed && proposed !== command ? proposed : normalizeCommand(command) !== command ? normalizeCommand(command) : null;
+      if (fixedCmd && classify(fixedCmd, project.path, { interpreter: tc.node?.bundled ? process.execPath : undefined }).verdict === 'allow') {
+        this.emit(run, 'analysis', { stage, reason: `The ${stage} command was wrong; using \`${fixedCmd}\` instead of \`${command}\`.` });
+        run.fixLog ||= []; run.fixLog.push({ stage, command: fixedCmd });
+        return { command: fixedCmd };
+      }
+    }
     let target = files.find((f) => f === j.file) || files.find((f) => err.includes(path.basename(f))) || files[0];
     // Small models often "fix" the same file again and again. If the last fix targeted this file and
     // the error did not change, try another file named in the error (often the test itself is wrong).
@@ -589,6 +602,14 @@ class CodeAgent {
 
 /** Context window for agent requests: prompt (plan + other files) plus a whole file must fit, or the model loses the start. */
 function agentContext() { const gb = require('node:os').totalmem() / 1073741824; return gb >= 24 ? 16384 : gb >= 12 ? 12288 : 8192; }
+/** Errors that mean the command line itself is wrong, not the code. */
+const BAD_COMMAND = /Start directory is not importable|is not recognized as an internal or external command|command not found|No module named (pytest|unittest2)\b|unrecognized arguments|error: unrecognized|Unknown option|can't open file .*No such file/i;
+/** Fix well-known mistakes in model-written commands. */
+function normalizeCommand(cmd) {
+  let c = String(cmd).trim();
+  c = c.replace(/(-m\s+unittest\s+discover)\s+(?:-s\s+)?\S+\.py\b/i, '$1 -v'); // discover takes a folder, not a file
+  return c;
+}
 function isDegenerate(text) {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   if (lines.length < 24) return false;
@@ -602,7 +623,7 @@ const isTestFile = (rel) => /(^|[\\/])(test_[^/\\]*|[^/\\]*_test\.[a-z]+|[^/\\]*
 function testNames(src) { return [...String(src).matchAll(/def (test_\w+)|\b(?:test|it)\(\s*['"`]([^'"`]+)['"`]|\[(?:Fact|Test)\][\s\S]{0,80}?\s(\w+)\s*\(/g)].map((m) => m[1] || m[2] || m[3]); }
 function countAsserts(src) { return (String(src).match(/assert\w*|expect\(|Assert\./gi) || []).length; }
 
-module.exports = { isDegenerate, testNames, isTestFile,
+module.exports = { isDegenerate, testNames, isTestFile, normalizeCommand,
   name: 'agent',
   init: (svc) => new CodeAgent(svc),
   stop: (svc) => svc.agent?.stop(),
