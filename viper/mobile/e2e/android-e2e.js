@@ -204,7 +204,21 @@ async function startCore() {
   svc.bus.off('event', onTok);
   screenshot('a06-chat-reply');
   check('Chat', 'AI reply from the PC\'s local model appears on the phone', !!finished, finished ? finished.content.slice(0, 160) : 'no reply shown');
-  check('Chat', 'reply streams to the phone progressively (text observed growing)', new Set(seen).size >= 3 && tokens.length > 5, `phone screen lengths ${seen.slice(0, 8).join('→')}; ${tokens.length} tokens streamed; first token ${tokens[0] ? tokens[0] - tSend : '?'} ms after Send`);
+  // A small model sometimes answers in a few tokens, too fast to watch it grow. Then ask for a
+  // longer answer in the same chat and watch that one (the phone screen must change several times
+  // while tokens are still arriving from the PC).
+  let streamSeen = seen; let streamTokens = tokens.length;
+  for (let attempt = 0; attempt < 2 && !(new Set(streamSeen).size >= 3 && streamTokens > 5); attempt++) {
+    const n0 = svc.orchestrator.messages(arrived?.c.id || '').filter((m) => m.role === 'assistant').length;
+    const toks = []; const f = (e) => { if (e.type === 'chat.token') toks.push(Date.now()); }; svc.bus.on('event', f);
+    await tap(/^Message$/); typeText('Write a numbered list of twenty fruits with one short sentence about each'); sh('input keyevent 4'); await sleep(400);
+    await tap(/^Send$/);
+    const lens = [];
+    await until(() => { const l = screenWords().length; if (!lens.length || lens[lens.length - 1] !== l) lens.push(l); return svc.orchestrator.messages(arrived?.c.id || '').filter((m) => m.role === 'assistant').length > n0; }, 180000, 250);
+    svc.bus.off('event', f);
+    streamSeen = lens; streamTokens = toks.length;
+  }
+  check('Chat', 'reply streams to the phone progressively (text observed growing)', new Set(streamSeen).size >= 3 && streamTokens > 5, `phone screen lengths ${streamSeen.slice(0, 8).join('→')}; ${streamTokens} tokens streamed; first reply's first token ${tokens[0] ? tokens[0] - tSend : '?'} ms after Send`);
   metrics.phoneChat = { tokens: tokens.length, firstTokenMs: tokens[0] ? tokens[0] - tSend : null, totalMs: tokens.length ? tokens[tokens.length - 1] - tSend : null, observedLengths: seen };
 
   // ===== voice capture =====
