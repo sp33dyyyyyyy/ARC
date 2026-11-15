@@ -111,6 +111,8 @@ class OllamaBackend {
     if (t) o.num_thread = t;
     if (l.gpuLayers >= 0) o.num_gpu = l.gpuLayers;
     if (extra.maxTokens) o.num_predict = extra.maxTokens;
+    if (extra.repeatPenalty) o.repeat_penalty = extra.repeatPenalty;
+    if (extra.numCtx) o.num_ctx = Math.max(o.num_ctx || 0, extra.numCtx);
     return o;
   }
   async *chat({ model, messages, tools, options = {}, signal }) {

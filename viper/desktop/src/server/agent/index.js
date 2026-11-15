@@ -225,15 +225,25 @@ class CodeAgent {
 
   // ---------- AI ----------
   /** One queued model call. Roles: planning, code, debug, code_review (fall back to code → chat). */
-  llm(run, role, messages, { json = false, maxTokens = 2048, signal, label } = {}) {
+  llm(run, role, messages, { json = false, maxTokens = 2048, signal, label, temperature } = {}) {
     const task = async () => {
       const r = await this.svc.models.resolveAgent(role);
       if (!r.model) throw Object.assign(new Error(r.reason || 'No coding model is available. Install one in Models (for example qwen2.5-coder).'), { code: 'NO_MODEL' });
       run.model = `${r.model}`;
-      let text = ''; let last = 0;
-      for await (const ev of this.svc.models.chat({ backend: r.backend, model: r.model, messages, options: { json, maxTokens, temperature: json ? 0.1 : 0.2 }, signal, requestId: `${run.id}:${role}`, label: label || `Code Agent · ${role}` })) {
-        if (ev.type === 'token') { text += ev.text; if (Date.now() - last > 700) { last = Date.now(); this.svc.bus.publish('agent.stream', { runId: run.id, projectId: run.project_id, role, chars: text.length, tail: text.slice(-160) }); } }
-      }
+      // Small models sometimes get stuck repeating the same lines until the token limit: stop early.
+      const stop = new AbortController(); const onAbort = () => stop.abort(); signal?.addEventListener('abort', onAbort, { once: true });
+      let text = ''; let last = 0; let checked = 0; let degenerate = false;
+      try {
+        for await (const ev of this.svc.models.chat({ backend: r.backend, model: r.model, messages, options: { json, maxTokens, temperature: temperature ?? (json ? 0.1 : 0.2), repeatPenalty: 1.15, numCtx: agentContext() }, signal: stop.signal, requestId: `${run.id}:${role}`, label: label || `Code Agent · ${role}` })) {
+          if (ev.type === 'token') {
+            text += ev.text;
+            if (Date.now() - last > 700) { last = Date.now(); this.svc.bus.publish('agent.stream', { runId: run.id, projectId: run.project_id, role, chars: text.length, tail: text.slice(-160) }); }
+            if (text.length - checked > 400) { checked = text.length; if (isDegenerate(text)) { degenerate = true; stop.abort(); break; } }
+          }
+        }
+      } catch (e) { if (!degenerate) throw e; } finally { signal?.removeEventListener('abort', onAbort); }
+      if (signal?.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+      if (degenerate) { this.emit(run, 'analysis', { stage: role, reason: 'The model started repeating itself; output stopped early.' }); throw Object.assign(new Error('The model got stuck repeating the same lines.'), { code: 'DEGENERATE' }); }
       return text;
     };
     const p = this.llmQueue.then(task, task);
@@ -514,7 +524,12 @@ class CodeAgent {
       `WRITE_FILE: ${rel}${purpose ? ` — ${purpose}` : ''}`,
       `Output the COMPLETE content of ${rel} in a single fenced code block and nothing else. It must work with the other files exactly as named.`,
     ].filter(Boolean).join('\n\n');
-    const text = await this.llm(run, 'code', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: prompt }], { maxTokens: 4096, signal, label: `Code Agent · writing ${rel}` });
+    const msgs = [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: prompt }];
+    let text;
+    try { text = await this.llm(run, 'code', msgs, { maxTokens: 4096, signal, label: `Code Agent · writing ${rel}` }); } catch (e) {
+      if (e.code !== 'DEGENERATE') throw e;
+      text = await this.llm(run, 'code', [...msgs, { role: 'user', content: 'Keep it concise: do not repeat lines. Each test should check something different.' }], { maxTokens: 4096, signal, temperature: 0.5, label: `Code Agent · writing ${rel} (retry)` });
+    }
     const code = extractCode(text);
     if (code.trim().length < 2) throw new Error(`The model returned no content for ${rel}.`);
     await this.writeFile(run, project, rel, code);
@@ -540,7 +555,6 @@ class CodeAgent {
       if (alt) { this.emit(run, 'analysis', { stage, file: alt, reason: `The same error remained after changing ${target}; looking at ${alt} instead.` }); target = alt; }
     }
     run.fixLog.push({ stage, file: target, sig });
-    if (/(^|[\\/])(test_[^/\\]*|[^/\\]*_test\.[a-z]+|[^/\\]*\.test\.[a-z]+|tests?[\\/].*)$/i.test(target)) { run.testsChangedByFix ||= new Set(); run.testsChangedByFix.add(target); }
     this.emit(run, 'analysis', { stage, file: target, reason: String(j.reason || '').slice(0, 300) });
     const current = await this.readFile(project, target, 30000);
     const others = [];
@@ -550,8 +564,20 @@ class CodeAgent {
       `OTHER FILES (data):\n${others.join('\n')}`, `CURRENT ${target} (data):\n<<<FILE ${target}>>>\n${current ?? ''}\n<<<END FILE>>>`,
       `FIX_FILE: ${target}`, `Output the COMPLETE corrected content of ${target} in one fenced code block, fixing the error.`,
       'Never delete, skip or weaken a test to make it pass. Correct a test only where its expected value is wrong, and keep every other check.',
-    ].filter(Boolean).join('\n\n') }], { maxTokens: 4096, signal, label: `Code Agent · fixing ${target}` });
-    await this.writeFile(run, project, target, extractCode(text));
+    ].filter(Boolean).join('\n\n') }], { maxTokens: 4096, signal, label: `Code Agent · fixing ${target}` }).catch((e) => { if (e.code === 'DEGENERATE') return ''; throw e; });
+    const fixed = extractCode(text);
+    if (fixed.trim().length < 2) { this.emit(run, 'analysis', { stage, file: target, reason: 'The model returned no usable fix; the file was left unchanged.' }); return; }
+    // A fix may correct a wrong expectation, but may not make the test suite smaller.
+    if (current !== null && isTestFile(target)) {
+      const lost = testNames(current).filter((n) => !testNames(fixed).includes(n));
+      if (lost.length || countAsserts(fixed) < countAsserts(current) * 0.6) {
+        this.emit(run, 'analysis', { stage, file: target, reason: `Rejected a change to ${target} that would have removed tests (${lost.join(', ') || 'fewer checks'}); kept the original.` });
+        run.fixLog[run.fixLog.length - 1].rejected = true;
+        return;
+      }
+    }
+    await this.writeFile(run, project, target, fixed);
+    if (isTestFile(target)) { run.testsChangedByFix ||= new Set(); run.testsChangedByFix.add(target); }
   }
 
   notifyRun(run, project, kind, detail, link) {
@@ -561,7 +587,22 @@ class CodeAgent {
   async stop() { for (const id of [...this.live.keys()]) this.cancel(id); }
 }
 
-module.exports = {
+/** Context window for agent requests: prompt (plan + other files) plus a whole file must fit, or the model loses the start. */
+function agentContext() { const gb = require('node:os').totalmem() / 1073741824; return gb >= 24 ? 16384 : gb >= 12 ? 12288 : 8192; }
+function isDegenerate(text) {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 24) return false;
+  const tail = lines.slice(-24); const uniq = new Set(tail).size;
+  if (uniq <= 4) return true;
+  // the same block of lines repeated many times
+  const counts = new Map(); for (const l of lines) counts.set(l, (counts.get(l) || 0) + 1);
+  return [...counts.values()].some((c) => c >= 30 && c / lines.length > 0.3);
+}
+const isTestFile = (rel) => /(^|[\\/])(test_[^/\\]*|[^/\\]*_test\.[a-z]+|[^/\\]*\.test\.[a-z]+|tests?[\\/].*)$/i.test(rel);
+function testNames(src) { return [...String(src).matchAll(/def (test_\w+)|\b(?:test|it)\(\s*['"`]([^'"`]+)['"`]|\[(?:Fact|Test)\][\s\S]{0,80}?\s(\w+)\s*\(/g)].map((m) => m[1] || m[2] || m[3]); }
+function countAsserts(src) { return (String(src).match(/assert\w*|expect\(|Assert\./gi) || []).length; }
+
+module.exports = { isDegenerate, testNames, isTestFile,
   name: 'agent',
   init: (svc) => new CodeAgent(svc),
   stop: (svc) => svc.agent?.stop(),

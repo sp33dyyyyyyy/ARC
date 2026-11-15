@@ -221,3 +221,16 @@ test('command policy: builds allowed; installs, risky git and unknown programs n
   assert.equal(classify('node build.js && shutdown /s', root).verdict, 'deny');
   assert.equal(classify('reg add HKLM\\x', root).verdict, 'deny');
 });
+
+test('guards: runaway repetition is detected; a fix that removes tests is recognised', () => {
+  const { isDegenerate, testNames, isTestFile } = require('../src/server/agent/index');
+  const good = Array.from({ length: 40 }, (_, i) => `    self.assertEqual(add(${i}, 1), ${i + 1})`).join('\n');
+  assert.equal(isDegenerate(good), false, 'varied lines are fine');
+  const loop = `import unittest\n${'        self.assertEqual(evaluate("100 * 100"), 10000)\n        self.assertEqual(evaluate("100 + 100"), 200)\n'.repeat(30)}`;
+  assert.equal(isDegenerate(loop), true, 'the same lines over and over are stopped');
+  const before = 'def test_add(self): pass\ndef test_divide(self): pass\n';
+  const after = 'def test_add(self): pass\n';
+  assert.deepEqual(testNames(before).filter((n) => !testNames(after).includes(n)), ['test_divide']);
+  assert.deepEqual(testNames("test('mean', () => {}); it('formats', () => {});"), ['mean', 'formats']);
+  assert.ok(isTestFile('test_calc.py') && isTestFile('stats.test.js') && isTestFile('tests/x.py') && !isTestFile('calc.py'));
+});

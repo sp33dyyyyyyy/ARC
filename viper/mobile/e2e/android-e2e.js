@@ -55,6 +55,8 @@ function parseNodes(xml) {
 const allText = (nodes) => nodes.map((n) => `${n.text} ${n.desc}`).join('\n');
 const find = (nodes, re) => nodes.find((n) => re.test(n.text) || re.test(n.desc));
 function tapNode(n) { const [x1, y1, x2, y2] = n.b; sh(`input tap ${Math.round((x1 + x2) / 2)} ${Math.round((y1 + y2) / 2)}`); }
+/** Scroll the current screen until an element matching `re` is visible. */
+async function scrollTo(re, tries = 6) { for (let i = 0; i < tries; i++) { const n = find(dump(), re); if (n) return n; const [w, h] = screenSize(); sh(`input swipe ${w >> 1} ${Math.round(h * 0.7)} ${w >> 1} ${Math.round(h * 0.35)} 400`); await sleep(700); } return find(dump(), re); }
 async function tap(re, ms = 15000) { const n = await until(() => find(dump(), re), ms, 700); if (!n) throw new Error(`no element matching ${re}`); tapNode(n); await sleep(700); return n; }
 function typeText(s) { sh(`input text '${s.replace(/ /g, '%s').replace(/'/g, '')}'`); }
 const screenSize = () => { const m = sh('wm size').match(/(\d+)x(\d+)\s*$/m); return m ? [+m[1], +m[2]] : [1080, 1920]; };
@@ -263,12 +265,12 @@ async function startCore() {
 
   // ===== notifications: kinds, channels, actions, deep links =====
   await tap(/^Settings$/);
-  const stay = await until(() => find(dump(), /^Stay connected$/), 8000, 700);
+  const stay = await scrollTo(/^Stay connected$/);
   const switchNear = (label) => dump().filter((n) => n.checkable && n.b).sort((a, b) => Math.abs(a.b[1] - label.b[1]) - Math.abs(b.b[1] - label.b[1]))[0];
   if (stay) {
     const sw = switchNear(stay); if (sw && !sw.checked) { tapNode(sw); await sleep(1500); }
     check('Notifications', '"Stay connected" switch turns on', !!switchNear(find(dump(), /^Stay connected$/))?.checked);
-  }
+  } else record('Notifications', '"Stay connected" switch turns on', 'FAIL', 'switch not found on the Settings screen');
   await tap(/^Prompt$/);
   sh('input keyevent 3'); await sleep(2500); // HOME: VIPER goes to the background
   const stillOnline = await until(() => svc.remote.status().connected.length === 1, 10000);
@@ -355,6 +357,7 @@ async function startCore() {
   svc.agent.setStatus(runObj, 'cancelled');
 
   // Phone controls a real Code Agent task: start it from the phone, watch it, cancel it.
+  sh(`am start -n ${PKG}/.MainActivity`); await sleep(2000);
   await tap(/^Make$/); await tap(/^AI Coding Agent$/);
   await until(() => find(dump(), /^E2E Weather$/), 15000, 1000);
   await tap(/^E2E Weather$/);
@@ -373,7 +376,7 @@ async function startCore() {
 
   // History: read / unread, tapping marks read on the PC.
   const unreadBefore = svc.notify.list({ unreadOnly: true }).length;
-  sh('input keyevent 4'); await sleep(800);
+  sh(`am start -n ${PKG}/.MainActivity`); await sleep(1500); sh('input keyevent 4'); await sleep(800);
   await tap(/^Manage$/); await tap(/^Notifications$/);
   const histShown = await until(() => find(dump(), /VIPER — System Alert/), 15000, 1000);
   if (histShown) tapNode(histShown);

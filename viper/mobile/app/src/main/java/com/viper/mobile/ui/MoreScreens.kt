@@ -201,16 +201,16 @@ fun SettingsScreen(app: ViperApp, back: () -> Unit) {
                 OutlinedTextField(host, { host = it }, Modifier.fillMaxWidth(), label = { Text("Preferred address (e.g. VPN IP)") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { VButton("Save & reconnect", { app.store.hostOverride = host; app.client.disconnect(); app.client.connect() }); VButton("Unpair", { confirmForget = true }) }
             }
+            Panel(title = "Background") {
+                Toggle("Stay connected", "Receive alerts while the app is closed (shows a persistent notification).", stay) { stay = it; app.store.stayConnected = it; ConnectionService.update(ctx) }
+                Toggle("Hands-free wake word", "Listen for \"VIPER\" using the PC's speech engine. Uses the microphone in the background.", hands) { hands = it; app.store.handsFree = it; ConnectionService.update(ctx) }
+            }
             Panel(title = "Notifications") {
                 Toggle("Notification sounds", "Play the channel's sound for VIPER notifications. Turn off for silent notifications.", sounds) { sounds = it; app.store.notificationSounds = it }
                 Text(pushStatus.ifBlank { "Push status is checked when the phone connects to the PC." }, color = Ink2, fontSize = 13.sp)
                 Text("Without push (set up on the PC in Settings → Notifications), notifications arrive while VIPER Mobile is connected — app open, or “Stay connected” on. If the app is fully closed or the phone has no connection to the PC, they are delivered the next time it connects.", color = Mist, fontSize = 12.sp)
                 Spacer(Modifier.height(6.dp))
                 VButton("Notification categories", { ctx.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)) })
-            }
-            Panel(title = "Background") {
-                Toggle("Stay connected", "Receive alerts while the app is closed (shows a persistent notification).", stay) { stay = it; app.store.stayConnected = it; ConnectionService.update(ctx) }
-                Toggle("Hands-free wake word", "Listen for \"VIPER\" using the PC's speech engine. Uses the microphone in the background.", hands) { hands = it; app.store.handsFree = it; ConnectionService.update(ctx) }
             }
             Panel(title = "Voice") {
                 Toggle("Speak replies", "Read answers aloud after voice requests.", speak) { speak = it; app.store.speakReplies = it }
