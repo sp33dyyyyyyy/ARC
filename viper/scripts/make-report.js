@@ -89,6 +89,10 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>VIPER Test
 
 <h2>WINDOWS</h2>
 ${kv({ 'Build status': 'Built on windows-latest with electron-builder: NSIS installer (per-user, Start menu + desktop shortcuts, uninstaller) and a portable EXE. Electron runtime bundled; no Node.js, Python or .NET needed.', 'Test machine': win ? `${win.platform} · ${win.cpu} · ${win.cores} logical CPUs · ${win.ramGB} GB RAM · no GPU (software rendering)` : 'no results', 'AI model used': `${win?.model || '—'} via Ollama (downloaded by VIPER's Model Manager during the test)`, 'Installed size': mb(m.installedSizeMB), 'Install time': m.installSeconds ? `${m.installSeconds} s` : '—', 'Performance preset auto-selected': m.presetApplied || '—' })}
+<h3>Automatic AI start-up</h3>${table(win?.results, ['AI start-up'])}
+${kv({ 'Cold launch to "VIPER ONLINE — READY" (engine not running)': m.coldStartToReadyMs ? `${(m.coldStartToReadyMs / 1000).toFixed(1)} s` : '—', 'Readiness check (real generation)': m.readinessMs != null ? `${m.readinessMs} ms` : '—', 'Automatic reconnection after the engine was killed': m.recoverySeconds ? `${m.recoverySeconds} s` : '—', 'Ollama already running when VIPER first opened': m.enginePreRunning ? 'yes (VIPER connected to it and did not start a copy)' : 'no (VIPER started it)' })}
+<h3>UI alignment and layout (pixel audit of the real window)</h3>${table(win?.results, ['UI'])}
+${m.uiAudit ? kv({ 'Control renders measured': m.uiAudit.checked, 'Label offset from centre (median / 95th percentile / max)': `${m.uiAudit.medianOffsetPx} px / ${m.uiAudit.p95OffsetPx} px / ${m.uiAudit.maxOffsetPx} px`, 'Window sizes': '1440×900, 1100×720, 920×600 (minimum)' }) : ''}
 <h3>Installer</h3>${table(win?.results, ['Installer', 'Portable'])}
 <h3>Start-up, navigation and application behaviour</h3>${table(win?.results, ['App'])}
 <h3>Chat inference (real local model)</h3>${table(win?.results, ['AI'])}

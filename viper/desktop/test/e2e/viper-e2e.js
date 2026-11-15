@@ -77,6 +77,25 @@ function procSnapshot(names) {
   } catch { return []; }
 }
 
+// ---------------- AI engine process helpers ----------------
+/** PIDs of running `ollama serve` processes (the engine; model runners are separate). */
+function engineServers() {
+  try {
+    if (WIN) {
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='ollama.exe'\" | Where-Object { $_.CommandLine -match '\\sserve' } | Select-Object -ExpandProperty ProcessId"], { encoding: 'utf8' }).trim();
+      return out ? out.split(/\s+/).map(Number) : [];
+    }
+    return execFileSync('ps', ['-eo', 'pid,args', '--no-headers'], { encoding: 'utf8' }).split('\n').filter((l) => /ollama serve/.test(l) && !/ps -eo/.test(l)).map((l) => +l.trim().split(/\s+/)[0]);
+  } catch { return []; }
+}
+/** Stop every Ollama process (engine, model runners and the Ollama tray app). */
+function killEngine() {
+  try { if (WIN) { execFileSync('taskkill', ['/F', '/T', '/IM', 'ollama app.exe'], { stdio: 'ignore' }); } } catch { /* not running */ }
+  try { if (WIN) execFileSync('taskkill', ['/F', '/T', '/IM', 'ollama.exe'], { stdio: 'ignore' }); else execFileSync('pkill', ['-f', 'ollama serve']); } catch { /* not running */ }
+}
+const aiState = (win) => win.evaluate(() => window.viperApp?.ai || null);
+const waitAi = (win, stages, ms = 300000) => until(async () => { const s = await aiState(win); return s && stages.includes(s.stage) ? s : null; }, ms, 250);
+
 // ---------------- app helpers ----------------
 async function launch(label) {
   const args = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'];
@@ -89,7 +108,7 @@ async function launch(label) {
   const win = await app.firstWindow();
   const errors = [];
   win.on('pageerror', (e) => errors.push(`pageerror: ${e.message} @ ${(e.stack || '').split('\n').slice(1, 3).join(' ').trim()}`));
-  win.on('console', (m) => { if (m.type() === 'error' && !/favicon|ERR_CONNECTION_REFUSED|net::ERR/.test(m.text())) errors.push(`console: ${m.text()}`); });
+  win.on('console', (m) => { if (m.type() === 'error' && !/favicon|ERR_CONNECTION_REFUSED|net::ERR/.test(m.text())) errors.push(`console: ${m.text()} @ ${(m.location()?.url || '').replace(/^https?:\/\/[^/]+/, '')}`); });
   await win.waitForLoadState('domcontentloaded');
   const ready = await until(() => win.evaluate(() => !!(document.querySelector('.wizard') || document.querySelector('.nav-item'))), 60000);
   metrics[`startup_${label}_ms`] = Date.now() - t0;
@@ -142,6 +161,7 @@ const stopFrameProbe = (win) => win.evaluate(() => {
   }
 
   // ===== first launch =====
+  metrics.enginePreRunning = engineServers().length > 0;
   let { app, win, errors, ready } = await launch('first');
   check('App', 'VIPER launches and shows a window', !!ready, `started in ${metrics.startup_first_ms} ms`);
   const wizard = await until(() => win.evaluate(() => !!document.querySelector('.wizard')), 10000);
@@ -175,6 +195,18 @@ const stopFrameProbe = (win) => win.evaluate(() => {
   await sleep(1500);
   check('App', 'main dashboard renders (navigation + animated core)', await win.evaluate(() => document.querySelectorAll('.nav-item').length >= 16 && !!document.querySelector('canvas.core')));
   await win.screenshot({ path: path.join(OUT, '03-dashboard.png') });
+
+  // ===== automatic AI start-up, first launch (Ollama already running, no model yet) =====
+  const firstAi = await waitAi(win, ['ready', 'setup', 'error'], 120000);
+  metrics.engineServersAtFirstLaunch = engineServers().length;
+  if (firstAi?.stage === 'ready') record('AI start-up', 'first launch with Ollama already running: connects automatically', 'PASS', `${firstAi.model} ready (model was already on this machine)`);
+  else {
+    check('AI start-up', 'first launch, Ollama running but no model: start-up stops at a clear setup prompt (no error loop)', firstAi?.stage === 'setup' && firstAi.need === 'model' && !!firstAi.recommended, `${firstAi?.label} · ${firstAi?.detail} · recommended ${firstAi?.recommended}`);
+    await win.evaluate(() => window.viperApp.go('home')); await sleep(800);
+    const offer = await win.evaluate(() => [...document.querySelectorAll('.ai-status button')].map((b) => b.innerText.trim()));
+    check('AI start-up', 'setup prompt offers to download the model recommended for this PC', offer.some((t) => /^Download /.test(t)), offer.join(' | '));
+    await win.screenshot({ path: path.join(OUT, '03b-setup-prompt.png') });
+  }
 
   // ===== hardware detection + performance preset =====
   const perf = await apiCall(win, 'GET', '/performance');
@@ -218,10 +250,28 @@ const stopFrameProbe = (win) => win.evaluate(() => {
       const done = await until(async () => { const d = (await apiCall(win, 'GET', '/models/downloads')).find((x) => x.model === MODEL); if (d?.status === 'error') throw new Error(d.error); return d?.status === 'done' ? d : null; }, 900000, 2000);
       check('AI', `model downloaded through VIPER's Model Manager (${MODEL})`, !!done, done ? 'installed' : 'timeout');
     } else record('AI', `model available (${MODEL})`, 'PASS', 'already installed');
+    const before = engineServers().length;
     await apiCall(win, 'POST', '/models/role', { role: 'chat', backend: 'ollama', model: MODEL });
-    const warm = await apiCall(win, 'POST', '/models/warmup');
-    check('AI', 'model warm-up loads the model and primes the prompt cache', warm && !warm.error && !warm.skipped, warm.ms ? `${warm.ms} ms` : JSON.stringify(warm));
-    metrics.warmupMs = warm.ms;
+    const rdy = await waitAi(win, ['ready', 'error', 'setup'], 300000);
+    check('AI start-up', 'after the model is installed, start-up continues by itself to VIPER ONLINE — READY', rdy?.stage === 'ready' && rdy.model === MODEL, `${rdy?.label} · ${rdy?.detail}`);
+    if (metrics.enginePreRunning) check('AI start-up', 'Ollama that was already running is used, not duplicated (and not owned by VIPER)', engineServers().length === before && before >= 1 && rdy?.owned === false, `ollama serve processes: ${before} → ${engineServers().length}; owned: ${rdy?.owned}`);
+    else check('AI start-up', 'Ollama was not running: VIPER started exactly one copy and owns it', engineServers().length === 1 && rdy?.owned === true, `ollama serve processes: ${engineServers().length}; owned: ${rdy?.owned}`);
+    metrics.warmupMs = rdy?.warmMs; metrics.readinessMs = rdy?.readyMs;
+    await win.evaluate(() => window.viperApp.go('home')); await sleep(1500);
+    await win.screenshot({ path: path.join(OUT, '03c-ready.png') });
+    const readyText = await win.evaluate(() => document.querySelector('.ai-status')?.innerText || '');
+    check('AI start-up', 'Home shows "VIPER ONLINE — READY" only after the readiness check', /VIPER ONLINE — READY/.test(readyText) && rdy?.stage === 'ready', readyText.replace(/\s+/g, ' ').slice(0, 120));
+    // "Hello VIPER" right after ready: a real generated reply
+    {
+      const ta0 = win.locator('.home textarea, .dock textarea').first();
+      const n0 = await win.evaluate(() => document.querySelectorAll('.home-thread .msg.viper').length);
+      const tHello = Date.now(); await ta0.fill('Hello VIPER'); await ta0.press('Enter');
+      const hello = await until(() => win.evaluate((n) => { const m = [...document.querySelectorAll('.home-thread .msg.viper')]; const last = m[m.length - 1]; return m.length > n && last && !last.querySelector('.cursor') && last.innerText.trim().length > 3 ? last.innerText.trim() : null; }, n0), 120000, 200);
+      const conv = (await apiCall(win, 'GET', '/conversations'))[0];
+      const msgs = conv ? await apiCall(win, 'GET', `/conversations/${conv.id}/messages`) : [];
+      const a = msgs.filter((m) => m.role === 'assistant').pop();
+      check('AI start-up', '"Hello VIPER" right after start-up gets a real generated reply', !!hello && a?.meta?.route === 'llm', `${(hello || '').replace(/\s+/g, ' ').slice(0, 120)} · ${Date.now() - tHello} ms · route ${a?.meta?.route} · ${a?.model}`);
+    }
 
     // Idle baseline on Home (core animating)
     await win.evaluate(() => window.viperApp.go('home')); await sleep(3000);
@@ -344,16 +394,75 @@ const stopFrameProbe = (win) => win.evaluate(() => {
   const errs = errors.filter((e) => !/AbortError|The user aborted|Failed to fetch/.test(e));
   check('App', 'no uncaught JavaScript errors in the UI', !errs.length, errs.slice(0, 5).join(' | '));
 
+  // ===== pixel UI audit with Windows fonts (button label centring, overflow, overlap) =====
+  try {
+    const { auditApp } = require('./ui-audit');
+    const pagesAll = await win.evaluate(() => [...document.querySelectorAll('.nav-item[data-mode]')].map((b) => b.dataset.mode));
+    const au = await auditApp(app, win, { pages: pagesAll, outDir: OUT });
+    metrics.uiAudit = { checked: au.checked, medianOffsetPx: au.medianOffset, p95OffsetPx: au.p95Offset, maxOffsetPx: au.maxOffset, issues: au.issues.slice(0, 40) };
+    const kinds = (k) => au.issues.filter((i) => i.kind === k);
+    check('UI', `button/tab/nav labels vertically centred (≤1.5 px) — ${au.checked} control renders on every page at 1440×900, 1100×720 and 920×600`, !kinds('vertical').length, kinds('vertical').length ? kinds('vertical').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') : `median ${au.medianOffset} px, max ${au.maxOffset} px`);
+    check('UI', 'labels horizontally centred in centred controls', !kinds('horizontal').length, kinds('horizontal').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
+    check('UI', 'no label overflows its control', !kinds('overflow').length, kinds('overflow').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
+    check('UI', 'no overlapping controls', !kinds('overlap').length, kinds('overlap').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
+    check('UI', 'every page fits the window at all three sizes (no sideways scrolling)', !kinds('layout').length, kinds('layout').map((i) => `${i.msg} [${i.where.join(', ')}]`).join('; ') || 'ok');
+    check('UI', 'no "null"/"undefined" placeholder text shown anywhere', !kinds('text').length, kinds('text').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
+  } catch (e) { record('UI', 'pixel UI audit', 'FAIL', e.message); }
+
+  // ===== engine crash while VIPER runs: automatic reconnection =====
+  {
+    await win.evaluate(() => window.viperApp.go('home'));
+    const tKill = Date.now(); killEngine();
+    const down = await waitAi(win, ['init', 'engine', 'starting', 'model', 'verify', 'error'], 60000);
+    const back = await waitAi(win, ['ready', 'error'], 240000);
+    const servers = engineServers();
+    check('AI start-up', 'AI engine crash is detected and VIPER reconnects automatically (restarting the engine itself)', !!down && back?.stage === 'ready', `stopped → ${down?.label} → ${back?.label} in ${((Date.now() - tKill) / 1000).toFixed(1)} s; owned now: ${back?.owned}`);
+    check('AI start-up', 'no duplicate engine processes after recovery', servers.length === 1, `ollama serve processes: ${servers.length}`);
+    metrics.recoverySeconds = Math.round((Date.now() - tKill) / 100) / 10;
+  }
+
+  // ===== failed start-up shows a useful error and a working Retry button =====
+  {
+    const good = (await apiCall(win, 'GET', '/settings/backend')).ollama.url;
+    killEngine(); await sleep(1500);
+    // Point VIPER at a port another program already uses: the engine cannot start there.
+    await apiCall(win, 'PATCH', '/settings/backend', { ollama: { url: 'http://127.0.0.1:47800' } });
+    const err = await waitAi(win, ['error'], 240000);
+    await win.evaluate(() => window.viperApp.go('home')); await sleep(800);
+    const ui = await win.evaluate(() => ({ text: document.querySelector('.ai-status')?.innerText || '', retry: [...document.querySelectorAll('.ai-status button')].some((b) => /Retry connection/.test(b.innerText)) }));
+    await win.screenshot({ path: path.join(OUT, '03d-start-error.png') });
+    check('AI start-up', 'a start-up that cannot succeed ends in a clear error (limited retries, no loop) with a Retry Connection button', err?.stage === 'error' && ui.retry && /AI OFFLINE/.test(ui.text), `${err?.detail?.slice(0, 200)}`);
+    check('AI start-up', 'no stray engine processes left by the failed attempts', engineServers().length === 0, `ollama serve processes: ${engineServers().length}`);
+    await apiCall(win, 'PATCH', '/settings/backend', { ollama: { url: good } });
+    await waitAi(win, ['ready', 'error'], 240000); // the settings change itself re-runs start-up
+    if ((await aiState(win))?.stage !== 'ready') { await win.evaluate(() => [...document.querySelectorAll('.ai-status button')].find((b) => /Retry connection/.test(b.innerText))?.click()); }
+    const fixed = await waitAi(win, ['ready'], 240000);
+    check('AI start-up', 'after fixing the problem, VIPER connects (Retry / automatic re-run)', fixed?.stage === 'ready', fixed?.detail);
+  }
+
   // ===== close cleanly =====
   const pidList = (await app.evaluate(({ app: a }) => a.getAppMetrics().map((m) => m.pid)));
   await app.evaluate(() => { const m = global.viperDiagnostics.trayMenu(); m.items.find((i) => i.label === 'Quit VIPER').click(); });
   const gone = await until(() => pidList.every((pid) => { try { process.kill(pid, 0); return false; } catch { return true; } }), 20000, 300);
   check('App', 'Quit closes VIPER cleanly (all processes exit)', !!gone, `${pidList.length} processes`);
   await app.close().catch(() => {});
+  const leftover = await until(() => engineServers().length === 0, 15000, 500);
+  check('AI start-up', 'quitting VIPER stops the engine it started (no orphaned processes)', !!leftover, `ollama serve processes after quit: ${engineServers().length}`);
 
-  // ===== reopen: data persisted =====
+  // ===== reopen with the engine NOT running: VIPER starts it and reconnects to the same model =====
+  killEngine();
+  const tLaunch2 = Date.now();
   ({ app, win, errors, ready } = await launch('second'));
   await until(() => win.evaluate(() => document.querySelectorAll('.nav-item').length >= 16), 30000);
+  {
+    const st = await waitAi(win, ['ready', 'error', 'setup'], 300000);
+    metrics.coldStartToReadyMs = Date.now() - tLaunch2;
+    check('AI start-up', 'launch with Ollama not running: VIPER starts it automatically and becomes ready', st?.stage === 'ready' && st.owned === true, `${st?.label} · ${st?.detail} · ${(metrics.coldStartToReadyMs / 1000).toFixed(1)} s from launch`);
+    check('AI start-up', 'the previously used model is remembered and reconnected', st?.model === MODEL, `model ${st?.model}`);
+    check('AI start-up', 'exactly one engine process', engineServers().length === 1, `ollama serve processes: ${engineServers().length}`);
+    await win.evaluate(() => window.viperApp.go('home')); await sleep(1200);
+    await win.screenshot({ path: path.join(OUT, '07b-cold-start-ready.png') });
+  }
   const persisted = { name: (await apiCall(win, 'GET', '/settings/personality')).userName, preset: (await apiCall(win, 'GET', '/performance')).preset, memory: (await apiCall(win, 'GET', '/memory?q=tea')).length, conversations: (await apiCall(win, 'GET', '/conversations')).length, wizard: await win.evaluate(() => !!document.querySelector('.wizard')) };
   check('App', 'settings persist after restart', persisted.name === 'E2E Tester' && persisted.preset === 'eco', JSON.stringify(persisted));
   check('App', 'user data (memories, conversations) preserved after reopening', persisted.memory > 0 && persisted.conversations >= convs.length && !persisted.wizard, JSON.stringify(persisted));

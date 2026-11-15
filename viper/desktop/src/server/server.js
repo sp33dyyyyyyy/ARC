@@ -26,6 +26,8 @@ const { Briefing } = require('./briefing');
 const { TaskWatch } = require('./tasks');
 const { Orchestrator } = require('./orchestrator');
 const { PerformanceProfile } = require('./performance');
+const { AIStartup } = require('./llm/startup');
+const { EngineInstaller } = require('./llm/installer');
 const { Router, dispatch, send } = require('./http');
 const { coreRoutes } = require('./api');
 const { headlessBridge } = require('./bridge');
@@ -70,6 +72,10 @@ async function createViper(opts = {}) {
   svc.automation.svc = svc;
   svc.briefing = new Briefing(svc);
   svc.orchestrator = new Orchestrator(svc);
+  svc.aiStartup = new AIStartup(svc, opts.aiStartup || {});
+  svc.engineInstaller = new EngineInstaller(svc);
+  svc.models.recoverHook = (backendId) => svc.aiStartup.recover(`${backendId} connection lost`);
+  svc.models.onStall = (model) => svc.aiStartup.watchdog(`${model} stopped responding`);
 
   require('./tools/computer').register(svc.tools, svc);
   require('./tools/assistant').register(svc.tools, svc);
@@ -94,22 +100,23 @@ async function createViper(opts = {}) {
   svc.events.onSettingsChanged = (section) => {
     if (section === 'proactive') svc.briefing.scheduleProactive();
     if (section === 'remote') svc.remote?.applySettings?.();
-    if (section === 'backend' || section === 'models') { svc.models.modelCache.at = 0; svc.models.checkHealth().then(() => scheduleWarmup('model changed')).catch(() => {}); }
+    // A different engine or chat model: run the start-up sequence again (start, load, verify).
+    if (section === 'backend' || section === 'models') { svc.models.modelCache.at = 0; scheduleStartup('settings changed'); }
   };
-  // Warm the chat model in the background: at startup (after the UI has had time to paint),
-  // when the chat model changes, and when the engine comes online later.
-  let warmTimer = null;
-  const scheduleWarmup = (reason, ms = 1500) => {
+  let startTimer = null;
+  const scheduleStartup = (reason, ms = 800) => {
     if (opts.noBackground) return;
-    clearTimeout(warmTimer);
-    warmTimer = setTimeout(async () => {
-      const r = await svc.models.resolve('chat').catch(() => ({}));
-      if (r.model && `${r.backend}:${r.model}` !== svc.orchestrator.warmedKey) svc.orchestrator.warmup(reason).catch(() => {});
-    }, ms);
-    warmTimer.unref?.();
+    clearTimeout(startTimer);
+    startTimer = setTimeout(() => svc.aiStartup.run(reason).catch((e) => log.warn('AI start-up', e)), ms);
+    startTimer.unref?.();
   };
-  svc.scheduleWarmup = scheduleWarmup;
-  bus.on('event', (e) => { if (e.type === 'models.health') { const a = settings.get('backend').active; if (e.data?.[a]?.ok && !svc._wasOnline) scheduleWarmup('engine online', 4000); svc._wasOnline = !!e.data?.[a]?.ok; } });
+  svc.scheduleWarmup = (reason) => scheduleStartup(reason, 500);
+  svc.scheduleStartup = scheduleStartup;
+  bus.on('event', (e) => {
+    if (e.type === 'models.health') svc.aiStartup.onHealth(e.data);
+    // A model downloaded while setup was required: continue start-up automatically.
+    if (e.type === 'models.download' && e.data.status === 'done' && svc.aiStartup.state.stage === 'setup') scheduleStartup('model installed', 300);
+  });
 
   // ---------- local HTTP server ----------
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
@@ -155,8 +162,10 @@ async function createViper(opts = {}) {
   svc.url = `http://127.0.0.1:${svc.port}`;
   log.info(`VIPER core listening on ${svc.url}`);
 
-  // Start background services.
+  // Start background services. The AI start-up runs in the background: the UI is usable
+  // immediately and shows each real stage until "VIPER ONLINE — READY".
   await svc.models.checkHealth().catch(() => {});
+  if (!opts.noBackground && opts.autoStartAI !== false) scheduleStartup('launch', 0);
   if (!opts.noBackground) {
     svc.monitor.start();
     svc.reminders.start();
@@ -171,7 +180,8 @@ async function createViper(opts = {}) {
   for (const m of FEATURE_MODULES) { try { const mod = require(m); await mod.start?.(svc); } catch { /* optional */ } }
 
   svc.shutdown = async () => {
-    clearInterval(svc.healthTimer); clearTimeout(warmTimer); clearTimeout(svc.tidyTimer);
+    clearInterval(svc.healthTimer); clearTimeout(startTimer); clearTimeout(svc.tidyTimer);
+    svc.aiStartup.shutdown();
     svc.orchestrator.cancelAll();
     svc.monitor.stop(); svc.reminders.stop(); svc.automation.stop();
     for (const m of FEATURE_MODULES) { try { await require(m).stop?.(svc); } catch { /* optional */ } }

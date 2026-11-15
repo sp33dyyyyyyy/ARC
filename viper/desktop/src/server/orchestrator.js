@@ -119,11 +119,11 @@ class Orchestrator {
    * Load the chat model and pre-fill its prompt cache with the static prefix of a chat turn
    * (system prompt + base tools), so the first real reply only processes the user's message.
    */
-  async warmup(reason = 'manual') {
+  async warmup(reason = 'manual', { force = false, target: forced = null } = {}) {
     const { svc } = this;
-    if (!svc.settings.get('performance').warmup && reason !== 'manual') return null;
+    if (!svc.settings.get('performance').warmup && reason !== 'manual' && !force) return null;
     if (this.warming) return this.warming;
-    const target = await svc.models.resolve('chat');
+    const target = forced || await svc.models.resolve('chat');
     if (!target.model || !svc.models.health[target.backend]?.ok) return null;
     const key = `${target.backend}:${target.model}`;
     this.warming = (async () => {
@@ -246,7 +246,12 @@ class Orchestrator {
       }
     }
 
-    // 2) Language model with tools.
+    // 2) Language model with tools. If the AI is still starting, wait for it (up to 4 minutes)
+    // so a message typed during start-up is answered as soon as the model is ready.
+    if (svc.aiStartup?.running) {
+      bus.publish('chat.waiting', { requestId, conversationId: convId, stage: svc.aiStartup.state.label });
+      await Promise.race([svc.aiStartup.running, new Promise((r) => setTimeout(r, 240000).unref?.())]);
+    }
     const role = images.length ? 'vision' : (input.mode === 'code' ? 'code' : 'chat');
     let target = input.model?.model ? input.model : await svc.models.resolve(role);
     if (!target.model) {

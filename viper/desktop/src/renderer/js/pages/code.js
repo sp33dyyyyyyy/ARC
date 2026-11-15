@@ -15,10 +15,10 @@ export async function render(view, { app, api }) {
     if (e.key === 'Tab') { e.preventDefault(); const s = editor.selectionStart; editor.setRangeText('  ', s, editor.selectionEnd, 'end'); dirty = true; }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
   });
-  view.append(h('div.row', { style: { padding: '10px 14px', borderBottom: '1px solid var(--line)' } }, h('h2', {}, 'Code Studio'), wsSel,
+  view.append(h('div.row.wrap', { style: { padding: '10px 14px', borderBottom: '1px solid var(--line)' } }, h('h2', {}, 'Code Studio'), wsSel,
     btn('Open folder', addWs, { cls: 'sm', ico: 'folder' }), btn('New project', newProject, { cls: 'sm', ico: 'plus' }),
     h('span.grow'), btn('Analyse codebase', analyse, { cls: 'sm' }), btn('Compare…', compareDialog, { cls: 'sm' })),
-  h('div.code-layout', { style: { height: 'calc(100% - 53px)' } },
+  h('div.code-layout', { style: { flex: '1', minHeight: '0' } },
     h('div.tree', {}, tree),
     h('div.editor', {}, h('div.row', { style: { padding: '6px 12px', borderBottom: '1px solid var(--line)' } }, fileLabel, btn('Save', save, { cls: 'sm', title: 'Ctrl+S' }), btn('Preview', previewFile, { cls: 'sm' }), btn('', newFile, { cls: 'sm ghost icon', ico: 'plus', title: 'New file' }), btn('', delFile, { cls: 'sm ghost icon', ico: 'trash', title: 'Delete file' })),
       editor,

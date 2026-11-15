@@ -127,8 +127,16 @@ class ModelManager {
     try {
       while (true) {
         const t0 = Date.now(); let first = 0; let tokens = 0; let emitted = false;
+        // Watchdog: a model that stops producing output is treated as unresponsive (first token
+        // may take long while the model loads; between tokens it should keep flowing).
+        const stall = new AbortController();
+        const sig = signal ? AbortSignal.any([signal, stall.signal]) : stall.signal;
+        const lim = this.settings.get('limits');
+        let stallTimer = setTimeout(() => stall.abort(new Error('The AI model stopped responding')), (lim.firstTokenTimeoutSec || 300) * 1000);
+        const bump = () => { clearTimeout(stallTimer); stallTimer = setTimeout(() => stall.abort(new Error('The AI model stopped responding')), (lim.tokenTimeoutSec || 90) * 1000); };
         try {
-          for await (const ev of be.chat({ model, messages, tools, options, signal })) {
+          for await (const ev of be.chat({ model, messages, tools, options, signal: sig })) {
+            bump();
             if (ev.type === 'token') {
               if (!first) first = Date.now();
               tokens++; emitted = true; info.tokens = tokens;
@@ -144,9 +152,17 @@ class ModelManager {
             }
             yield ev;
           }
+          clearTimeout(stallTimer);
           return;
         } catch (e) {
+          clearTimeout(stallTimer);
           if (signal?.aborted) throw e;
+          if (stall.signal.aborted) {
+            const err = Object.assign(new Error(`${model} stopped responding. VIPER is reconnecting to the AI engine.`), { code: 'STALLED' });
+            this.recordPerf({ backend, model, ttftMs: null, tokens: 0, tokPerS: 0 }, false);
+            this.onStall?.(model);
+            throw err;
+          }
           const connErr = /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|not running|other side closed|terminated/i.test(e.message + (e.cause?.message || ''));
           if (measure) this.recordPerf({ backend, model, ttftMs: null, tokens: 0, tokPerS: 0 }, false);
           if (connErr && !emitted && attempt === 0 && this.settings.get('backend').autoRecover) {
@@ -227,6 +243,8 @@ class ModelManager {
 
   /** Attempt to bring a crashed/stopped backend back. */
   async recover(backendId) {
+    // The AI start-up service owns engine processes and rate-limits recovery.
+    if (this.recoverHook) return this.recoverHook(backendId);
     if (this.recovering) return false;
     this.recovering = true;
     try {

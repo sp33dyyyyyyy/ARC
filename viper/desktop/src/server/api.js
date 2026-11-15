@@ -36,6 +36,10 @@ function coreRoutes(r, svc) {
     svc.scheduleWarmup?.('preset changed', 500);
     return st;
   });
+  r.get(`${P}/ai/startup`, async () => svc.aiStartup.status(), { scope: 'read' });
+  r.get(`${P}/ai/engines`, async () => { const [o, f] = await Promise.all([svc.aiStartup.engineInstalled('ollama'), svc.aiStartup.engineInstalled('foundry').catch(() => ({ ok: false }))]); return { ollama: { installed: o.ok, path: o.path }, foundry: { installed: f.ok } }; });
+  r.get(`${P}/ai/engine-install`, async () => svc.engineInstaller.status());
+  r.post(`${P}/ai/startup/retry`, async () => { svc.aiStartup.recoveries = []; return svc.aiStartup.run('retry'); });
   r.post(`${P}/models/warmup`, async () => (await svc.orchestrator.warmup('manual')) || { skipped: true, reason: 'No chat model available or engine offline' });
 
   // Models / backends
@@ -88,7 +92,10 @@ function coreRoutes(r, svc) {
       p.unref();
       return { started: true, message: 'The Windows installer is running. Return here and press Refresh when it finishes.' };
     }
-    if (params.id === 'ollama') { await svc.bridge.openExternal('https://ollama.com/download/windows'); return { started: false, message: 'Run the Ollama installer, then press Refresh.' }; }
+    if (params.id === 'ollama') {
+      if (process.platform !== 'win32') { await svc.bridge.openExternal('https://ollama.com/download'); return { started: false, message: 'Install Ollama from ollama.com, then press Retry.' }; }
+      return svc.engineInstaller.installOllama();
+    }
     throw new HttpError(400, 'Unknown engine');
   });
 

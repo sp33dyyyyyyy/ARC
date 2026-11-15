@@ -13,9 +13,14 @@ export function h(tag, attrs = {}, ...children) {
     else if (k === 'value' || k === 'checked') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
+  // Text inside controls goes in a .lbl span, which the stylesheet trims to cap height and
+  // baseline so labels are optically centred whatever the font's ascent/descent (see viper.css).
+  const control = el.tagName === 'BUTTON' || /(^|\s)(btn|tag|nav-item)(\s|$)/.test(el.getAttribute('class') || '');
   for (const c of children.flat(Infinity)) {
     if (c == null || c === false) continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    if (c instanceof Node) el.append(c);
+    else if (control && String(c).trim()) el.append(Object.assign(document.createElement('span'), { className: 'lbl', textContent: String(c) }));
+    else el.append(document.createTextNode(String(c)));
   }
   return el;
 }

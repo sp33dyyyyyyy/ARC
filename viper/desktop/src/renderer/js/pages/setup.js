@@ -67,12 +67,14 @@ const RENDER = [
   // 2 Choose backend
   async ({ body, nav, next, back, state, app, api }) => {
     const win11 = state.hw?.windows11;
-    let pick = app.settings.backend.active === 'ollama' && win11 && !app.settings.app.setupStep ? 'foundry' : app.settings.backend.active;
-    const health = await api.post('/models/health');
+    // Default to the engine that is already running, else installed, else Ollama (which VIPER can
+    // install and start for you automatically).
+    const [health, eng] = await Promise.all([api.post('/models/health'), api.get('/ai/engines').catch(() => ({}))]);
+    let pick = health.ollama?.ok ? 'ollama' : health.foundry?.ok ? 'foundry' : eng.ollama?.installed ? 'ollama' : eng.foundry?.installed ? 'foundry' : 'ollama';
     body.append(h('h1', {}, 'Choose an AI engine'), h('p.lede', {}, 'Both are free and run entirely on this PC. You can switch at any time without restarting VIPER.'));
     const opts = [
-      ['foundry', 'Microsoft Foundry Local', `${win11 ? 'Recommended for Windows 11.' : 'Best on Windows 11.'} Hardware-optimised models that use your CPU, GPU or NPU automatically.`],
-      ['ollama', 'Ollama', 'Works on Windows 10 and 11. Wider model library including vision and embedding models used by Vision and File Intelligence.'],
+      ['ollama', 'Ollama', `Recommended. VIPER installs it, starts it and loads your model automatically every time you open VIPER. Works on Windows 10 and 11, with vision and embedding models for Vision and File Intelligence.${eng.ollama?.installed ? ' Installed on this PC.' : ''}`],
+      ['foundry', 'Microsoft Foundry Local', `${win11 ? 'Good on Windows 11.' : 'Best on Windows 11.'} Hardware-optimised models that use your CPU, GPU or NPU. VIPER starts its service automatically.${eng.foundry?.installed ? ' Installed on this PC.' : ''}`],
       ['openai', 'Another local server', 'Already running llama.cpp, LM Studio or similar? Point VIPER at its OpenAI-compatible address.'],
     ];
     const list = h('div.col');
@@ -96,7 +98,16 @@ const RENDER = [
         status.append(h('p.small.mist', {}, hl.cliInstalled ? 'The Foundry Local CLI is installed but its service is stopped.' : 'Foundry Local is installed with the official Windows Package Manager command: winget install Microsoft.FoundryLocal'),
           h('div.row', {}, hl.cliInstalled ? btn('Start the service', async (e) => busy(e.currentTarget, async () => { try { await api.post('/backend/foundry/start'); } catch (er) { toastError(er); } check(); }), { cls: 'primary' }) : btn('Install Foundry Local', async () => { try { const r = await api.post('/backend/foundry/install'); toast('Installer', r.message); } catch (er) { toastError(er); } }, { cls: 'primary' }), btn('Check again', check)));
       } else if (be === 'ollama') {
-        status.append(h('p.small.mist', {}, 'Install Ollama from ollama.com (free). It runs in the background after installation.'), h('div.row', {}, btn('Open the Ollama download page', () => api.post('/backend/ollama/install'), { cls: 'primary' }), btn('Check again', check)));
+        const eng = await api.get('/ai/engines').catch(() => ({}));
+        const prog = h('div');
+        if (eng.ollama?.installed) {
+          status.append(h('p.small.mist', {}, `Ollama is installed (${eng.ollama.path}) but not running. VIPER starts it automatically whenever you open VIPER.`),
+            h('div.row', {}, btn('Start Ollama now', async (e) => busy(e.currentTarget, async () => { await api.post('/ai/startup/retry').catch(toastError); check(); }), { cls: 'primary', ico: 'play' }), btn('Check again', check)));
+        } else {
+          status.append(h('p.small.mist', {}, 'Ollama is free. VIPER can download the official installer (about 1 GB) and install it for you — no admin rights needed — then start it automatically from now on.'),
+            h('div.row.wrap', {}, btn('Install Ollama automatically', async (e) => busy(e.currentTarget, async () => { try { await api.post('/backend/ollama/install'); } catch (er) { toastError(er); } }), { cls: 'primary', ico: 'download' }), btn('Check again', check)), prog);
+          const off = api.on('engine.install', (j) => { clear(prog).append(h('p.small', {}, `${j.label}${j.total ? ` — ${bytes(j.received)} of ${bytes(j.total)}` : ''}${j.error ? `: ${j.error}` : ''}`), j.state === 'running' ? progress(j.total ? j.received / j.total : null) : null); if (j.state === 'done') { off(); setTimeout(check, 4000); } });
+        }
       } else {
         const url = h('input.input', { value: app.settings.backend.openai.url });
         status.append(field('Server address (OpenAI-compatible, ending in /v1)', url), h('div.row', { style: { marginTop: '8px' } }, btn('Save and check', async () => { await api.patch('/settings/backend', { openai: { url: url.value } }); check(); }, { cls: 'primary' })));

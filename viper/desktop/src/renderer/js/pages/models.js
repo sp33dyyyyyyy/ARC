@@ -81,7 +81,7 @@ export async function render(view, { app, api }) {
         h('td', {}, m.backend), h('td', {}, bytes(m.sizeBytes)),
         h('td', {}, (m.capabilities || []).map((c) => h('span.tag', { style: { marginRight: '4px' } }, c))),
         h('td', {}, m.loaded ? h('span.tag.on', {}, 'Loaded') : h('span.mist', {}, 'Idle')),
-        h('td', {}, p ? `${p.avg_tps} tok/s · ${p.avg_ttft} ms first token${p.failures ? ` · ${p.failures} failures` : ''}` : h('span.mist', {}, 'Not measured')),
+        h('td', {}, p ? [p.avg_tps ? `${p.avg_tps} tok/s` : null, p.avg_ttft != null ? `${p.avg_ttft} ms first token` : null, p.failures ? `${p.failures} failed` : null].filter(Boolean).join(' · ') || h('span.mist', {}, 'No successful replies yet') : h('span.mist', {}, 'Not measured')),
         h('td', { style: { whiteSpace: 'nowrap' } },
           m.capabilities?.includes('chat') ? btn('', async (e) => busy(e.currentTarget, async () => { const r = await api.post('/models/benchmark', { backend: m.backend, model: m.id }); toast(`${m.id}: ${r.tokPerS} tok/s`, `First token ${r.ttftMs} ms · total ${r.ms} ms`); load(); }), { cls: 'sm ghost icon', ico: 'play', title: 'Benchmark' }) : null,
           btn('', async (e) => busy(e.currentTarget, async () => { await api.post(m.loaded ? '/models/unload' : '/models/load', { backend: m.backend, model: m.id }); load(true); }), { cls: 'sm ghost icon', ico: m.loaded ? 'pause' : 'upload', title: m.loaded ? 'Unload from memory' : 'Load into memory' }),

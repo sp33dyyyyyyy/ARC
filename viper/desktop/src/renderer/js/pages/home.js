@@ -4,6 +4,7 @@ import { h, icon, toastError, mdEl, clear } from '../ui.js';
 import { Core } from '../core.js';
 import { composer } from '../components/composer.js';
 import { followRequest } from '../components/stream.js';
+import { aiStatus } from '../components/ai-status.js';
 
 const SUGGEST = ['VIPER, are you online?', "What's happening with my computer?", 'Give me my morning briefing', 'Run a system diagnostic', 'Remind me to check my downloads later', 'Open the floating interface'];
 
@@ -21,6 +22,11 @@ export async function render(view, { app, api }) {
   const transcript = h('div.transcript-live');
   const newBtn = h('button.btn.sm.ghost', { type: 'button', onclick: () => reset(), title: 'Start a new conversation and bring the core back' }, icon('plus'), 'New conversation');
   const stops = new Set();
+  // Real AI start-up progress under the core; once ready it shows "VIPER ONLINE — READY" and fades.
+  const status = aiStatus(app);
+  let settleTimer = 0;
+  const settle = () => { clearTimeout(settleTimer); status.el.classList.toggle('settled', false); if (app.ai?.stage === 'ready') settleTimer = setTimeout(() => status.el.classList.add('settled'), 6000); };
+  const offStatus = app.api.on('ai.startup', settle); settle();
 
   const comp = composer({
     app, placeholder: 'Ask VIPER anything, or give a command…',
@@ -46,7 +52,7 @@ export async function render(view, { app, api }) {
     h('div.home-hero', {},
       h('div.greeting', {}, h('h1', {}, `${greet}${name ? `, ${name}` : ''}.`), h('p', {}, new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }))),
       h('div.home-bar', {}, h('span.home-title', {}, 'VIPER'), label, h('span.grow'), newBtn),
-      coreWrap, h('div.hero-label'), ),
+      coreWrap, h('div.hero-label'), status.el),
     thread,
     h('div.dock', {}, transcript, comp.el, hint, chips));
   home.querySelector('.hero-label').append(label.cloneNode(true));
@@ -108,5 +114,5 @@ export async function render(view, { app, api }) {
   const onVoice = () => updHint();
   document.addEventListener('viper:voice', onVoice);
   comp.focus();
-  return () => { unreg(); for (const s of stops) s(); offStart(); document.removeEventListener('viper:transcript', onTranscript); document.removeEventListener('viper:voice', onVoice); };
+  return () => { unreg(); status.destroy(); offStatus(); clearTimeout(settleTimer); for (const s of stops) s(); offStart(); document.removeEventListener('viper:transcript', onTranscript); document.removeEventListener('viper:voice', onVoice); };
 }

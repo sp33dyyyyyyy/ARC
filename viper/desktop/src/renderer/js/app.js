@@ -30,6 +30,11 @@ export const app = {
     const be = this.settings?.backend?.active;
     let s = 'idle';
     if (be && this.health[be] && !this.health[be].ok) s = 'offline';
+    // Automatic AI start-up drives the core through its real stages.
+    const st = this.ai?.stage;
+    if (['init', 'engine', 'starting', 'model', 'verify'].includes(st)) s = 'processing';
+    else if (st === 'error' || st === 'setup') s = 'offline';
+    else if (st === 'ready' && s === 'offline') s = 'idle';
     if (this.thinking.size) s = 'thinking';
     if (this.toolsRunning > 0) s = 'processing';
     if (this.voice.state === 'listening') s = 'listening';
@@ -82,15 +87,17 @@ window.viperApp = app;
 function buildNav() {
   const nav = $('#nav'); clear(nav);
   for (const [mode, label] of NAV) {
-    nav.append(h('button.nav-item', { 'data-mode': mode, onclick: () => app.go(mode), title: label }, icon(mode), h('span', {}, label)));
+    nav.append(h('button.nav-item', { 'data-mode': mode, onclick: () => app.go(mode), title: label }, icon(mode), h('span.lbl', {}, label)));
     if (SEP_AFTER.has(mode)) nav.append(h('div.nav-sep'));
   }
-  for (const p of app.pluginPages) nav.append(h('button.nav-item', { 'data-mode': `plugin:${p.id}`, onclick: () => app.go(`plugin:${p.id}`), title: p.title }, icon('plugins'), h('span', {}, p.title)));
+  for (const p of app.pluginPages) nav.append(h('button.nav-item', { 'data-mode': `plugin:${p.id}`, onclick: () => app.go(`plugin:${p.id}`), title: p.title }, icon('plugins'), h('span.lbl', {}, p.title)));
   nav.append(h('div.collapse', {},
-    h('button.nav-item', { onclick: () => togglePanel('leftPanel'), title: 'Collapse sidebar' }, icon('panelL'), h('span', {}, 'Collapse')),
-    h('button.nav-item', { onclick: () => togglePanel('rightPanel'), title: 'Toggle status panel' }, icon('panelR'), h('span', {}, 'Status panel'))));
+    h('button.nav-item', { onclick: () => togglePanel('leftPanel'), title: 'Collapse sidebar' }, icon('panelL'), h('span.lbl', {}, 'Collapse')),
+    h('button.nav-item', { onclick: () => togglePanel('rightPanel'), title: 'Toggle status panel' }, icon('panelR'), h('span.lbl', {}, 'Status panel'))));
 }
 async function togglePanel(key) {
+  // On narrow windows the status panel is shown as an overlay rather than squeezing the page.
+  if (key === 'rightPanel' && matchMedia('(max-width: 1279px)').matches) { $('#shell').classList.toggle('rail-open'); renderRail(true); return; }
   const ui = await api.patch('/settings/ui', { [key]: !app.settings.ui[key] });
   app.settings.ui = ui; applyUi();
 }
@@ -135,8 +142,9 @@ function sparkSvg(arr) {
   svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="white" stroke-opacity=".85" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   return svg;
 }
-function renderRail() {
+function renderRail(force) {
   const rail = $('#rail'); if (!app.settings) return;
+  if (!force && !rail.getClientRects().length && rail.childElementCount) return; // hidden: skip the work
   if (!app.settings.ui.rightPanel) { clear(rail); return; }
   const w = new Set(app.settings.ui.widgets);
   const s = app.sample; const be = app.settings.backend.active; const hl = app.health[be] || {};
@@ -148,10 +156,13 @@ function renderRail() {
     h('div.row', {}, h('div.stat.grow', {}, h('b', {}, s?.cpu ? `${Math.round(s.cpu.pct)}%` : '—'), h('span', {}, 'CPU')), h('div.stat.grow', {}, h('b', {}, s?.mem ? `${Math.round(s.mem.pct)}%` : '—'), h('span', {}, `Memory · ${bytes(s?.mem?.used)}`))),
     sparkSvg(spark.cpu), h('small.mist', {}, s?.temp?.cpu ? `CPU ${Math.round(s.temp.cpu)}°C` : 'CPU temperature not exposed', s?.battery ? ` · battery ${s.battery.pct}%` : '')));
   if (w.has('model')) {
-    const roles = app.settings.models;
-    blocks.push(h('div.widget.panel', {}, h('h4', {}, 'AI engine', h('span.r', {}, h(`span.dot${hl.ok ? '.on' : '.warn'}`))),
-      h('div', {}, { foundry: 'Foundry Local', ollama: 'Ollama', openai: 'OpenAI-compatible' }[be]),
-      h('small.mist', {}, hl.ok ? (roles.chat.model || 'auto-selected model') : (hl.error || 'Not reachable')),
+    const roles = app.settings.models; const ai = app.ai || {};
+    const ok = ai.stage === 'ready';
+    blocks.push(h('div.widget.panel', {}, h('h4', {}, 'AI engine', h('span.r', {}, h(`span.dot${ok ? '.on' : ai.stage === 'error' || ai.stage === 'setup' ? '.warn' : ''}`))),
+      h('div', {}, { foundry: 'Foundry Local', ollama: 'Ollama', openai: 'OpenAI-compatible' }[be], ai.model ? ` · ${ai.model}` : ''),
+      h('small.mist', { style: { display: 'block' } }, ai.label || (hl.ok ? (roles.chat.model || 'auto-selected model') : (hl.error || 'Not reachable'))),
+      ai.stage && ai.stage !== 'ready' && ai.detail ? h('small.mist', { style: { display: 'block' } }, ai.detail) : null,
+      ai.stage === 'error' ? h('button.btn.sm', { style: { marginTop: '6px' }, onclick: () => api.post('/ai/startup/retry').catch(toastError) }, 'Retry connection') : null,
       app.lastPerf ? h('small.mist', { style: { display: 'block' } }, `Last reply ${app.lastPerf.tokPerS || '?'} tok/s · first token ${app.lastPerf.ttftMs ?? '?'} ms`) : null));
   }
   if (w.has('network')) blocks.push(h('div.widget.row', {}, icon('wifi'), h('span.grow', {}, s?.online ? 'Internet connected' : s ? 'Offline' : '—'), h('small.mist', {}, s?.net ? `↓${bytes(s.net.rxPerSec)}/s` : '')));
@@ -206,6 +217,12 @@ function wireEvents() {
     if (!document.hidden && Date.now() - (app.railAt || 0) > 5000) { app.railAt = Date.now(); renderRail(); }
   });
   api.on('models.health', (hl) => { app.health = hl; app.updateCore(); renderRail(); });
+  api.on('ai.startup', (st) => {
+    const was = app.ai?.stage; app.ai = st; app.updateCore(); renderRail();
+    if (st.stage === 'error' && was !== 'error') toast('AI engine offline', st.detail, 'error', 9000);
+    // Startup voice greeting: only after the model has passed its readiness check.
+    if (st.stage === 'ready' && st.greeting && !app.greeted) { app.greeted = true; app.voice.speak(st.greeting).catch(() => {}); }
+  });
   api.on('models.perf', (p) => { if (p.ok) app.lastPerf = p; });
   api.on('models.recovering', (d) => toast('Inference engine restarting', `${d.backend} stopped responding; VIPER is restarting it.`, 'warn'));
   api.on('models.recovered', (d) => toast('Inference engine recovered', `${d.backend} is back online.`));
@@ -247,7 +264,7 @@ function wireEvents() {
   api.on('remote.changed', async () => { app.status = await api.get('/status').catch(() => app.status); renderRail(); });
   api.on('plugins.changed', () => { loadPluginPages(); loadPluginWidgets(); });
   api.on('ws.close', () => { app.health = {}; app.updateCore(); });
-  api.on('ws.open', async () => { app.health = await api.post('/models/health').catch(() => ({})); app.updateCore(); });
+  api.on('ws.open', async () => { app.health = await api.post('/models/health').catch(() => ({})); app.ai = await api.get('/ai/startup').catch(() => app.ai); app.updateCore(); renderRail(); });
 
   // voice → core + commands
   const v = app.voice;
@@ -292,7 +309,7 @@ async function boot() {
   api.connect();
   winControls();
   try {
-    [app.settings, app.status] = await Promise.all([api.get('/settings'), api.get('/status')]);
+    [app.settings, app.status, app.ai] = await Promise.all([api.get('/settings'), api.get('/status'), api.get('/ai/startup').catch(() => null)]);
     app.health = app.status.health || {};
   } catch (e) { toastError(e, 'VIPER core is not responding'); return; }
   buildNav(); applyUi(); micButton(); wireEvents();

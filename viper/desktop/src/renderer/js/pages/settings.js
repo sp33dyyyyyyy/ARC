@@ -1,4 +1,5 @@
 import { h, clear, icon, btn, busy, toast, toastError, field, toggle, select, ask, prompt, when, download } from '../ui.js';
+import { aiStatus } from '../components/ai-status.js';
 
 const TABS = [['general', 'General'], ['personality', 'Personality'], ['privacy', 'Privacy & permissions'], ['performance', 'Performance'], ['proactive', 'Proactive assistant'], ['activity', 'Activity log'], ['about', 'About']];
 const WIDGETS = [['clock', 'Date and time'], ['system', 'PC status'], ['model', 'AI engine'], ['network', 'Internet'], ['phone', 'Connected phone'], ['tasks', 'Active tasks'], ['notifications', 'Notifications'], ['plugins', 'Plugin widgets']];
@@ -10,7 +11,9 @@ export async function render(view, { app, api, params }) {
   const save = async (section, patch) => { try { app.settings[section] = await api.patch(`/settings/${section}`, patch); } catch (e) { toastError(e); } };
   const row = (label, desc, control) => h('div.li', {}, h('div.t', {}, h('b', {}, label), desc ? h('small', { style: { whiteSpace: 'normal' } }, desc) : null), control);
 
+  const cleanups = [];
   const draw = async () => {
+    while (cleanups.length) cleanups.pop()();
     clear(tabs).append(...TABS.map(([id, l]) => h(`button${tab === id ? '.on' : ''}`, { role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; draw(); } }, l)));
     clear(body);
     const s = app.settings;
@@ -21,7 +24,8 @@ export async function render(view, { app, api, params }) {
           row('Launch VIPER when Windows starts', null, toggle(ui.launchAtStartup, (v) => save('ui', { launchAtStartup: v }))),
           row('Start minimised to the tray', null, toggle(ui.startMinimized, (v) => save('ui', { startMinimized: v }))),
           row('Closing the window keeps VIPER running in the tray', 'Wake word, reminders and automations keep working.', toggle(ui.closeToTray, (v) => save('ui', { closeToTray: v }))),
-          row('Show the floating HUD on start', null, toggle(ui.showHudOnStart, (v) => save('ui', { showHudOnStart: v }))))),
+          row('Show the floating HUD on start', null, toggle(ui.showHudOnStart, (v) => save('ui', { showHudOnStart: v }))),
+          row('Startup Voice Greeting', 'After the AI model passes its start-up check, VIPER says “VIPER systems online. Local intelligence operational.” Never plays if start-up fails.', toggle(s.voice.startupGreeting, (v) => save('voice', { startupGreeting: v }))))),
         h('div.panel', {}, h('h3', {}, 'Floating HUD'), h('div.col', {},
           field('Global shortcut', h('input.input', { value: ui.hudShortcut, onchange: (e) => save('ui', { hudShortcut: e.target.value.trim() }) }), 'Electron accelerator format, e.g. CommandOrControl+Shift+Space'),
           field(`Opacity (${Math.round(ui.hudOpacity * 100)}%)`, h('input', { type: 'range', min: 0.4, max: 1, step: 0.02, value: ui.hudOpacity, onchange: (e) => save('ui', { hudOpacity: Number(e.target.value) }) })),
@@ -91,6 +95,15 @@ export async function render(view, { app, api, params }) {
           h('p.small', {}, active.summary || ''),
           hw ? h('p.small.mist', {}, `Detected: ${st.reason}`) : null,
           hw && !hw.gpu?.vramGB ? h('p.small.mist', {}, 'No dedicated graphics memory: AI runs on the processor. Small models (1–4B) give the fastest replies; 7–8B models work but answer more slowly.') : null),
+        h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'AI start-up'),
+          (() => { const st = aiStatus(app, { compact: true }); cleanups.push(st.destroy); return st.el; })(),
+          h('div.list', { style: { marginTop: '8px' } },
+            row('Start the AI engine automatically when VIPER opens', 'Finds Ollama or Foundry Local, starts it if it is not running, loads your model and checks it answers before showing VIPER ONLINE — READY.', toggle(s.backend.autoStart !== false, (v) => save('backend', { autoStart: v }))),
+            row('Reconnect automatically if the engine stops', 'Up to 3 automatic recoveries in 10 minutes, then VIPER waits for you to press Retry.', toggle(s.backend.autoRecover !== false, (v) => save('backend', { autoRecover: v }))),
+            row('Stop the engine when VIPER quits — only if VIPER started it', 'An engine you started yourself (or that other apps use) is never stopped.', toggle(s.backend.stopOwnedOnExit !== false, (v) => save('backend', { stopOwnedOnExit: v })))),
+          h('div.row.wrap', { style: { marginTop: '8px' } },
+            field('Ollama location (optional)', h('input.input', { value: s.backend.ollama.path || '', placeholder: 'Detected automatically', style: { minWidth: '320px' }, onchange: (e) => save('backend', { ollama: { path: e.target.value.trim() } }) })),
+            btn('Restart AI', async (e) => busy(e.currentTarget, () => api.post('/ai/startup/retry')), { cls: 'sm', ico: 'refresh' }))),
         h('div.panel', {}, h('h3', {}, 'Interface'), h('div.col', {},
           field('Frame-rate limit', select([['30', '30 fps'], ['45', '45 fps'], ['60', '60 fps']], String(s.ui.fpsLimit || 60), (v) => save('ui', { fpsLimit: Number(v) })), 'The core drops to 30 fps while the AI is generating and stops completely when VIPER is minimised.'),
           field('Animation', select([['full', 'Full'], ['reduced', 'Reduced (24 fps, no transitions)'], ['off', 'Off (still image)']], s.ui.animations, (v) => save('ui', { animations: v }))),
@@ -109,7 +122,7 @@ export async function render(view, { app, api, params }) {
         h('div.panel', {}, h('h3', {}, 'Generation'), h('div.col', {},
           num('temperature', 'Temperature', 'Lower is more focused; higher is more creative.', 0, 2, 0.05),
           num('maxContextMessages', 'Messages kept in context', 'Older messages are summarised automatically.', 4, 200),
-          h('div.list', {}, row('Automatically restart a crashed AI engine', null, toggle(s.backend.autoRecover, (v) => save('backend', { autoRecover: v })))))),
+          )),
         h('div.panel', { style: { gridColumn: '1 / -1' } }, h('h3', {}, 'Measured speed (last 30 days)'),
           perfRows.length ? h('table.tbl', {}, h('thead', {}, h('tr', {}, ['Model', 'Replies', 'Avg tokens/s', 'Avg first token', 'Failures'].map((t) => h('th', {}, t)))),
             h('tbody', {}, perfRows.map((r) => h('tr', {}, h('td', {}, `${r.model} (${r.backend})`), h('td', {}, String(r.runs)), h('td', {}, String(r.avg_tps ?? '—')), h('td', {}, r.avg_ttft != null ? `${r.avg_ttft} ms` : '—'), h('td', {}, String(r.failures))))))
@@ -147,4 +160,5 @@ export async function render(view, { app, api, params }) {
     }
   };
   draw();
+  return () => { while (cleanups.length) cleanups.pop()(); };
 }

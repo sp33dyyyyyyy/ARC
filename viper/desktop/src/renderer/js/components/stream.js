@@ -26,6 +26,7 @@ export function followRequest(app, requestId, target, { onDone, onError, scrolle
       if (d.state === 'running') { card = h('span.toolcard.running', { 'data-tool': d.name }, h('span.dot'), d.name.replace(/_/g, ' ')); tools.append(card); }
       else if (card) { card.className = `toolcard ${d.state === 'done' ? '' : 'failed'}`; card.replaceChildren(icon(d.state === 'done' ? 'check' : 'x'), `${d.name.replace(/_/g, ' ')} — ${d.summary || d.state}`); }
     }),
+    on('chat.waiting', (d) => { if (d.requestId !== requestId || buf) return; body.replaceChildren(h('span.mist', {}, `Waiting for the AI to finish starting (${d.stage.toLowerCase()})… your message will be answered as soon as it is ready.`)); }),
     on('chat.done', (d) => { if (d.requestId !== requestId) return; stop(); if (!d.silent) body.replaceChildren(mdEl(d.message?.content || '')); onDone?.(d); }),
     on('chat.error', (d) => { if (d.requestId !== requestId) return; stop(); body.replaceChildren(h('div.toolcard.failed', {}, icon('x'), d.error)); onError?.(d); }),
     on('chat.cancelled', (d) => { if (d.requestId !== requestId) return; stop(); body.replaceChildren(buf ? mdEl(buf + '\n\n_(stopped)_') : h('span.mist', {}, 'Stopped.')); onDone?.(d); }),

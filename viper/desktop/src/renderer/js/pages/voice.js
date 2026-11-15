@@ -14,7 +14,7 @@ export async function render(view, { app, api }) {
     h('div.actions', {}, btn(v().micMuted ? 'Turn microphone on' : 'Turn microphone off', async () => { await save({ micMuted: !v().micMuted }); toast(v().micMuted ? 'Microphone off' : 'Microphone on'); app.go('voice'); }, { cls: v().micMuted ? 'primary' : '', ico: v().micMuted ? 'mic' : 'micoff' }))),
   h('div.grid.g2', {},
     h('div.panel', {}, h('div.core-wrap', { style: { height: '260px' } }, canvas), stateEl, level,
-      h('div.row', { style: { justifyContent: 'center', marginTop: '8px' } }, (() => {
+      h('div.row.wrap', { style: { justifyContent: 'center', marginTop: '8px' } }, (() => {
         const b = h('button.btn.primary.mic-btn', { type: 'button' }, icon('mic'), 'Hold to talk');
         b.addEventListener('pointerdown', async () => { if (await app.voice.pttStart().catch((e) => { toastError(e); return false; })) b.classList.add('live'); });
         const up = () => { if (b.classList.contains('live')) { b.classList.remove('live'); app.voice.pttStop(); } };
@@ -44,9 +44,9 @@ export async function render(view, { app, api }) {
     clear(comps).append(h('div.panel', {}, h('h3', {}, icon('voice'), 'Speech engines', h('span.r', {}, s.ready.stt && s.ready.tts ? 'Ready' : 'Setup needed')),
       h('div.list', {},
         h('div.li', {}, h('div.t', {}, h('b', {}, 'Speech recognition — whisper.cpp'), h('small', {}, s.stt.whisperInstalled ? 'Installed' : s.stt.whisperAvailableForPlatform ? 'Not installed (9 MB)' : 'No prebuilt engine for this OS; set a binary path in settings')), s.stt.whisperInstalled ? h('span.tag.on', {}, 'Ready') : s.stt.whisperAvailableForPlatform ? inst('engine', 'whisper') : null),
-        ...s.stt.models.map((m) => h('div.li', {}, h('div.t', {}, h('b', {}, `Model ${m.id}`, m.id === v().sttModel ? h('span.tag', { style: { marginLeft: '6px' } }, 'Selected') : null), h('small', {}, `${m.sizeMB} MB · ${m.note}`)), m.installed ? (m.id === v().sttModel ? h('span.tag.on', {}, 'Installed') : btn('Use', async () => { await save({ sttModel: m.id }); drawComps(); }, { cls: 'sm' })) : inst('stt-model', m.id, 'Download'))),
+        ...s.stt.models.map((m) => h('div.li', {}, h('div.t', {}, h('div.row', { style: { gap: '6px' } }, h('b', {}, `Model ${m.id}`), m.id === v().sttModel ? h('span.tag', {}, 'Selected') : null), h('small', {}, `${m.sizeMB} MB · ${m.note}`)), m.installed ? (m.id === v().sttModel ? h('span.tag.on', {}, 'Installed') : btn('Use', async () => { await save({ sttModel: m.id }); drawComps(); }, { cls: 'sm' })) : inst('stt-model', m.id, 'Download'))),
         h('div.li', {}, h('div.t', {}, h('b', {}, 'Speaking voice — Piper'), h('small', {}, s.tts.piperInstalled ? 'Installed' : 'Not installed (25 MB). Without it, Windows voices are used.')), s.tts.piperInstalled ? h('span.tag.on', {}, 'Ready') : inst('engine', 'piper')),
-        ...s.tts.voices.map((x) => h('div.li', {}, h('div.t', {}, h('b', {}, x.label, x.id === v().piperVoice ? h('span.tag', { style: { marginLeft: '6px' } }, 'Selected') : null), h('small', {}, `${x.sizeMB} MB`)),
+        ...s.tts.voices.map((x) => h('div.li', {}, h('div.t', {}, h('div.row', { style: { gap: '6px' } }, h('b', {}, x.label), x.id === v().piperVoice ? h('span.tag', {}, 'Selected') : null), h('small', {}, `${x.sizeMB} MB`)),
           x.installed ? h('div.row', {}, btn('', () => { app.voice.ttsReady = true; save({ piperVoice: x.id }).then(() => app.voice.speak('Good evening. All systems are operating normally.')); }, { cls: 'sm ghost icon', ico: 'play', title: 'Preview' }), x.id !== v().piperVoice ? btn('Use', async () => { await save({ piperVoice: x.id }); drawComps(); }, { cls: 'sm' }) : null) : inst('voice', x.id, 'Download')))),
       ...running.map((i) => h('div', { style: { marginTop: '8px' } }, h('small.mist', {}, i.label), progress(i.total ? i.received / i.total : null))),
       h('p.small.mist', { style: { marginTop: '8px' } }, 'If you use Foundry Local, it can also run Whisper models (whisper-tiny/base/small); choose “Foundry Local” as the recognition engine below after loading one there.')));

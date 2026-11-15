@@ -21,13 +21,15 @@ function defaultFolders(home) {
 function defaults() {
   const home = os.homedir();
   return {
-    app: { setupComplete: false, setupStep: 0, firstRunAt: null, version: require('../../package.json').version },
+    app: { setupComplete: false, setupStep: 0, firstRunAt: null, lastWorkingModel: null, version: require('../../package.json').version },
     backend: {
       active: 'ollama', // 'foundry' | 'ollama' | 'openai'
       foundry: { url: '', cliPath: 'foundry' },
-      ollama: { url: 'http://127.0.0.1:11434' },
+      ollama: { url: 'http://127.0.0.1:11434', path: '' },
       openai: { url: 'http://127.0.0.1:8080/v1', label: 'OpenAI-compatible local server', apiKeySecret: '' },
       autoRecover: true,
+      // Start the engine automatically when VIPER opens; stop it on exit only if VIPER started it.
+      autoStart: true, stopOwnedOnExit: true,
       requestTimeoutSec: 300,
     },
     // Model per role. backend '' = use the active backend.
@@ -51,7 +53,7 @@ function defaults() {
       wakeEnabled: false, wakeWords: ['viper', 'hey viper'], continuous: false, pushToTalk: true,
       inputDevice: '', outputDevice: '', sensitivity: 0.5, silenceMs: 900, noiseSuppression: true,
       echoCancellation: true, ttsEngine: 'piper', piperVoice: 'en_GB-alan-medium', systemVoice: '',
-      rate: 1.0, speakReplies: true, sttModel: 'base.en', micMuted: false, language: 'en',
+      rate: 1.0, speakReplies: true, sttModel: 'base.en', micMuted: false, language: 'en', startupGreeting: false,
     },
     privacy: {
       webAccess: false, // live internet research/fetching (explicit opt-in)
