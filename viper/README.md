@@ -27,6 +27,9 @@ Full instructions: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## What works
 
+- **Automatic AI start-up**: VIPER starts the local AI engine, loads and checks your model, and
+  reconnects by itself. Nothing needs starting by hand. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
 - **Local AI engines**: Foundry Local (REST API, model catalogue, download/load/unload, endpoint
   discovery via `foundry service status`), Ollama (native API incl. vision and embeddings) and any
   OpenAI-compatible local server. Per-task model roles, live model switching, tokens/s and

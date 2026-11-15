@@ -41,6 +41,42 @@ commands, email and SMS ask. Regardless of the mode:
 
 Every action is recorded in the activity log (*Settings → Activity log*).
 
+## Automatic AI start-up
+
+You never need to open Ollama, Foundry Local or a terminal. Every time VIPER opens, it runs
+these steps, and the Home screen shows each one as it happens:
+
+| Stage | What VIPER actually does |
+|---|---|
+| INITIALISING VIPER | Detects the processor, memory and graphics |
+| CHECKING LOCAL AI ENGINE | Asks the configured engine (Ollama, Foundry Local or your own server) whether it is running |
+| STARTING AI BACKEND | If it is not running, finds it (`%LOCALAPPDATA%\Programs\Ollama`, `Program Files`, `PATH` or the location in Settings) and starts it. VIPER waits up to 45 s for it to answer |
+| LOADING AI MODEL | Picks the model: your choice, else the last model that worked, else the best installed model that fits this PC's memory. Then loads and warms it |
+| VERIFYING CONNECTION | Asks the model for a one-word reply. Only a real generated answer counts |
+| VIPER ONLINE — READY | Shown only after that check passes. With *Startup Voice Greeting* on, VIPER says "VIPER systems online. Local intelligence operational." |
+
+**Ownership.** If VIPER started the engine, it stops it when VIPER quits. If you or another
+app started the engine, VIPER never stops it. VIPER never starts a second copy. An engine
+left over from a crashed session that no longer answers is cleaned up before starting.
+
+**Recovery.** VIPER tries each start-up three times. If the engine crashes, or a model stops
+producing output, VIPER reconnects automatically, up to three times in 10 minutes. After
+that it shows the error and a **Retry connection** button instead of looping. Messages you
+type while VIPER is starting are answered as soon as the model is ready.
+
+**When something is missing,** VIPER shows a setup prompt instead of an error:
+
+- *Install Ollama*: downloads the official installer and installs it for your user account.
+  No admin rights are needed.
+- *Download the recommended model*: for example `qwen2.5:3b` on a Core i7 / 16 GB laptop
+  with integrated graphics.
+
+Start-up continues by itself when either finishes.
+
+These options are under *Settings → Performance → AI start-up*: automatic start, automatic
+reconnection, stopping the engine on exit, and the Ollama location. The *Startup Voice
+Greeting* toggle is in *Settings → General*.
+
 ## Performance
 
 *Settings → Performance* has three profiles. **Automatic** picks one from the hardware VIPER
