@@ -13,6 +13,7 @@ const OLLAMA_RECOMMENDED = [
   { id: 'llama3.1:8b', family: 'Llama 3.1', params: '8B', sizeGB: 4.9, minRamGB: 16, roles: ['chat'], caps: ['chat', 'tools'], tier: 'standard', note: 'Well-rounded conversationalist.' },
   { id: 'qwen3:8b', family: 'Qwen 3', params: '8B', sizeGB: 5.2, minRamGB: 16, roles: ['chat'], caps: ['chat', 'tools'], tier: 'standard', note: 'Best general quality in the 8B class.' },
   { id: 'qwen2.5-coder:1.5b', family: 'Qwen 2.5 Coder', params: '1.5B', sizeGB: 1.0, minRamGB: 6, roles: ['code'], caps: ['chat', 'code', 'tools'], tier: 'light', note: 'Light coding assistant.' },
+  { id: 'qwen2.5-coder:3b', family: 'Qwen 2.5 Coder', params: '3B', sizeGB: 1.9, minRamGB: 8, roles: ['code'], caps: ['chat', 'code', 'tools'], tier: 'light', note: 'Recommended Code Agent model for laptops without a graphics card (32K context).', rank: 2, ctx: 32768, coding: 'Good: Python, JavaScript, C#, HTML/CSS; reliable for small apps and fixes' },
   { id: 'qwen2.5-coder:7b', family: 'Qwen 2.5 Coder', params: '7B', sizeGB: 4.7, minRamGB: 16, roles: ['code'], caps: ['chat', 'code', 'tools'], tier: 'standard', note: 'Strong local coding model.' },
   { id: 'moondream', family: 'Moondream 2', params: '1.8B', sizeGB: 1.7, minRamGB: 6, roles: ['vision'], caps: ['chat', 'vision'], tier: 'light', note: 'Light vision model: captions and simple questions.' },
   { id: 'qwen2.5vl:3b', family: 'Qwen 2.5 VL', params: '3B', sizeGB: 3.2, minRamGB: 10, roles: ['vision'], caps: ['chat', 'vision'], tier: 'standard', note: 'Reads text in screenshots well.', rank: 2 },

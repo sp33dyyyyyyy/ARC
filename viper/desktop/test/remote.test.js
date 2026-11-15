@@ -48,6 +48,17 @@ test('VIPER Mobile link: pairing, pinning, scopes, streaming, revocation, transf
     assert.equal(r.status, 200); assert.equal(r.body.app, 'viper');
     await assert.rejects(req('GET', `${base}/api/v1/hello`, { fp: 'AA:BB' }), /PIN MISMATCH/);
   });
+  // The person at the PC confirms each new device (here: decline the first attempt, accept the second).
+  const pairAnswers = [];
+  svc.bus.on('confirm.request', (r) => { if (r.tool === 'pair_device') setImmediate(() => svc.permissions.respond(r.id, pairAnswers.length ? pairAnswers.shift() : true)); });
+  await t.test('pairing must be confirmed on the PC; a declined pairing is rejected and recorded', async () => {
+    pairAnswers.push(false);
+    const declined = await req('POST', `${base}/api/v1/pair`, { fp: payload.fp, body: { token: svc.remote.pairing.token, deviceName: 'Stranger Phone', platform: 'android' } });
+    assert.equal(declined.status, 403); assert.match(declined.body.error, /declined on the PC/);
+    assert.equal(svc.db.get('SELECT COUNT(*) AS n FROM devices').n, 0);
+    assert.ok(svc.remote.events().some((e) => e.event === 'rejected' && /declined/.test(e.detail)));
+    Object.assign(pr, await svc.remote.createPairing()); // a declined code is used up: show a new one
+  });
   await t.test('wrong token is rejected; correct token pairs exactly once', async () => {
     assert.equal((await req('POST', `${base}/api/v1/pair`, { fp: payload.fp, body: { token: 'wrong', deviceName: 'Test Phone' } })).status, 401);
     const ok = await req('POST', `${base}/api/v1/pair`, { fp: payload.fp, body: { token: svc.remote.pairing.token, deviceName: 'Test Phone', platform: 'android' } });
@@ -109,5 +120,11 @@ test('VIPER Mobile link: pairing, pinning, scopes, streaming, revocation, transf
     const again = new WebSocket(`wss://127.0.0.1:${payload.port}/api/v1/ws`, { headers: { Authorization: auth() }, rejectUnauthorized: false });
     const status = await new Promise((resolve) => { again.on('unexpected-response', (_q, res) => resolve(res.statusCode)); again.on('open', () => resolve('opened')); again.on('error', (e) => resolve(e.message)); });
     assert.equal(status, 401);
+  });
+  await t.test('pairing history records paired, connected, disconnected and revoked', async () => {
+    const ev = svc.remote.events(creds.deviceId).map((e) => e.event);
+    for (const e of ['paired', 'connected', 'revoked']) assert.ok(ev.includes(e), `history has ${e}: ${ev.join(',')}`);
+    const dev = svc.remote.devices().find((d) => d.id === creds.deviceId);
+    assert.ok(dev.lastConnected, 'last successful connection recorded'); assert.equal(dev.revoked, 1);
   });
 });

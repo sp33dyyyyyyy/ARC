@@ -5,12 +5,18 @@ import { h, $, clear, icon, toast, toastError, modal, bytes, ago } from './ui.js
 import { Voice } from './voice.js';
 import { CORE_LABELS } from './core.js';
 
-const NAV = [
-  ['home', 'Home'], ['chat', 'Chat'], ['voice', 'Voice'], ['image', 'Image Studio'], ['code', 'Code Studio'], ['vision', 'Vision'],
-  ['research', 'Research'], ['automation', 'Automation'], ['control', 'Computer Control'], ['files', 'File Intelligence'],
-  ['memory', 'Memory'], ['comms', 'Communications'], ['system', 'System Monitor'], ['plugins', 'Plugins'], ['models', 'Models'], ['settings', 'Settings'],
+// Navigation: five categories with collapsible sections. Every page from earlier versions is
+// still here; "code" (old Code Studio) opens the new Code Agent workspace.
+export const CATEGORIES = [
+  { id: 'prompt', label: 'Prompt', icon: 'chat', items: [['home', 'VIPER', 'home'], ['chat', 'Chat', 'chat'], ['voice', 'Voice Assistant', 'voice'], ['vision', 'Live Vision', 'vision'], ['research', 'Research', 'research'], ['conversations', 'AI Conversations', 'chat'], ['memsearch', 'Memory Search', 'memory']] },
+  { id: 'make', label: 'Make', icon: 'sparkle', items: [['agent', 'AI Coding Agent', 'code'], ['image', 'Image Studio', 'image'], ['video', 'Video Studio', 'film'], ['audio', 'Audio Studio', 'wave'], ['documents', 'Document Studio', 'doc'], ['studio3d', '3D Studio', 'cube'], ['builder', 'Project Builder', 'grid']] },
+  { id: 'manage', label: 'Manage', icon: 'control', items: [['control', 'PC Control', 'control'], ['taskmanager', 'Task Manager', 'list'], ['automation', 'Automations', 'automation'], ['files', 'File Manager', 'files'], ['system', 'System Monitor', 'system'], ['devices', 'Connected Devices', 'phone'], ['notifications', 'Notifications', 'bell'], ['tasks', 'Background Tasks', 'refresh'], ['scheduled', 'Scheduled Tasks', 'clock'], ['comms', 'Communications', 'comms']] },
+  { id: 'intel', label: 'Intelligence', icon: 'models', items: [['models', 'Model Manager', 'models'], ['memory', 'Memory', 'memory'], ['benchmark', 'Model Benchmarking', 'gauge'], ['knowledge', 'Knowledge Base', 'research'], ['aiconfig', 'AI Configuration', 'sparkle'], ['permissions', 'Agent Permissions', 'shield'], ['plugins', 'Plugins', 'plugins']] },
+  { id: 'settings', label: 'Settings', icon: 'settings', items: [['settings:appearance', 'Appearance', 'eye'], ['settings:voice', 'Voice', 'voice'], ['settings:backend', 'AI Backend', 'models'], ['settings:performance', 'Performance', 'gauge'], ['settings:privacy', 'Privacy', 'shield'], ['settings:security', 'Security', 'shield'], ['settings:mobile', 'Mobile Connection', 'phone'], ['settings:notifications', 'Notifications', 'bell'], ['settings:startup', 'Startup', 'clock'], ['settings:updates', 'Updates', 'refresh']] },
 ];
-const SEP_AFTER = new Set(['vision', 'files', 'system']);
+const NAV = [...new Map(CATEGORIES.flatMap((c) => c.items).map(([m, l]) => [m.split(':')[0], [m.split(':')[0], l]])).values()];
+const ALIASES = { code: 'agent' };
+const labelFor = (mode, params) => { const key = params?.tab ? `${mode}:${params.tab}` : mode; for (const c of CATEGORIES) for (const [m, l] of c.items) if (m === key || m === mode) return { label: l, category: c.label }; return { label: mode, category: '' }; };
 
 export const app = {
   api, settings: null, status: null, sample: null, health: {}, tasks: [], aiTasks: new Map(), notifications: [],
@@ -58,16 +64,19 @@ export const app = {
   voiceRequests: new Set(),
 
   go(mode, params) {
+    if (ALIASES[mode]) mode = ALIASES[mode];
+    if (mode.includes(':') && !mode.startsWith('plugin:')) { const [m, tab] = mode.split(':'); mode = m; params = { ...(params || {}), tab }; }
     if (!NAV.some(([m]) => m === mode) && !mode.startsWith('plugin:')) mode = 'home';
-    if (location.hash !== `#/${mode}`) { history.pushState(null, '', `#/${mode}`); }
+    const hash = `#/${mode}${params?.tab ? `:${params.tab}` : ''}`;
+    if (location.hash !== hash) { history.pushState(null, '', hash); }
     this.render(mode, params);
   },
   async render(mode, params) {
     if (this.cleanup) { try { this.cleanup(); } catch { /* ignore */ } this.cleanup = null; }
-    this.mode = mode;
-    for (const el of document.querySelectorAll('.nav-item')) el.classList.toggle('active', el.dataset.mode === mode);
-    const label = NAV.find(([m]) => m === mode)?.[1] || mode;
-    $('#crumbs').textContent = label === 'Home' ? '' : label;
+    this.mode = mode; this.params = params || null;
+    markActive();
+    const { label, category } = labelFor(mode, params);
+    $('#crumbs').textContent = mode === 'home' ? '' : `${category ? `${category} › ` : ''}${label}`;
     const view = $('#view');
     clear(view); view.className = 'view';
     // restart entrance animation
@@ -84,16 +93,37 @@ export const app = {
 window.viperApp = app;
 
 // ---------------- shell ----------------
+function navState() { try { return JSON.parse(localStorage.getItem('viper.nav') || '{}'); } catch { return {}; } }
+function saveNavState(st) { try { localStorage.setItem('viper.nav', JSON.stringify(st)); } catch { /* storage unavailable */ } }
+function markActive() {
+  const key = app.params?.tab ? `${app.mode}:${app.params.tab}` : app.mode;
+  let activeCat = null;
+  for (const el of document.querySelectorAll('.nav-item[data-mode]')) {
+    const on = el.dataset.mode === key || (el.dataset.mode === app.mode && !document.querySelector(`.nav-item[data-mode="${key}"]`));
+    el.classList.toggle('active', on);
+    if (on) activeCat = el.closest('.nav-cat')?.dataset.cat || activeCat;
+  }
+  for (const c of document.querySelectorAll('.nav-cat')) c.classList.toggle('has-active', c.dataset.cat === activeCat);
+  // Open the category of the active page (and remember it as the last used one).
+  if (activeCat) { const st = navState(); if (!st.open?.includes(activeCat)) { st.open = [...new Set([...(st.open || []), activeCat])]; } st.last = activeCat; saveNavState(st); document.querySelector(`.nav-cat[data-cat="${activeCat}"]`)?.classList.add('open'); }
+}
 function buildNav() {
   const nav = $('#nav'); clear(nav);
-  for (const [mode, label] of NAV) {
-    nav.append(h('button.nav-item', { 'data-mode': mode, onclick: () => app.go(mode), title: label }, icon(mode), h('span.lbl', {}, label)));
-    if (SEP_AFTER.has(mode)) nav.append(h('div.nav-sep'));
+  const st = navState(); const open = new Set(st.open || ['prompt', 'make', 'manage']);
+  for (const cat of CATEGORIES) {
+    const items = h('div.nav-items', { role: 'group', 'aria-label': cat.label });
+    for (const [mode, label, ico] of cat.items) items.append(h('button.nav-item', { 'data-mode': mode, onclick: () => app.go(mode), title: label }, icon(ico || mode), h('span.lbl', {}, label)));
+    if (cat.id === 'intel') for (const p of app.pluginPages) items.append(h('button.nav-item', { 'data-mode': `plugin:${p.id}`, onclick: () => app.go(`plugin:${p.id}`), title: p.title }, icon('plugins'), h('span.lbl', {}, p.title)));
+    const head = h('button.nav-head', { type: 'button', 'aria-expanded': String(open.has(cat.id)), title: cat.label, onclick: () => {
+      const el = head.parentElement; const isOpen = el.classList.toggle('open'); head.setAttribute('aria-expanded', String(isOpen));
+      const s2 = navState(); s2.open = [...document.querySelectorAll('.nav-cat.open')].map((x) => x.dataset.cat); saveNavState(s2);
+    } }, icon(cat.icon), h('span.lbl', {}, cat.label), h('span.chev', { 'aria-hidden': 'true' }));
+    nav.append(h(`div.nav-cat${open.has(cat.id) ? '.open' : ''}`, { 'data-cat': cat.id }, head, items));
   }
-  for (const p of app.pluginPages) nav.append(h('button.nav-item', { 'data-mode': `plugin:${p.id}`, onclick: () => app.go(`plugin:${p.id}`), title: p.title }, icon('plugins'), h('span.lbl', {}, p.title)));
   nav.append(h('div.collapse', {},
-    h('button.nav-item', { onclick: () => togglePanel('leftPanel'), title: 'Collapse sidebar' }, icon('panelL'), h('span.lbl', {}, 'Collapse')),
+    h('button.nav-item', { onclick: () => togglePanel('leftPanel'), title: 'Compact sidebar' }, icon('panelL'), h('span.lbl', {}, 'Compact sidebar')),
     h('button.nav-item', { onclick: () => togglePanel('rightPanel'), title: 'Toggle status panel' }, icon('panelR'), h('span.lbl', {}, 'Status panel'))));
+  markActive();
 }
 async function togglePanel(key) {
   // On narrow windows the status panel is shown as an overlay rather than squeezing the page.
@@ -281,7 +311,7 @@ function wireEvents() {
   v.addEventListener('error', (e) => { if (!/aborted|Permission/i.test(e.detail?.message)) toast('Voice', e.detail?.message || String(e.detail), 'warn'); });
 
   document.addEventListener('visibilitychange', () => api.post('/system/visibility', { visible: !document.hidden }).catch(() => {}));
-  window.addEventListener('popstate', () => app.render((location.hash.replace('#/', '') || 'home')));
+  window.addEventListener('popstate', () => { const [m, tab] = (location.hash.replace('#/', '') || 'home').split(':'); app.render(m, tab ? { tab } : null); });
   // push-to-talk hotkey (desktop): hold Ctrl+Space inside the app
   document.addEventListener('keydown', (e) => { if (e.code === 'Space' && e.ctrlKey && !e.repeat && !app.pttDown) { app.pttDown = true; app.voice.pttStart().catch(toastError); e.preventDefault(); } });
   document.addEventListener('keyup', (e) => { if (e.code === 'Space' && app.pttDown) { app.pttDown = false; app.voice.pttStop(); } });
@@ -300,7 +330,6 @@ async function configureVoice() {
 async function loadPluginPages() {
   try { app.pluginPages = (await api.get('/plugins/pages')).pages || []; } catch { app.pluginPages = []; }
   buildNav();
-  for (const el of document.querySelectorAll('.nav-item')) el.classList.toggle('active', el.dataset.mode === app.mode);
 }
 
 // ---------------- boot ----------------
@@ -322,7 +351,7 @@ async function boot() {
     const { runSetup } = await import('./pages/setup.js');
     await runSetup(app);
   }
-  app.render(location.hash.replace('#/', '') || 'home');
+  { const [m, tab] = (location.hash.replace('#/', '') || 'home').split(':'); app.go(m, tab ? { tab } : null); }
   app.updateCore();
   // Fetch and compile every page module while the app is idle so switching pages is instant.
   const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1500));

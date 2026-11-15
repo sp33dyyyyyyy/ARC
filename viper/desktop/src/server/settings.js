@@ -36,6 +36,8 @@ function defaults() {
     models: {
       chat: { backend: '', model: '' },
       code: { backend: '', model: '' },
+      // Code Agent roles (empty = use the code model; they can share one model to save RAM)
+      planning: { backend: '', model: '' }, debug: { backend: '', model: '' }, code_review: { backend: '', model: '' },
       vision: { backend: 'ollama', model: '' },
       embeddings: { backend: 'ollama', model: '' },
       image: { backend: 'a1111', model: '' },
@@ -89,7 +91,9 @@ function defaults() {
       quietHours: { enabled: false, start: '22:00', end: '07:00', allowUrgent: true },
       emergencyMute: false, rateLimitPerHour: 30, retryAttempts: 3,
       defaultChannels: ['desktop', 'mobile'],
-      categories: { system: true, reminder: true, automation: true, research: true, communication: true, general: true },
+      categories: { system: true, reminder: true, automation: true, research: true, communication: true, general: true, input: true, approval: true, code: true },
+      // Push to the phone while VIPER Mobile is closed (Firebase Cloud Messaging, your own Firebase project).
+      fcm: { enabled: false, projectId: '', apiKey: '', appId: '', senderId: '' },
       ntfy: { enabled: false, server: 'https://ntfy.sh', topic: '' },
       sms: { provider: 'none', twilio: { accountSid: '', from: '' } },
       emailAccountId: '', selfRecipientId: '',
@@ -97,6 +101,8 @@ function defaults() {
     remote: { enabled: false, port: 47801, localPort: 47800 },
     image: { backend: 'a1111', a1111Url: 'http://127.0.0.1:7860', defaultSteps: 25, defaultCfg: 7 },
     research: { maxSources: 5, searchEngine: 'duckduckgo' },
+    // Code Agent: where new projects go, how many run at once, and what needs approval.
+    agent: { projectsRoot: '', maxConcurrentRuns: 1, allowInstall: false, gitCheckpoints: true },
     updates: { checkOnStartup: true },
   };
 }

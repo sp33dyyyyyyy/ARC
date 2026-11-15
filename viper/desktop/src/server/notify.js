@@ -5,6 +5,24 @@
 const { uid, now, sleep, fetchWithTimeout } = require('./util');
 
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+
+/**
+ * Notification kinds: short, natural, JARVIS-style wording. "{, address}" becomes ", sir" (or the
+ * form of address set in Settings → Personality; nothing if it is blank). Actions are offered on
+ * the phone; none of them approves anything — approvals always open a review screen first.
+ */
+const KINDS = {
+  task_complete:     { title: 'VIPER', text: 'Task complete{, address}.', category: 'general', priority: 'normal', actions: [['view', 'View Results'], ['open', 'Open VIPER']] },
+  input_required:    { title: 'VIPER — Input Required', text: 'I need your input{, address}.', category: 'input', priority: 'high', actions: [['respond', 'Respond'], ['view', 'View Task']] },
+  approval_required: { title: 'VIPER — Approval Required', text: 'May I proceed{, address}?', category: 'approval', priority: 'high', actions: [['review', 'Review Request'], ['dismiss', 'Dismiss']] },
+  error:             { title: 'VIPER — Attention Required', text: "I've encountered an issue{, address}.", category: 'system', priority: 'high', actions: [['view', 'View Details']] },
+  project_complete:  { title: 'VIPER — Project Complete', text: 'Your project is ready for review{, address}.', category: 'code', priority: 'normal', actions: [['view', 'View Project'], ['open', 'Open VIPER']] },
+  code_complete:     { title: 'VIPER — Code Agent', text: 'Your application has been built{, address}.', category: 'code', priority: 'normal', actions: [['view', 'View Results'], ['open', 'Open VIPER']] },
+  download_complete: { title: 'VIPER — Download Complete', text: 'Your download is ready{, address}.', category: 'general', priority: 'low', actions: [['view', 'View']] },
+  system_alert:      { title: 'VIPER — System Alert', text: 'Your system requires attention{, address}.', category: 'system', priority: 'high', actions: [['view', 'View Details']] },
+};
+const phrase = (text, address) => text.replace('{, address}', address ? `, ${address}` : '');
+const DEDUPE_MS = 10 * 60000;
 const EXTERNAL = new Set(['email', 'sms', 'ntfy']);
 
 function inQuietHours(q, d = new Date()) {
@@ -31,8 +49,12 @@ class Notifier {
       send: async (n) => {
         const remote = this.remote;
         if (!remote) return { ok: false, error: 'Remote service not running' };
+        // 1) Phones connected right now (app open, or "Stay connected" on): over the encrypted link.
         const delivered = remote.pushToDevices({ type: 'notification', data: n });
-        return delivered > 0 ? { ok: true, detail: `${delivered} device(s)` } : { ok: false, queued: true, error: 'No phone connected; it will receive this when it reconnects.' };
+        // 2) Paired phones that are not connected: through Firebase Cloud Messaging, if set up.
+        const pushed = await remote.pushViaFcm?.(n).catch((e) => ({ sent: 0, error: e.message })) || { sent: 0 };
+        if (delivered > 0 || pushed.sent > 0) return { ok: true, detail: [delivered && `${delivered} connected`, pushed.sent && `${pushed.sent} via push`].filter(Boolean).join(', ') };
+        return { ok: false, queued: true, error: pushed.error || 'No phone connected; it will receive this when it reconnects (or enable push in Settings → Notifications).' };
       },
     });
     this.registerChannel('ntfy', {
@@ -74,11 +96,30 @@ class Notifier {
   /**
    * @param {{title, body, category, priority, channels?, speak?}} n
    */
+  /** Compose title/body for a kind, in VIPER's voice. */
+  compose(kind, detail) {
+    const k = KINDS[kind]; if (!k) return null;
+    const address = (this.settings.get('personality').address || '').trim();
+    const text = phrase(k.text, address);
+    return { title: k.title, body: detail ? `${text} ${detail}` : text, phrase: text, category: k.category, priority: k.priority, actions: k.actions };
+  }
+
   async send(n) {
     const cfg = this.settings.get('notifications');
-    const priority = PRIORITIES.includes(n.priority) ? n.priority : 'normal';
-    const category = n.category || 'general';
-    const rec = { id: uid('ntf_'), title: String(n.title || 'VIPER').slice(0, 200), body: String(n.body || '').slice(0, 4000), category, priority, created_at: now() };
+    const k = n.kind ? this.compose(n.kind, n.detail) : null;
+    const priority = PRIORITIES.includes(n.priority) ? n.priority : (k?.priority || 'normal');
+    const category = n.category || k?.category || 'general';
+    const link = n.link || null;
+    const dedupeKey = n.dedupeKey || (n.kind && link ? `${n.kind}:${link.type}:${link.id}` : null);
+    // Duplicate prevention: the same unread event within 10 minutes is not sent again.
+    if (dedupeKey) {
+      const dup = this.db.get('SELECT id FROM notifications WHERE dedupe_key = ? AND read = 0 AND created_at > ?', dedupeKey, now() - DEDUPE_MS);
+      if (dup) return { id: dup.id, duplicate: true, channels: [], results: {}, suppressed: ['duplicate'] };
+    }
+    const rec = {
+      id: uid('ntf_'), title: String(n.title || k?.title || 'VIPER').slice(0, 200), body: String(n.body || k?.body || '').slice(0, 4000), category, priority, created_at: now(),
+      kind: n.kind || null, phrase: k?.phrase || null, link, actions: n.actions || k?.actions || null,
+    };
     let channels = (n.channels && n.channels.length ? n.channels : cfg.defaultChannels).filter((c) => this.channels.has(c));
     const quiet = inQuietHours(cfg.quietHours) && !(priority === 'urgent' && cfg.quietHours.allowUrgent);
     const suppressed = [];
@@ -86,8 +127,9 @@ class Notifier {
     if (cfg.emergencyMute) { suppressed.push('emergency mute'); channels = []; }
     if (quiet) { suppressed.push('quiet hours'); channels = channels.filter((c) => c === 'mobile'); }
     if (channels.some((c) => EXTERNAL.has(c)) && this.rateLimited()) { suppressed.push('rate limit'); channels = channels.filter((c) => !EXTERNAL.has(c)); }
-    this.db.run('INSERT INTO notifications (id, title, body, category, priority, channels, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      rec.id, rec.title, rec.body, rec.category, rec.priority, JSON.stringify(channels), suppressed.length && !channels.length ? 'suppressed' : 'sending', rec.created_at);
+    this.db.run('INSERT INTO notifications (id, title, body, category, priority, channels, status, created_at, kind, link, actions, dedupe_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      rec.id, rec.title, rec.body, rec.category, rec.priority, JSON.stringify(channels), suppressed.length && !channels.length ? 'suppressed' : 'sending', rec.created_at,
+      rec.kind, link ? JSON.stringify(link) : null, rec.actions ? JSON.stringify(rec.actions) : null, dedupeKey);
     // In-app feed always gets it (the UI shows it in the notification centre).
     this.bus.publish('notification', { ...rec, channels, suppressed, speak: !!n.speak && !quiet && !cfg.emergencyMute });
     const results = {};
@@ -126,12 +168,14 @@ class Notifier {
     const rows = this.db.all(`SELECT * FROM notifications ${unreadOnly ? 'WHERE read = 0' : ''} ORDER BY created_at DESC LIMIT ?`, limit);
     const ids = rows.map((r) => r.id);
     const del = ids.length ? this.db.all(`SELECT * FROM deliveries WHERE notification_id IN (${ids.map(() => '?').join(',')})`, ...ids) : [];
-    return rows.map((r) => ({ ...r, channels: JSON.parse(r.channels || '[]'), deliveries: del.filter((d) => d.notification_id === r.id) }));
+    return rows.map((r) => ({ ...this.row(r), deliveries: del.filter((d) => d.notification_id === r.id) }));
   }
-  since(ts) { return this.db.all('SELECT * FROM notifications WHERE created_at > ? ORDER BY created_at ASC LIMIT 200', ts); }
+  row(r) { return { ...r, channels: JSON.parse(r.channels || '[]'), link: r.link ? JSON.parse(r.link) : null, actions: r.actions ? JSON.parse(r.actions) : null, read: !!r.read }; }
+  get(id) { const r = this.db.get('SELECT * FROM notifications WHERE id = ?', id); return r ? this.row(r) : null; }
+  since(ts) { return this.db.all('SELECT * FROM notifications WHERE created_at > ? ORDER BY created_at ASC LIMIT 200', ts).map((r) => this.row(r)); }
   markRead(id) { if (id === 'all') this.db.run('UPDATE notifications SET read = 1'); else this.db.run('UPDATE notifications SET read = 1 WHERE id = ?', id); this.bus.publish('notifications.read', { id }); }
   clear() { this.db.run('DELETE FROM deliveries'); this.db.run('DELETE FROM notifications'); }
   channelList() { return [...this.channels.entries()].map(([id, c]) => ({ id, label: c.label })); }
 }
 
-module.exports = { Notifier, inQuietHours, PRIORITIES };
+module.exports = { Notifier, inQuietHours, PRIORITIES, KINDS };

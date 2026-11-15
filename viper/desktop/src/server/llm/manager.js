@@ -105,6 +105,29 @@ class ModelManager {
     return { backend, model };
   }
 
+  /**
+   * Model for a Code Agent role. planning / debug / code_review use their own model if one is set,
+   * otherwise the code model; the code model falls back to an installed coding model (e.g.
+   * qwen2.5-coder), then to the chat model. One shared model is normal on 16 GB machines.
+   */
+  async resolveAgent(role) {
+    const roles = this.settings.get('models');
+    const pick = (r) => (r?.model ? { backend: r.backend && this.backends[r.backend] ? r.backend : this.settings.get('backend').active, model: r.model } : null);
+    const explicit = pick(roles[role]) || pick(roles.code);
+    if (explicit) return explicit;
+    const active = this.settings.get('backend').active;
+    const inst = (await this.listInstalled()).filter((m) => m.backend === active && m.capabilities?.includes('chat'));
+    const coder = inst.filter((m) => m.capabilities.includes('code') || /coder|code/i.test(m.id)).sort((a, b) => (a.sizeBytes || 0) - (b.sizeBytes || 0));
+    if (coder.length) {
+      // the largest coding model that fits comfortably in RAM
+      const ram = require('node:os').totalmem();
+      const fit = coder.filter((m) => !m.sizeBytes || m.sizeBytes < ram * 0.35);
+      const m = (fit.length ? fit : coder)[(fit.length ? fit : coder).length - 1];
+      return { backend: active, model: m.id };
+    }
+    return this.resolve('chat');
+  }
+
   async modelInfo(backend, model) {
     const inst = await this.listInstalled();
     return inst.find((m) => m.backend === backend && m.id === model) || null;
@@ -281,7 +304,7 @@ class ModelManager {
     const controller = new AbortController();
     const d = { id, backend: backendId, model, status: 'downloading', completed: 0, total: 0, detail: 'starting', startedAt: Date.now() };
     this.downloads.set(id, { ...d, controller });
-    const publish = () => { const x = this.downloads.get(id); this.bus.publish('models.download', { id, backend: backendId, model, status: x.status, completed: x.completed, total: x.total, detail: x.detail, error: x.error }); };
+    const publish = () => { const x = this.downloads.get(id); this.bus.publish('models.download', { id, backend: backendId, model, status: x.status, completed: x.completed, total: x.total, detail: x.detail, error: x.error, startedAt: x.startedAt }); };
     let lastPub = 0;
     this.backend(backendId).pull(model, (p) => {
       const x = this.downloads.get(id);

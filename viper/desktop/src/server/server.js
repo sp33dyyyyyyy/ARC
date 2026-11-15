@@ -33,7 +33,7 @@ const { coreRoutes } = require('./api');
 const { headlessBridge } = require('./bridge');
 const { timingSafeEqualStr } = require('./util');
 
-const FEATURE_MODULES = ['./files/index', './research', './image', './code', './voice/index', './comms/index', './remote/index', './plugins/index'];
+const FEATURE_MODULES = ['./files/index', './research', './image', './code', './agent/index', './voice/index', './comms/index', './remote/index', './plugins/index'];
 const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2', '.wav': 'audio/wav', '.webp': 'image/webp' };
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
@@ -96,7 +96,21 @@ async function createViper(opts = {}) {
   }
 
   // System alerts → notifications (proactive).
-  bus.on('system.alert', (a) => { if (settings.get('proactive').enabled || a.severity === 'critical') svc.notify.send({ title: a.title, body: a.message, category: 'system', priority: 'high' }); });
+  bus.on('system.alert', (a) => { if (settings.get('proactive').enabled || a.severity === 'critical') svc.notify.send({ kind: 'system_alert', detail: a.message, link: { type: 'system', id: a.kind || 'alert' }, dedupeKey: `alert:${a.kind || a.title}` }); });
+  // Approval requests that wait unanswered at the PC go to the phone ("I require your
+  // authorisation"). The notification only opens a review screen; it never approves anything.
+  bus.on('confirm.request', (req) => {
+    const toPhone = () => {
+      const p = svc.permissions.pending.get(req.id); if (!p) return;
+      p.req.remoteApprovable = true;
+      bus.publish('confirm.request', { id: req.id, ...p.req, expiresAt: req.expiresAt });
+      svc.notify.send({ kind: 'approval_required', detail: req.title, channels: ['mobile'], link: { type: 'confirm', id: req.id } });
+    };
+    if (String(req.origin || '').startsWith('phone') || req.remoteApprovable || req.tool === 'pair_device') return; // phone already has it / PC-only
+    const t = setTimeout(toPhone, req.agent ? 0 : 20000); t.unref?.();
+  });
+  // Long model downloads finishing: "Your download is ready."
+  bus.on('models.download', (d) => { if (d.status === 'done' && d.startedAt && Date.now() - d.startedAt > 60000) svc.notify.send({ kind: 'download_complete', detail: d.model, link: { type: 'model', id: d.model } }); });
   svc.events.onSettingsChanged = (section) => {
     if (section === 'proactive') svc.briefing.scheduleProactive();
     if (section === 'remote') svc.remote?.applySettings?.();

@@ -57,6 +57,7 @@ const P = {
   min: 'M5 12h14', max: 'M5 5h14v14H5z', camera: 'M3 7h4l2-3h6l2 3h4v13H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', screen: 'M3 4h18v12H3zM8 20h8M12 16v4M7 8h4v4H7z',
   folder: 'M3 6h6l2 2h10v11H3z', file: 'M6 3h8l4 4v14H6zM14 3v4h4', git: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
   terminal: 'M3 4h18v16H3zM7 9l3 3-3 3M12 15h5', shield: 'M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z', key: 'M14 10a4 4 0 1 0-4 4l1 1h2v2h2v2h3v-3l-4-4', external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2', eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', cube: 'M12 3 4 7.5v9L12 21l8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9', film: 'M3 4h18v16H3zM7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4', doc: 'M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h4', wave: 'M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2', list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01', gauge: 'M4 18a8 8 0 1 1 16 0M12 18l4-6',
   sparkle: 'M12 3v6M12 15v6M3 12h6M15 12h6', grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z', link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
 };
 export function icon(name, cls = '') {

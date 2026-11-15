@@ -66,6 +66,7 @@ class OpenAICompatBackend {
       temperature: options.temperature ?? 0.6,
     };
     if (options.maxTokens) body.max_tokens = options.maxTokens;
+    if (options.json) body.response_format = { type: 'json_object' };
     if (tools?.length) body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const r = await fetch(`${base}/chat/completions`, { method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal });
     if (!r.ok) {

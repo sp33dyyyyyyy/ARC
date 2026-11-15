@@ -57,7 +57,7 @@ function coreRoutes(r, svc) {
   r.post(`${P}/models/unload`, async ({ body }) => { await svc.models.backend(body.backend).unload(body.model); });
   r.post(`${P}/models/benchmark`, async ({ body }) => svc.models.benchmark(body.backend, body.model));
   r.post(`${P}/models/role`, async ({ body }) => {
-    const valid = ['chat', 'code', 'vision', 'embeddings', 'image', 'stt', 'tts'];
+    const valid = ['chat', 'code', 'planning', 'debug', 'code_review', 'vision', 'embeddings', 'image', 'stt', 'tts'];
     if (!valid.includes(body.role)) throw new HttpError(400, 'Unknown role');
     return svc.settings.set('models', { [body.role]: { backend: body.backend || '', model: body.model || '' } });
   }, { scope: 'models' });
@@ -121,7 +121,9 @@ function coreRoutes(r, svc) {
   r.post(`${P}/confirm/:id`, async ({ params, body, auth }) => {
     const pending = svc.permissions.listPending().find((p) => p.id === params.id);
     // A phone may only approve prompts that its own request created.
-    if (auth.device && pending && pending.origin !== `phone: ${auth.device.name}`) throw new HttpError(403, 'This prompt must be answered on the desktop');
+    // ...or prompts VIPER escalated to phones (agent approvals, prompts waiting at the PC), if the
+    // device has the "approve" permission. Pairing a new device can only be approved at the PC.
+    if (auth.device && pending && pending.origin !== `phone: ${auth.device.name}` && !(pending.remoteApprovable && pending.tool !== 'pair_device' && auth.scopes.includes('approve'))) throw new HttpError(403, 'This prompt must be answered on the desktop');
     return { ok: svc.permissions.respond(params.id, !!body.approved) };
   }, { scope: 'chat' });
 
@@ -183,7 +185,20 @@ function coreRoutes(r, svc) {
   // Notifications
   r.get(`${P}/notifications`, async ({ query }) => svc.notify.list({ unreadOnly: query.unread === '1' }), { scope: 'read' });
   r.get(`${P}/notifications/channels`, async () => svc.notify.channelList());
-  r.post(`${P}/notifications/test`, async ({ body }) => svc.notify.send({ title: body.title || 'Test notification', body: body.body || 'This is a test from VIPER.', channels: body.channels, priority: body.priority || 'normal', category: 'general' }));
+  r.post(`${P}/notifications/test`, async ({ body }) => svc.notify.send(body.kind ? { kind: body.kind, detail: body.detail, channels: body.channels, link: body.link || { type: 'notifications', id: 'test' }, dedupeKey: `test:${Date.now()}` } : { title: body.title || 'Test notification', body: body.body || 'This is a test from VIPER.', channels: body.channels, priority: body.priority || 'normal', category: 'general' }));
+  r.get(`${P}/notifications/kinds`, async () => Object.keys(require('./notify').KINDS).map((k) => ({ kind: k, ...svc.notify.compose(k) })));
+  r.get(`${P}/notifications/push`, async () => ({ fcm: { ...svc.settings.get('notifications').fcm, serviceAccount: svc.remote?.fcm?.configured() || false }, devices: svc.db.all('SELECT id, name, push_provider, CASE WHEN push_token IS NULL THEN 0 ELSE 1 END AS registered FROM devices WHERE revoked = 0') }));
+  r.post(`${P}/notifications/push`, async ({ body }) => {
+    if (body.serviceAccount !== undefined) {
+      if (body.serviceAccount) { let j; try { j = JSON.parse(body.serviceAccount); } catch { throw new HttpError(400, 'The service account key must be the JSON file downloaded from Firebase.'); } if (!j.client_email || !j.private_key || !j.project_id) throw new HttpError(400, 'That JSON is not a Firebase service account key.'); svc.vault.set('fcm.serviceAccount', JSON.stringify(j)); }
+      else svc.vault.delete?.('fcm.serviceAccount');
+    }
+    const keys = ['enabled', 'projectId', 'apiKey', 'appId', 'senderId'];
+    const patch = Object.fromEntries(keys.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
+    if (Object.keys(patch).length) svc.settings.set('notifications', { fcm: patch });
+    return { ok: true };
+  });
+  r.get(`${P}/notifications/:id`, async ({ params }) => svc.notify.get(params.id) || (() => { throw new HttpError(404, 'Notification not found'); })(), { scope: 'read' });
   r.post(`${P}/notifications/:id/read`, async ({ params }) => svc.notify.markRead(params.id), { scope: 'read' });
   r.post(`${P}/notifications/:id/retry`, async ({ params }) => svc.notify.retry(params.id));
   r.post(`${P}/notifications/clear`, async () => svc.notify.clear());

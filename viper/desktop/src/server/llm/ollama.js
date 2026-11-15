@@ -123,6 +123,7 @@ class OllamaBackend {
       }),
     };
     if (tools?.length) body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    if (options.json) body.format = 'json'; // constrained JSON output (Code Agent plans and decisions)
     const r = await fetch(`${this.base()}/api/chat`, { method: 'POST', body: JSON.stringify(body), signal });
     if (!r.ok) {
       const text = await r.text().catch(() => '');

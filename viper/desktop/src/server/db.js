@@ -100,6 +100,31 @@ const MIGRATIONS = [
 
   CREATE TABLE transcripts (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, speaker TEXT NOT NULL, text TEXT NOT NULL, source TEXT);
   `,
+  // 2: smart notifications, pairing history, Code Agent
+  `
+  ALTER TABLE notifications ADD COLUMN kind TEXT;
+  ALTER TABLE notifications ADD COLUMN link TEXT;
+  ALTER TABLE notifications ADD COLUMN actions TEXT;
+  ALTER TABLE notifications ADD COLUMN dedupe_key TEXT;
+  CREATE INDEX idx_notif_dedupe ON notifications(dedupe_key, created_at);
+  ALTER TABLE devices ADD COLUMN push_provider TEXT;
+  CREATE TABLE device_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT, device_name TEXT, event TEXT NOT NULL, detail TEXT, ip TEXT, ts INTEGER NOT NULL);
+  CREATE INDEX idx_device_events ON device_events(device_id, ts);
+  CREATE TABLE agent_projects (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_id TEXT NOT NULL, path TEXT NOT NULL, config TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE TABLE agent_runs (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, request TEXT NOT NULL, status TEXT NOT NULL, plan TEXT, result TEXT,
+    origin TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, finished_at INTEGER);
+  CREATE INDEX idx_agent_runs ON agent_runs(project_id, created_at);
+  CREATE TABLE agent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, project_id TEXT NOT NULL, ts INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT);
+  CREATE INDEX idx_agent_events ON agent_events(run_id, id);
+  CREATE TABLE agent_decisions (
+    id TEXT PRIMARY KEY, run_id TEXT NOT NULL, project_id TEXT NOT NULL, question TEXT NOT NULL, options TEXT, answer TEXT,
+    status TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER, answered_at INTEGER, answered_by TEXT);
+  `,
 ];
 
 class Database {
