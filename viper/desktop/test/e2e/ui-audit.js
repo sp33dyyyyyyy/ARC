@@ -32,10 +32,19 @@ const collect = (win) => win.evaluate((sel) => {
     const ic = el.querySelector(':scope > svg')?.getBoundingClientRect(); const gap = parseFloat(cs.columnGap) || 0;
     out.push({ iconW: ic && ic.width && lb ? -(ic.width + gap) : 0, lx0: lb && lb.width ? lb.left : null, lx1: lb && lb.width ? lb.right : null, text: text.slice(0, 40), cls: (el.className && typeof el.className === 'string' ? el.className : el.tagName).slice(0, 40), x: r.left, y: r.top, w: r.width, h: r.height, overflow, centeredH, hasText: !!text });
   }
+  // Collapsed controls: switches, inputs and selects squeezed below a usable size.
+  const collapsed = [];
+  for (const el of document.querySelectorAll('.switch, input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea')) {
+    // display:none / hidden ancestors produce no client rects; a 0×0 box that is still rendered is collapsed.
+    const r = el.getBoundingClientRect(); if (!el.getClientRects().length || getComputedStyle(el).visibility === 'hidden' || el.closest('[hidden], .hidden')) continue;
+    if (r.bottom <= 0 || r.top >= vh) continue;
+    const minW = el.matches('.switch') ? 30 : 40;
+    if (r.width < minW || r.height < 14) collapsed.push(`${el.matches('.switch') ? 'switch' : el.tagName.toLowerCase()} ${Math.round(r.width)}×${Math.round(r.height)} px near "${(el.closest('.li, .field, label, .panel')?.innerText || '').trim().split('\n')[0].slice(0, 40)}"`);
+  }
   // Visible placeholder leaks such as "null", "undefined" or "NaN" in rendered text.
   const leaks = []; const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = tw.nextNode(); n; n = tw.nextNode()) { const t = n.textContent; if (/\b(null|undefined|NaN)\b|\[object Object\]/.test(t) && n.parentElement?.getClientRects().length && !n.parentElement.closest('textarea, pre, code, .mono, .md')) leaks.push(t.trim().slice(0, 60)); }
-  return { leaks, controls: out, docOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1, viewOverflowX: (() => { const v = document.querySelector('#view'); return v ? v.scrollWidth > v.clientWidth + 1 : false; })(), vw, vh, dpr: devicePixelRatio };
+  return { collapsed, leaks, controls: out, docOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1, viewOverflowX: (() => { const v = document.querySelector('#view'); return v ? v.scrollWidth > v.clientWidth + 1 : false; })(), vw, vh, dpr: devicePixelRatio };
 }, CONTROLS);
 
 /** Measure ink position of each control from a real capture of the window (main process). */
@@ -72,8 +81,9 @@ async function measure(app, controls, dpr) {
       }
       const peak = Math.max(0, ...rows.map((r) => r[1]));
       if (!peak) continue;
+      // Cap top = first row with ink; baseline = last row of the dense band (excludes descenders).
       const band = rows.filter((r) => r[1] >= peak * 0.2);
-      const top = band[0][0]; const bottom = band[band.length - 1][0];
+      const top = rows.find((r) => r[1] > 0)[0]; const bottom = band[band.length - 1][0];
       const dy = ((top + bottom) / 2 - (y0 + (H - 1) / 2)) / sx;
       const dx = c.lx0 != null ? (((c.lx0 + c.lx1) / 2) - (c.x + c.w / 2)) + (c.iconW || 0) / 2 : ((left + right) / 2 - (x0 + (W - 1) / 2)) / sx;
       res.push({ ...c, dy: Math.round(dy * 10) / 10, dx: Math.round(dx * 10) / 10, inkH: Math.round((bottom - top + 1) / sx) });
@@ -108,6 +118,7 @@ async function auditApp(app, win, { pages, sizes = [[1440, 900], [1100, 720], [9
       const g = await collect(win);
       if (g.docOverflowX) issues.push({ size: `${w}x${h}`, page, kind: 'layout', msg: 'window scrolls horizontally (content wider than the window)' });
       if (g.viewOverflowX) issues.push({ size: `${w}x${h}`, page, kind: 'layout', msg: 'page content wider than its panel (horizontal scrollbar)' });
+      for (const c of g.collapsed) issues.push({ size: `${w}x${h}`, page, kind: 'collapsed', msg: `control squeezed too small: ${c}` });
       for (const l of g.leaks) issues.push({ size: `${w}x${h}`, page, kind: 'text', msg: `placeholder text shown to the user: "${l}"` });
       for (const c of g.controls) if (c.overflow) issues.push({ size: `${w}x${h}`, page, kind: 'overflow', msg: `label overflows its control: "${c.text}"` });
       for (const o of overlaps(g.controls)) issues.push({ size: `${w}x${h}`, page, kind: 'overlap', msg: o });

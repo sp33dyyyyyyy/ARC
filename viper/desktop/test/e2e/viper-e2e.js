@@ -406,6 +406,7 @@ const stopFrameProbe = (win) => win.evaluate(() => {
     check('UI', 'no label overflows its control', !kinds('overflow').length, kinds('overflow').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
     check('UI', 'no overlapping controls', !kinds('overlap').length, kinds('overlap').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
     check('UI', 'every page fits the window at all three sizes (no sideways scrolling)', !kinds('layout').length, kinds('layout').map((i) => `${i.msg} [${i.where.join(', ')}]`).join('; ') || 'ok');
+    check('UI', 'no switches, inputs or menus squeezed too small to use', !kinds('collapsed').length, kinds('collapsed').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
     check('UI', 'no "null"/"undefined" placeholder text shown anywhere', !kinds('text').length, kinds('text').map((i) => `${i.msg} [${i.where[0]}]`).join('; ') || 'ok');
   } catch (e) { record('UI', 'pixel UI audit', 'FAIL', e.message); }
 

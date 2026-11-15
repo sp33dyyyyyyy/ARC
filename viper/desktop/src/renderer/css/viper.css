@@ -99,7 +99,7 @@ p { margin: 0 0 .6em; } small, .small { font-size: 12px; } .mist { color: var(--
 @keyframes blink { 50% { opacity: .2; } }
 .empty { padding: 26px; text-align: center; color: var(--mist); border: 1px dashed var(--line-2); border-radius: var(--r); }
 .empty b { color: var(--ink); font-weight: 400; display: block; margin-bottom: 4px; }
-.list { display: flex; flex-direction: column; } .list > .li { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); min-width: 0; } .list > .li:last-child { border-bottom: 0; }
+.list { display: flex; flex-direction: column; } .li { display: flex; align-items: center; gap: 12px; min-width: 0; } .list > .li { padding: 10px 4px; border-bottom: 1px solid var(--line); } .list > .li:last-child { border-bottom: 0; }
 .li .t { flex: 1; min-width: 0; } .li .t b { font-weight: 400; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .li .t small { color: var(--mist); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; } .tbl th { text-align: left; font-weight: 400; color: var(--mist); padding: 6px 8px; border-bottom: 1px solid var(--line-2); } .tbl td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 
@@ -118,10 +118,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; } .tbl th {
 @keyframes spin { to { transform: rotate(360deg); } }
 .input, select.input, textarea.input { width: 100%; background: rgba(255,255,255,.03); border: 1px solid var(--line-2); padding: 7px 10px; border-radius: var(--r); outline: none; transition: border-color .2s, background .2s; min-height: 32px; }
 .input:focus { border-color: var(--line-hot); background: rgba(255,255,255,.05); }
+/* In a row, a field sits beside other controls: size it to its content instead of taking the whole
+   row (width:100% there squeezed the neighbouring search box down to a few pixels). */
+.row > .input, .row > select.input { width: auto; flex: 0 1 auto; min-width: 120px; }
 select.input option { background: #000; }
 textarea.input { resize: vertical; line-height: 1.5; }
 label.field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--ink-2); } label.field .hint { color: var(--mist); font-size: 12px; }
-.switch { position: relative; width: 36px; height: 20px; flex: none; } .switch input { opacity: 0; position: absolute; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch { position: relative; display: inline-block; vertical-align: middle; flex: none; width: 36px; height: 20px; } .switch input { opacity: 0; position: absolute; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
 .switch i { position: absolute; inset: 0; border: 1px solid var(--line-2); border-radius: 20px; transition: .25s var(--ease); } .switch i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--mist); transition: .25s var(--ease); }
 .switch input:checked + i { background: var(--ink); border-color: var(--ink); } .switch input:checked + i::after { left: 19px; background: var(--void); }
 .switch input:focus-visible + i { outline: 1px solid var(--ink); outline-offset: 2px; }
@@ -129,7 +132,7 @@ input[type=range] { -webkit-appearance: none; appearance: none; background: tran
 input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--line-2); }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -6px; background: var(--ink); border-radius: 50%; box-shadow: 0 0 8px rgba(255,255,255,.7); }
 .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; } .seg button { border: 0; background: none; min-height: 28px; padding: 0 12px; cursor: pointer; color: var(--mist); } .seg button.on { background: var(--ink); color: var(--void); }
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; } .tabs button { background: none; border: 0; min-height: 36px; padding: 0 14px; flex: none; color: var(--mist); cursor: pointer; position: relative; white-space: nowrap; } .tabs button.on { color: var(--ink); } .tabs button.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 1px; background: var(--ink); box-shadow: 0 0 8px #fff; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 16px; } .tabs button { background: none; border: 0; min-height: 36px; padding: 0 14px; flex: none; color: var(--mist); cursor: pointer; position: relative; white-space: nowrap; } .tabs button.on { color: var(--ink); } .tabs button.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 1px; background: var(--ink); box-shadow: 0 0 8px #fff; }
 .progress { height: 2px; background: rgba(255,255,255,.1); overflow: hidden; position: relative; } .progress i { position: absolute; inset: 0 auto 0 0; background: var(--ink); transition: width .3s; } .progress.indet i { width: 30% !important; animation: indet 1.2s var(--ease) infinite; }
 @keyframes indet { from { left: -30%; } to { left: 100%; } }
 
