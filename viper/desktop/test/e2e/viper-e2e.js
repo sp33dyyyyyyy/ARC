@@ -64,11 +64,13 @@ function dirSize(d) { let n = 0; try { for (const e of fs.readdirSync(d, { withF
 function procSnapshot(names) {
   try {
     if (WIN) {
-      const filter = names.map((n) => `Name like '${n}%'`).join(' or ');
-      const ps = `Get-CimInstance Win32_Process -Filter "${filter}" | Select-Object Name,ProcessId,KernelModeTime,UserModeTime,WorkingSetSize | ConvertTo-Json -Compress`;
-      const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim();
-      if (!out) return [];
-      return [].concat(JSON.parse(out)).map((p) => ({ name: p.Name, pid: p.ProcessId, cpuSec: ((+p.KernelModeTime || 0) + (+p.UserModeTime || 0)) / 1e7, rssMB: Math.round((+p.WorkingSetSize || 0) / 1048576) }));
+      // The engine's processes plus their whole child tree (Ollama runs models in a child runner process).
+      const ps = 'Get-CimInstance Win32_Process | Select-Object Name,ProcessId,ParentProcessId,KernelModeTime,UserModeTime,WorkingSetSize | ConvertTo-Json -Compress';
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8', maxBuffer: 32 << 20 }).trim();
+      const all = [].concat(JSON.parse(out || '[]'));
+      const keep = new Set(all.filter((p) => names.some((n) => String(p.Name).toLowerCase().startsWith(n))).map((p) => p.ProcessId));
+      for (let grew = true; grew;) { grew = false; for (const p of all) if (!keep.has(p.ProcessId) && keep.has(p.ParentProcessId)) { keep.add(p.ProcessId); grew = true; } }
+      return all.filter((p) => keep.has(p.ProcessId)).map((p) => ({ name: p.Name, pid: p.ProcessId, cpuSec: ((+p.KernelModeTime || 0) + (+p.UserModeTime || 0)) / 1e7, rssMB: Math.round((+p.WorkingSetSize || 0) / 1048576) }));
     }
     const out = execFileSync('ps', ['-eo', 'pid,comm,time,rss', '--no-headers'], { encoding: 'utf8' });
     return out.split('\n').map((l) => l.trim().split(/\s+/)).filter((c) => c[1] && names.some((n) => c[1].startsWith(n))).map((c) => { const [h, m, s] = c[2].split(':').map(Number); return { name: c[1], pid: +c[0], cpuSec: h * 3600 + m * 60 + s, rssMB: Math.round(+c[3] / 1024) }; });
@@ -237,10 +239,12 @@ const stopFrameProbe = (win) => win.evaluate(() => {
     await ta.press('Enter');
     const metricsDuring = appMetrics(app, 4000);
     let enginePeakMB = 0; const peak = setInterval(() => { enginePeakMB = Math.max(enginePeakMB, procSnapshot(['ollama']).reduce((a, p) => a + p.rssMB, 0)); }, 700);
+    const machine = { cpuPeak: 0, memUsedPeakMB: 0, memTotalMB: 0 };
+    const mach = setInterval(async () => { try { const sn = await apiCall(win, 'GET', '/system/snapshot'); machine.cpuPeak = Math.max(machine.cpuPeak, sn.cpu?.pct || 0); machine.memUsedPeakMB = Math.max(machine.memUsedPeakMB, Math.round((sn.mem?.used || 0) / 1048576)); machine.memTotalMB = Math.round((sn.mem?.total || 0) / 1048576); } catch { /* ignore */ } }, 1000);
     const finished = await until(() => win.evaluate(() => window.__tok.done > 0), 180000, 200);
     const during = await metricsDuring;
     const frames = await stopFrameProbe(win);
-    clearInterval(peak);
+    clearInterval(peak); clearInterval(mach);
     const cpuAfter = procSnapshot(['ollama']);
     const tok = await win.evaluate(() => ({ n: window.__tok.n, ttft: Math.round(window.__tok.first - window.__tok.t0), total: Math.round(window.__tok.done - window.__tok.t0), text: window.__tok.text }));
     await sleep(800);
@@ -250,7 +254,7 @@ const stopFrameProbe = (win) => win.evaluate(() => {
     check('AI', 'a real local model answers a question typed in the UI', finished && tok.text.trim().length > 10 && shown.includes(tok.text.trim().slice(0, 20)), tok.text.trim().slice(0, 200));
     check('AI', 'response streams token-by-token (first token long before the end)', tok.n >= 5 && tok.ttft < tok.total * 0.8, `${tok.n} token events, first after ${tok.ttft} ms, complete after ${tok.total} ms`);
     const engineCpu = cpuAfter.reduce((a, p) => a + p.cpuSec, 0) - cpuBefore.reduce((a, p) => a + p.cpuSec, 0);
-    metrics.chat = { ttftMs: tok.ttft, totalMs: tok.total, tokenEvents: tok.n, tokPerS: lastPerf?.avg_tps, viperDuringInference: during, frames, engineCpuSeconds: Math.round(engineCpu * 10) / 10, engineRamMB: Math.max(enginePeakMB, cpuAfter.reduce((a, p) => a + p.rssMB, 0)), enginePids: cpuAfter.map((p) => `${p.name}:${p.pid}`).join(' ') };
+    metrics.chat = { ttftMs: tok.ttft, totalMs: tok.total, tokenEvents: tok.n, tokPerS: lastPerf?.avg_tps, viperDuringInference: during, frames, engineCpuSeconds: Math.round(engineCpu * 10) / 10, engineRamMB: Math.max(enginePeakMB, cpuAfter.reduce((a, p) => a + p.rssMB, 0)), enginePids: cpuAfter.map((p) => `${p.name}:${p.pid}`).join(' '), machine };
     check('Performance', 'UI stays responsive during inference (no frame gap > 250 ms)', frames.maxFrameGapMs < 250, JSON.stringify(frames));
     // Cancel a running generation
     const long = await apiCall(win, 'POST', '/chat', { text: 'Write a 400 word essay about the history of computing.' });

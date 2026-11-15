@@ -67,7 +67,10 @@ fun MarkdownText(md: String, color: Color = Ink) {
                 when {
                     line.isBlank() -> Spacer(Modifier.height(2.dp))
                     line.startsWith("#") -> Text(inline(line.trimStart('#', ' ')), style = MaterialTheme.typography.titleMedium, color = color)
-                    Regex("^\\s*([-*]|\\d+\\.)\\s+").containsMatchIn(line) -> Row { Text("•  ", color = Mist); Text(inline(line.replace(Regex("^\\s*([-*]|\\d+\\.)\\s+"), "")), color = color) }
+                    Regex("^\\s*([-*]|\\d+\\.)\\s+").containsMatchIn(line) -> {
+                        val marker = Regex("^\\s*([-*]|\\d+\\.)\\s+").find(line)!!.groupValues[1]
+                        Row { Text(if (marker[0].isDigit()) "$marker " else "•  ", color = Mist); Text(inline(line.replace(Regex("^\\s*([-*]|\\d+\\.)\\s+"), "")), color = color) }
+                    }
                     else -> Text(inline(line), color = color, style = MaterialTheme.typography.bodyLarge)
                 }
             }

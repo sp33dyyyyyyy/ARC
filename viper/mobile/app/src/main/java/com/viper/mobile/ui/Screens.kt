@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,7 +86,12 @@ fun ChatScreen(app: ViperApp, pickImage: () -> Unit, takePhoto: () -> Unit) {
     val msgs by app.messages.collectAsState(); val listening by app.listening.collectAsState()
     var input by remember { mutableStateOf("") }
     val list = rememberLazyListState()
-    LaunchedEffect(msgs.size, msgs.lastOrNull()?.text?.length) { if (msgs.isNotEmpty()) list.animateScrollToItem(msgs.size - 1) }
+    // Follow the conversation: jump to a new message, and keep the end of a streaming reply in view —
+    // unless the user has scrolled up to read, in which case leave the position alone.
+    var stick by remember { mutableStateOf(true) }
+    LaunchedEffect(list.isScrollInProgress) { if (!list.isScrollInProgress) stick = !list.canScrollForward }
+    LaunchedEffect(msgs.size) { if (msgs.isNotEmpty()) { list.scrollToItem(msgs.size - 1); list.scrollBy(1_000_000f); stick = true } }
+    LaunchedEffect(msgs.lastOrNull()?.text?.length) { if (msgs.isNotEmpty() && stick && !list.isScrollInProgress) list.scrollBy(1_000_000f) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Chat", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
