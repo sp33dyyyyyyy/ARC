@@ -64,10 +64,11 @@ function dirSize(d) { let n = 0; try { for (const e of fs.readdirSync(d, { withF
 function procSnapshot(names) {
   try {
     if (WIN) {
-      const ps = `Get-Process -Name ${names.map((n) => `'${n}*'`).join(',')} -ErrorAction SilentlyContinue | Select-Object Name,Id,CPU,WorkingSet64 | ConvertTo-Json -Compress`;
+      const filter = names.map((n) => `Name like '${n}%'`).join(' or ');
+      const ps = `Get-CimInstance Win32_Process -Filter "${filter}" | Select-Object Name,ProcessId,KernelModeTime,UserModeTime,WorkingSetSize | ConvertTo-Json -Compress`;
       const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim();
       if (!out) return [];
-      return [].concat(JSON.parse(out)).map((p) => ({ name: p.Name, pid: p.Id, cpuSec: p.CPU || 0, rssMB: Math.round((p.WorkingSet64 || 0) / 1048576) }));
+      return [].concat(JSON.parse(out)).map((p) => ({ name: p.Name, pid: p.ProcessId, cpuSec: ((+p.KernelModeTime || 0) + (+p.UserModeTime || 0)) / 1e7, rssMB: Math.round((+p.WorkingSetSize || 0) / 1048576) }));
     }
     const out = execFileSync('ps', ['-eo', 'pid,comm,time,rss', '--no-headers'], { encoding: 'utf8' });
     return out.split('\n').map((l) => l.trim().split(/\s+/)).filter((c) => c[1] && names.some((n) => c[1].startsWith(n))).map((c) => { const [h, m, s] = c[2].split(':').map(Number); return { name: c[1], pid: +c[0], cpuSec: h * 3600 + m * 60 + s, rssMB: Math.round(+c[3] / 1024) }; });
@@ -101,7 +102,7 @@ const apiCall = (win, method, p, body) => win.evaluate(async ([m, u, b]) => {
 async function appMetrics(app, ms = 5000) {
   await app.evaluate(({ app: a }) => a.getAppMetrics());
   await sleep(ms);
-  const m = await app.evaluate(({ app: a }) => a.getAppMetrics().map((x) => ({ type: x.type, name: x.serviceName || x.name || '', cpu: x.cpu.percentCPUUsage, mem: x.memory.workingSetSize })));
+  const m = await app.evaluate(({ app: a }) => a.getAppMetrics().map((x) => ({ type: x.type, name: `${x.name || ''} ${x.serviceName || ''}`, cpu: x.cpu.percentCPUUsage, mem: x.memory.workingSetSize })));
   const sum = (f) => m.filter(f).reduce((a, x) => a + x.cpu, 0);
   const mem = (f) => m.filter(f).reduce((a, x) => a + x.mem, 0);
   return {
@@ -146,25 +147,28 @@ const stopFrameProbe = (win) => win.evaluate(() => {
   await win.screenshot({ path: path.join(OUT, '01-setup-wizard.png') });
   // Walk every wizard step (Continue / Skip), failing if a step reports an error.
   if (wizard) {
-    const stepErrors = []; let steps = 0;
+    const stepErrors = []; const stepTimes = []; let steps = 0;
     for (let i = 0; i < 16; i++) {
       const state = await win.evaluate(() => ({ open: !!document.querySelector('.wizard'), cur: document.querySelector('.wizard .steps .cur')?.textContent || '', failed: /This step failed/.test(document.querySelector('.wizard .body')?.textContent || '') }));
       if (!state.open) break;
       if (state.failed) stepErrors.push(state.cur);
       steps++;
       if (i === 1) await win.screenshot({ path: path.join(OUT, '02-wizard-hardware.png') });
-      const clicked = await win.evaluate(() => {
+      const tStep = Date.now();
+      const clicked = await until(() => win.evaluate(() => {
         const btns = [...document.querySelectorAll('.wizard .nav button')].filter((b) => !b.disabled);
         const pick = btns.find((b) => /Launch VIPER/.test(b.textContent)) || btns.find((b) => /^Skip/.test(b.textContent.trim())) || btns.find((b) => /^(Continue|Begin setup)$/.test(b.textContent.trim()));
         if (pick) { pick.click(); return pick.textContent.trim(); } return null;
-      });
-      if (!clicked) break;
+      }), 60000, 300);
+      stepTimes.push(`${state.cur.replace(/^\d+/, '').trim()} ${((Date.now() - tStep) / 1000).toFixed(1)}s`);
+      if (!clicked) { stepErrors.push(`${state.cur}: no Continue/Skip button within 60 s`); break; }
       await sleep(900);
     }
     const closed = await until(() => win.evaluate(() => !document.querySelector('.wizard')), 8000);
-    check('App', 'setup wizard: every step renders and setup completes', closed && !stepErrors.length, `${steps} steps${stepErrors.length ? `; failed: ${stepErrors.join(', ')}` : ''}`);
+    check('App', 'setup wizard: every step renders and setup completes', closed && !stepErrors.length, `${steps} steps${stepErrors.length ? `; failed: ${stepErrors.join(', ')}` : ''} · ${stepTimes.join(', ')}`);
+    metrics.wizardSteps = stepTimes;
   }
-  if (await win.evaluate(() => !!document.querySelector('.wizard'))) await apiCall(win, 'POST', '/setup/complete', {});
+  if (await win.evaluate(() => !!document.querySelector('.wizard'))) { await apiCall(win, 'POST', '/setup/complete', {}); await win.reload(); }
   await until(() => win.evaluate(() => document.querySelectorAll('.nav-item').length >= 16), 15000);
   await sleep(1500);
   check('App', 'main dashboard renders (navigation + animated core)', await win.evaluate(() => document.querySelectorAll('.nav-item').length >= 16 && !!document.querySelector('canvas.core')));
@@ -232,9 +236,11 @@ const stopFrameProbe = (win) => win.evaluate(() => {
     await win.evaluate(() => { window.__tok.t0 = performance.now(); });
     await ta.press('Enter');
     const metricsDuring = appMetrics(app, 4000);
+    let enginePeakMB = 0; const peak = setInterval(() => { enginePeakMB = Math.max(enginePeakMB, procSnapshot(['ollama']).reduce((a, p) => a + p.rssMB, 0)); }, 700);
     const finished = await until(() => win.evaluate(() => window.__tok.done > 0), 180000, 200);
     const during = await metricsDuring;
     const frames = await stopFrameProbe(win);
+    clearInterval(peak);
     const cpuAfter = procSnapshot(['ollama']);
     const tok = await win.evaluate(() => ({ n: window.__tok.n, ttft: Math.round(window.__tok.first - window.__tok.t0), total: Math.round(window.__tok.done - window.__tok.t0), text: window.__tok.text }));
     await sleep(800);
@@ -244,7 +250,7 @@ const stopFrameProbe = (win) => win.evaluate(() => {
     check('AI', 'a real local model answers a question typed in the UI', finished && tok.text.trim().length > 10 && shown.includes(tok.text.trim().slice(0, 20)), tok.text.trim().slice(0, 200));
     check('AI', 'response streams token-by-token (first token long before the end)', tok.n >= 5 && tok.ttft < tok.total * 0.8, `${tok.n} token events, first after ${tok.ttft} ms, complete after ${tok.total} ms`);
     const engineCpu = cpuAfter.reduce((a, p) => a + p.cpuSec, 0) - cpuBefore.reduce((a, p) => a + p.cpuSec, 0);
-    metrics.chat = { ttftMs: tok.ttft, totalMs: tok.total, tokenEvents: tok.n, tokPerS: lastPerf?.avg_tps, viperDuringInference: during, frames, engineCpuSeconds: Math.round(engineCpu * 10) / 10, engineRamMB: cpuAfter.reduce((a, p) => a + p.rssMB, 0) };
+    metrics.chat = { ttftMs: tok.ttft, totalMs: tok.total, tokenEvents: tok.n, tokPerS: lastPerf?.avg_tps, viperDuringInference: during, frames, engineCpuSeconds: Math.round(engineCpu * 10) / 10, engineRamMB: Math.max(enginePeakMB, cpuAfter.reduce((a, p) => a + p.rssMB, 0)), enginePids: cpuAfter.map((p) => `${p.name}:${p.pid}`).join(' ') };
     check('Performance', 'UI stays responsive during inference (no frame gap > 250 ms)', frames.maxFrameGapMs < 250, JSON.stringify(frames));
     // Cancel a running generation
     const long = await apiCall(win, 'POST', '/chat', { text: 'Write a 400 word essay about the history of computing.' });
@@ -368,7 +374,9 @@ const stopFrameProbe = (win) => win.evaluate(() => {
     const r = require('node:child_process').spawnSync(unins, ['/S'], { timeout: 300000 });
     const removed = await until(() => !fs.existsSync(EXE), 120000, 1000);
     check('Installer', 'uninstaller removes the application', r.status === 0 && removed, `exit ${r.status}`);
-    check('Installer', 'uninstaller removes shortcuts', !fs.existsSync(START_LNK) && !fs.existsSync(DESKTOP_LNK));
+    const left = await until(() => { const l = [START_LNK, DESKTOP_LNK].filter((f) => fs.existsSync(f)); return l.length ? null : 'none'; }, 60000, 1000);
+    const remaining = [START_LNK, DESKTOP_LNK].filter((f) => fs.existsSync(f));
+    check('Installer', 'uninstaller removes shortcuts', left === 'none', remaining.length ? `still present: ${remaining.join(', ')}` : 'Start menu and desktop shortcuts removed');
     check('Installer', 'user data is kept after uninstall (by design)', fs.existsSync(path.join(DATA_DIR, 'viper.db')), DATA_DIR);
   }
 
