@@ -63,6 +63,26 @@ class Store(context: Context) {
     var lastNotificationTs: Long
         get() = prefs.getLong("lastNotifTs", System.currentTimeMillis())
         set(v) = prefs.edit().putLong("lastNotifTs", v).apply()
+    /** When the phone was last connected to the PC (shown on the offline screen). */
+    var lastConnected: Long
+        get() = prefs.getLong("lastConnected", 0L)
+        set(v) = prefs.edit().putLong("lastConnected", v).apply()
+    var notificationSounds: Boolean
+        get() = prefs.getBoolean("notificationSounds", true)
+        set(v) = prefs.edit().putBoolean("notificationSounds", v).apply()
+    /** Firebase client configuration delivered by the PC over the paired link (no google-services.json in the app). */
+    var pushConfig: String?
+        get() = prefs.getString("pushConfig", null)
+        set(v) = prefs.edit().putString("pushConfig", v).apply()
+    var pushToken: String?
+        get() = prefs.getString("pushToken", null)
+        set(v) = prefs.edit().putString("pushToken", v).apply()
+    var pushRegisteredToken: String?
+        get() = prefs.getString("pushRegisteredToken", null)
+        set(v) = prefs.edit().putString("pushRegisteredToken", v).apply()
+    var seenNotifications: List<String>
+        get() = (prefs.getString("seenNotifs", "") ?: "").split(',').filter { it.isNotBlank() }
+        set(v) = prefs.edit().putString("seenNotifs", v.takeLast(300).joinToString(",")).apply()
     var conversationId: String?
         get() = prefs.getString("conversationId", null)
         set(v) = prefs.edit().putString("conversationId", v).apply()

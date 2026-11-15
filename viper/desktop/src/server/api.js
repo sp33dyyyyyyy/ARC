@@ -117,13 +117,15 @@ function coreRoutes(r, svc) {
   r.post(`${P}/chat/cancel`, async ({ body }) => ({ cancelled: body.requestId ? svc.orchestrator.cancel(body.requestId) : (svc.orchestrator.cancelAll(), true) }), { scope: 'chat' });
 
   // Confirmations (permission prompts)
-  r.get(`${P}/confirm/pending`, async () => svc.permissions.listPending(), { scope: 'chat' });
+  // Phones see only prompts they may answer: their own, or ones escalated to phones (with "approve").
+  const phoneMayAnswer = (p, auth) => p.origin === `phone: ${auth.device.name}` || (p.remoteApprovable && p.tool !== 'pair_device' && auth.scopes.includes('approve'));
+  r.get(`${P}/confirm/pending`, async ({ auth }) => svc.permissions.listPending().filter((p) => !auth.device || phoneMayAnswer(p, auth)), { scope: 'chat' });
   r.post(`${P}/confirm/:id`, async ({ params, body, auth }) => {
     const pending = svc.permissions.listPending().find((p) => p.id === params.id);
     // A phone may only approve prompts that its own request created.
     // ...or prompts VIPER escalated to phones (agent approvals, prompts waiting at the PC), if the
     // device has the "approve" permission. Pairing a new device can only be approved at the PC.
-    if (auth.device && pending && pending.origin !== `phone: ${auth.device.name}` && !(pending.remoteApprovable && pending.tool !== 'pair_device' && auth.scopes.includes('approve'))) throw new HttpError(403, 'This prompt must be answered on the desktop');
+    if (auth.device && pending && !phoneMayAnswer(pending, auth)) throw new HttpError(403, 'This prompt must be answered on the desktop');
     return { ok: svc.permissions.respond(params.id, !!body.approved) };
   }, { scope: 'chat' });
 

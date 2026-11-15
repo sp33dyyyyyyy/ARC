@@ -486,7 +486,10 @@ class CodeAgent {
       build: results.build || null, test: results.test || null, launch: results.launch || null, fixAttempts: fixes,
       remaining: ok ? [] : [noVerification ? 'No build, test or run command was available, so the result could not be verified.' : `${required.find((x) => x.status !== 'complete')?.title || 'A step'} did not pass.`],
       run: spec.run || null, path: project.path,
+      // Tests VIPER edited while fixing failures — review them: passing tests are only meaningful if they are right.
+      testsChangedByFix: [...(run.testsChangedByFix || [])],
     };
+    if (ok && result.testsChangedByFix.length) result.remaining.push(`Review ${result.testsChangedByFix.join(', ')}: VIPER changed ${result.testsChangedByFix.length > 1 ? 'these tests' : 'this test'} while fixing failures.`);
     this.db.run('UPDATE agent_runs SET result = ? WHERE id = ?', JSON.stringify(result), run.id);
     this.step(run, 'report', ok ? 'complete' : 'failed', ok ? `Done: ${result.created.length} created, ${result.modified.length} modified` : result.remaining[0]);
     this.setStatus(run, ok ? 'completed' : 'failed');
@@ -522,10 +525,22 @@ class CodeAgent {
     const err = String(output).slice(-5000);
     const pick = await this.llm(run, 'debug', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: [
       `The ${stage} command failed: ${command}`, `OUTPUT (data):\n${err}`, `PROJECT FILES: ${files.join(', ')}`,
+      'A failing assertion can be wrong itself: work out the correct expected value by hand. Change the test only if its expected value is genuinely wrong; otherwise change the code.',
       'FIX_TARGET_JSON: reply with JSON {"file": the single project file to change, "reason": short explanation of the cause}.',
     ].join('\n\n') }], { json: true, maxTokens: 300, signal, label: 'Code Agent · analysing the error' });
     const j = extractJson(pick) || {};
     let target = files.find((f) => f === j.file) || files.find((f) => err.includes(path.basename(f))) || files[0];
+    // Small models often "fix" the same file again and again. If the last fix targeted this file and
+    // the error did not change, try another file named in the error (often the test itself is wrong).
+    const sig = err.replace(/\d+(\.\d+)?s\b/g, '').replace(/0x[0-9a-f]+/gi, '').slice(-600);
+    run.fixLog ||= [];
+    const prev = run.fixLog[run.fixLog.length - 1];
+    if (prev && prev.file === target && prev.sig === sig) {
+      const alt = files.filter((f) => f !== target).sort((a, b) => Number(err.includes(path.basename(b))) - Number(err.includes(path.basename(a))))[0];
+      if (alt) { this.emit(run, 'analysis', { stage, file: alt, reason: `The same error remained after changing ${target}; looking at ${alt} instead.` }); target = alt; }
+    }
+    run.fixLog.push({ stage, file: target, sig });
+    if (/(^|[\\/])(test_[^/\\]*|[^/\\]*_test\.[a-z]+|[^/\\]*\.test\.[a-z]+|tests?[\\/].*)$/i.test(target)) { run.testsChangedByFix ||= new Set(); run.testsChangedByFix.add(target); }
     this.emit(run, 'analysis', { stage, file: target, reason: String(j.reason || '').slice(0, 300) });
     const current = await this.readFile(project, target, 30000);
     const others = [];
@@ -534,6 +549,7 @@ class CodeAgent {
       `USER REQUEST: ${run.request}`, `The ${stage} command \`${command}\` failed with (data):\n${err}`, j.reason ? `Likely cause: ${j.reason}` : '',
       `OTHER FILES (data):\n${others.join('\n')}`, `CURRENT ${target} (data):\n<<<FILE ${target}>>>\n${current ?? ''}\n<<<END FILE>>>`,
       `FIX_FILE: ${target}`, `Output the COMPLETE corrected content of ${target} in one fenced code block, fixing the error.`,
+      'Never delete, skip or weaken a test to make it pass. Correct a test only where its expected value is wrong, and keep every other check.',
     ].filter(Boolean).join('\n\n') }], { maxTokens: 4096, signal, label: `Code Agent · fixing ${target}` });
     await this.writeFile(run, project, target, extractCode(text));
   }

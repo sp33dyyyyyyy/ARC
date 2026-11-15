@@ -12,8 +12,8 @@ android {
         applicationId = "com.viper.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.3.0"
     }
 
     signingConfigs {
@@ -67,7 +67,12 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
+    implementation("androidx.biometric:biometric:1.1.0")
+    // Optional closed-app push; initialised at runtime from the PC's configuration (no google-services.json).
+    implementation("com.google.firebase:firebase-messaging:26.0.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+    testImplementation("com.google.zxing:core:3.5.4")
 }

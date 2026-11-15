@@ -14,7 +14,13 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import android.net.ConnectivityManager
+import android.net.Network
 import com.viper.mobile.data.Store
+import com.viper.mobile.notify.Deduper
+import com.viper.mobile.notify.Notifier
+import com.viper.mobile.notify.NotifyLogic
+import com.viper.mobile.push.Push
 import com.viper.mobile.net.Conn
 import com.viper.mobile.net.Event
 import com.viper.mobile.net.ViperClient
@@ -48,6 +54,13 @@ class ViperApp : Application() {
     val transcript = MutableStateFlow("")
     val coreState = MutableStateFlow("offline")
     val snapshot = MutableStateFlow<JSONObject?>(null)
+    /** Phone has a usable network (from ConnectivityManager). */
+    val networkUp = MutableStateFlow(true)
+    /** Screen to open from a notification tap: (action, link). */
+    val pendingLink = MutableStateFlow<Pair<String, JSONObject?>?>(null)
+    val pushStatus = MutableStateFlow("")
+    private lateinit var deduper: Deduper
+    private val confirmNotifications = mutableMapOf<String, String>() // confirm id -> PC notification id
     var foreground = false; private set
     private val voiceRequests = mutableSetOf<String>()
     private var awaitingCommandUntil = 0L
@@ -59,7 +72,10 @@ class ViperApp : Application() {
         client = ViperClient(store, scope)
         speaker = Speaker(this).also { it.onSpeaking = { s -> speaking.value = s } }
         recorder = Recorder(scope).also { it.onLevel = { l -> micLevel.value = l } }
+        deduper = Deduper(initial = store.seenNotifications)
         createChannels()
+        Push.init(this)
+        watchNetwork()
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) { foreground = true; client.connect() }
             override fun onStop(owner: LifecycleOwner) { foreground = false; if (!store.stayConnected && !store.handsFree) client.disconnect() }
@@ -70,30 +86,52 @@ class ViperApp : Application() {
                 when { c != Conn.ONLINE -> "offline"; pc != null -> "warning"; s -> "speaking"; l -> "listening"; t -> "thinking"; else -> "idle" }
             }.collect { coreState.value = it }
         }
-        scope.launch { client.state.collect { if (it == Conn.ONLINE) refreshSnapshot() } }
+        scope.launch { client.state.collect { if (it == Conn.ONLINE) { refreshSnapshot(); pushStatus.value = Push.register(this@ViperApp) } } }
     }
 
     private fun createChannels() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CH_ALERTS, "VIPER alerts", NotificationManager.IMPORTANCE_HIGH).apply { description = "Notifications sent by VIPER on your PC" })
+        Notifier.createChannels(this)
         nm.createNotificationChannel(NotificationChannel(CH_SERVICE, "VIPER connection", NotificationManager.IMPORTANCE_LOW).apply { description = "Shown while VIPER Mobile stays connected or listens hands-free" })
     }
 
-    fun notifyUser(title: String, body: String, id: Int = (System.currentTimeMillis() % 100000).toInt()) {
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE)
-        val n = NotificationCompat.Builder(this, CH_ALERTS).setSmallIcon(R.drawable.ic_stat_viper).setContentTitle(title).setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body)).setContentIntent(pi).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH).build()
-        NotificationManagerCompat.from(this).notify(id, n)
+    /** Reconnect as soon as the phone gets a network back (Wi-Fi joined, VPN up, mobile data restored). */
+    private fun watchNetwork() {
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        networkUp.value = cm.activeNetwork != null
+        try {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { scope.launch { networkUp.value = true; if (client.state.value == Conn.OFFLINE || client.state.value == Conn.CONNECTING) client.reconnectNow() } }
+                override fun onLost(network: Network) { scope.launch { networkUp.value = cm.activeNetwork != null } }
+            })
+        } catch (_: Exception) { /* callback limit reached; periodic backoff still reconnects */ }
+    }
+
+    /** Local, app-generated notification (file ready, upload result…). */
+    fun notifyUser(title: String, body: String, id: String = "local-${System.currentTimeMillis()}") {
+        Notifier.show(this, JSONObject().put("id", id).put("title", title).put("body", body).put("category", "general"), store.notificationSounds)
+    }
+
+    /** Show a PC notification once, however it arrived (live socket, missed list or push). */
+    fun showNotification(n: JSONObject, fromPush: Boolean = false) {
+        val id = n.optString("id")
+        if (NotifyLogic.link(n)?.optString("type") == "confirm") confirmNotifications[NotifyLogic.link(n)!!.optString("id")] = id
+        if (!deduper.firstTime(id)) return
+        store.seenNotifications = deduper.snapshot()
+        if (fromPush || !foreground || n.optBoolean("missed")) Notifier.show(this, n, store.notificationSounds)
+    }
+    fun openFromNotification(action: String, link: JSONObject?, notificationId: String?) {
+        notificationId?.takeIf { it.isNotBlank() }?.let { nid -> scope.launch { runCatching { client.post("/api/v1/notifications/$nid/read") } } }
+        pendingLink.value = action to link
     }
 
     private fun handleEvent(e: Event) {
         val d = e.data
         when (e.type) {
             "notification" -> {
-                notifications.update { (listOf(d) + it).take(100) }
+                notifications.update { list -> (listOf(d) + list.filter { it.optString("id") != d.optString("id") }).take(100) }
                 store.lastNotificationTs = maxOf(store.lastNotificationTs, d.optLong("created_at", System.currentTimeMillis()))
-                if (!foreground || d.optBoolean("missed")) notifyUser("VIPER: ${d.optString("title")}", d.optString("body"))
+                if (d.optJSONArray("channels")?.let { a -> (0 until a.length()).any { a.optString(it) == "mobile" } } != false) showNotification(d)
             }
             "chat.token" -> { thinking.value = false; updateByRequest(d.optString("requestId")) { it.copy(text = it.text + d.optString("text"), status = "streaming") } }
             "chat.tool" -> updateByRequest(d.optString("requestId")) { m ->
@@ -108,12 +146,20 @@ class ViperApp : Application() {
                 if (rid in voiceRequests) { voiceRequests.remove(rid); if (store.speakReplies && content.isNotBlank() && !d.optBoolean("silent")) speak(content) }
             }
             "chat.error", "chat.cancelled" -> { thinking.value = false; updateByRequest(d.optString("requestId")) { it.copy(text = d.optString("error", "Stopped"), status = "error") } }
-            "confirm.request" -> { pendingConfirm.value = d; if (!foreground) notifyUser("Approval needed", d.optString("title")) }
-            "confirm.closed" -> if (pendingConfirm.value?.optString("id") == d.optString("id")) pendingConfirm.value = null
+            "confirm.request" -> {
+                pendingConfirm.value = d
+                // Escalated requests come with their own "Approval required" notification from the PC.
+                if (!foreground && !d.optBoolean("remoteApprovable")) Notifier.show(this, JSONObject().put("id", "confirm:${d.optString("id")}").put("kind", "approval_required").put("title", "VIPER — Approval Required").put("body", "I require your authorisation to proceed: ${d.optString("title")}").put("link", JSONObject().put("type", "confirm").put("id", d.optString("id"))), store.notificationSounds)
+            }
+            "confirm.closed" -> {
+                val cid = d.optString("id")
+                if (pendingConfirm.value?.optString("id") == cid) pendingConfirm.value = null
+                Notifier.cancel(this, "confirm:$cid"); confirmNotifications.remove(cid)?.let { Notifier.cancel(this, it) }
+            }
             "system.sample" -> snapshot.value = d
             "voice.stop" -> speaker.stop()
             "sms.send" -> { pendingSms.value = d; if (!foreground) notifyUser("Your PC wants to send an SMS", "To ${d.optString("to")}. Open VIPER Mobile to approve or decline.") }
-            "transfer.available" -> notifyUser("File ready from your PC", d.optString("name"))
+            "transfer.available" -> notifyUser("File ready from your PC", d.optString("name"), "transfer:${d.optString("name")}")
             "queue.sent" -> messages.update { list -> list.map { if (it.localId == d.optString("localId")) it.copy(requestId = d.optString("requestId"), status = "streaming", text = "") else it } }.also { store.conversationId = d.optString("conversationId") }
         }
     }
@@ -186,10 +232,17 @@ class ViperApp : Application() {
     fun hasMic() = ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     // ---------- approvals ----------
-    fun answerConfirm(approved: Boolean) {
-        val c = pendingConfirm.value ?: return; pendingConfirm.value = null
-        scope.launch { runCatching { client.post("/api/v1/confirm/${c.getString("id")}", JSONObject().put("approved", approved)) } }
+    /** Send the decision for a reviewed request. Returns an error message, or null when the PC accepted it. */
+    suspend fun answerConfirm(c: JSONObject, approved: Boolean): String? {
+        return try {
+            client.post("/api/v1/confirm/${c.getString("id")}", JSONObject().put("approved", approved))
+            if (pendingConfirm.value?.optString("id") == c.optString("id")) pendingConfirm.value = null
+            Notifier.cancel(this, "confirm:${c.optString("id")}"); confirmNotifications.remove(c.optString("id"))?.let { Notifier.cancel(this, it) }
+            null
+        } catch (e: Exception) { e.message ?: "Could not reach the PC" }
     }
+    /** Fetch a pending approval by id (opened from a notification while the app was closed). */
+    suspend fun loadConfirm(id: String): JSONObject? = runCatching { val a = client.getArr("/api/v1/confirm/pending"); (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optString("id") == id } }.getOrNull()
     fun answerSms(approved: Boolean) {
         val s = pendingSms.value ?: return; pendingSms.value = null
         scope.launch {

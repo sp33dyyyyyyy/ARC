@@ -26,12 +26,14 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
     val state = MutableStateFlow(if (store.pairing == null) Conn.UNPAIRED else Conn.OFFLINE)
     val events = MutableSharedFlow<Event>(extraBufferCapacity = 512)
     val lastError = MutableStateFlow<String?>(null)
+    /** When the next automatic reconnect attempt happens (0 = none scheduled). */
+    val nextRetryAt = MutableStateFlow(0L)
     private val recent = ArrayDeque<Event>()
     private var client: OkHttpClient? = null
     private var ws: WebSocket? = null
     private var host: String? = null
     private var reconnectJob: Job? = null
-    private var backoff = 1000L
+    private var backoff = Backoff.START
     private var wanted = false
 
     private fun pairing(): Pairing? = store.pairing
@@ -69,12 +71,24 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
                 } catch (e: Exception) { lastError.value = e.message }
                 if (found != null) break
             }
+            if (found == null) {
+                // The PC's address may have changed (new DHCP lease): ask the LAN who has our PC's certificate.
+                val d = runCatching { Discovery.find(p.fingerprint, p.hosts) }.getOrNull()
+                if (d != null && d.port == p.port) {
+                    try {
+                        val req = Request.Builder().url("https://${d.host}:${p.port}/api/v1/hello").build()
+                        client!!.newBuilder().connectTimeout(3, TimeUnit.SECONDS).build().newCall(req).execute().use { if (it.isSuccessful) found = d.host }
+                        if (found != null && d.host !in p.hosts) store.pairing = p.copy(hosts = listOf(d.host) + p.hosts.take(7))
+                    } catch (e: Exception) { lastError.value = e.message }
+                }
+            }
             if (found == null) { state.value = Conn.OFFLINE; scheduleReconnect(); return@launch }
             host = found; store.lastHost = found!!
             val req = Request.Builder().url("wss://$found:${p.port}/api/v1/ws").header("Authorization", p.authHeader).build()
             ws = client!!.newWebSocket(req, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    state.value = Conn.ONLINE; backoff = 1000; lastError.value = null
+                    state.value = Conn.ONLINE; backoff = Backoff.START; lastError.value = null; nextRetryAt.value = 0
+                    store.lastConnected = System.currentTimeMillis()
                     scope.launch { onOnline() }
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -93,11 +107,13 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     if (code == 4001 || state.value == Conn.UNPAIRED) { revoked(); return }
+                    if (state.value == Conn.ONLINE) store.lastConnected = System.currentTimeMillis()
                     state.value = Conn.OFFLINE; scheduleReconnect()
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     if (response?.code == 401) { revoked("The PC no longer recognises this phone. Pair again."); return }
                     if (state.value == Conn.UNPAIRED) return
+                    if (state.value == Conn.ONLINE) store.lastConnected = System.currentTimeMillis()
                     lastError.value = t.message; state.value = Conn.OFFLINE; scheduleReconnect()
                 }
             })
@@ -114,7 +130,17 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
     private fun scheduleReconnect() {
         if (!wanted) return
         reconnectJob?.cancel()
-        reconnectJob = scope.launch { delay(backoff); backoff = (backoff * 2).coerceAtMost(30000); connect() }
+        val wait = Backoff.withJitter(backoff)
+        nextRetryAt.value = System.currentTimeMillis() + wait
+        reconnectJob = scope.launch { delay(wait); backoff = Backoff.next(backoff); connect() }
+    }
+    /** Retry immediately (user tapped Reconnect, or the phone joined a network). */
+    fun reconnectNow() {
+        if (pairing() == null) return
+        reconnectJob?.cancel(); backoff = Backoff.START; nextRetryAt.value = 0
+        if (state.value == Conn.ONLINE) return
+        if (state.value == Conn.CONNECTING) state.value = Conn.OFFLINE
+        connect()
     }
     fun replay(requestId: String): List<Event> = synchronized(recent) { recent.filter { it.data.optString("requestId") == requestId } }
 
@@ -171,10 +197,12 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
     }
 
     /** Pair with a PC using a scanned QR payload. Tries each advertised address. */
-    suspend fun pair(payload: PairingPayload, deviceName: String): Pairing = withContext(Dispatchers.IO) {
+    suspend fun pair(payload: PairingPayload, deviceName: String, onStatus: (String) -> Unit = {}): Pairing = withContext(Dispatchers.IO) {
         if (payload.expiresAt in 1 until System.currentTimeMillis()) throw ApiException(410, "This pairing code has expired. Show a new one on the PC.")
         val tm = PinnedTrustManager(payload.fingerprint)
-        val c = OkHttpClient.Builder().sslSocketFactory(tm.socketFactory(), tm).hostnameVerifier { _, _ -> true }.connectTimeout(5, TimeUnit.SECONDS).build()
+        // The PC asks its owner to approve the phone before answering, so wait up to two minutes.
+        val c = OkHttpClient.Builder().sslSocketFactory(tm.socketFactory(), tm).hostnameVerifier { _, _ -> true }.connectTimeout(5, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()
+        onStatus("Waiting for you to approve this phone on the PC…")
         var lastErr: Exception? = null
         val hosts = (listOf(store.hostOverride).filter { it.isNotBlank() } + payload.hosts).distinct()
         for (h in hosts) {
@@ -193,6 +221,32 @@ class ViperClient(private val store: Store, private val scope: CoroutineScope) {
             } catch (e: ApiException) { throw e } catch (e: Exception) { lastErr = e; Log.w("VIPER", "pair via $h failed: ${e.message}") }
         }
         throw IOException("Could not reach the PC at ${hosts.joinToString()}. Check that both devices are on the same network (or VPN). ${lastErr?.message ?: ""}")
+    }
+
+    /** Step-by-step connection check for the offline screen. Each line is a real test result. */
+    suspend fun diagnose(networkUp: Boolean): List<Pair<String, Boolean>> = withContext(Dispatchers.IO) {
+        val out = mutableListOf<Pair<String, Boolean>>()
+        val p = pairing() ?: return@withContext listOf("This phone is not paired" to false)
+        out += (if (networkUp) "Phone has a network connection" else "Phone has no network connection (Wi-Fi or mobile data)") to networkUp
+        val tm = PinnedTrustManager(p.fingerprint)
+        val c = OkHttpClient.Builder().sslSocketFactory(tm.socketFactory(), tm).hostnameVerifier { _, _ -> true }.connectTimeout(3, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build()
+        for (h in candidateHosts()) {
+            val tcp = try { java.net.Socket().use { it.connect(java.net.InetSocketAddress(h, p.port), 3000) }; true } catch (_: Exception) { false }
+            if (!tcp) { out += "$h:${p.port} — no answer (PC off, VIPER closed, phone link off, different network or firewall)" to false; continue }
+            out += "$h:${p.port} — reachable" to true
+            try {
+                c.newCall(Request.Builder().url("https://$h:${p.port}/api/v1/hello").build()).execute().use { out += "$h — certificate matches the paired PC" to it.isSuccessful }
+            } catch (e: javax.net.ssl.SSLException) { out += "$h — certificate does NOT match the paired PC (different machine)" to false; continue }
+            catch (e: Exception) { out += "$h — secure connection failed: ${e.message}" to false; continue }
+            try {
+                c.newCall(Request.Builder().url("https://$h:${p.port}/api/v1/notifications/since/${System.currentTimeMillis()}").header("Authorization", p.authHeader).build()).execute().use {
+                    out += when (it.code) { 200 -> "$h — this phone is still authorised" to true; 401 -> "$h — the PC no longer recognises this phone (revoked). Pair again." to false; else -> "$h — unexpected answer HTTP ${it.code}" to false }
+                }
+            } catch (e: Exception) { out += "$h — authorisation check failed: ${e.message}" to false }
+        }
+        val d = runCatching { Discovery.find(p.fingerprint, p.hosts) }.getOrNull()
+        out += (if (d != null) "Found the PC on this network at ${d.host}" else "PC not found by LAN discovery (normal over VPN or mobile data)") to (d != null)
+        out
     }
 
     fun forget() { disconnect(); store.pairing = null; client = null; host = null; state.value = Conn.UNPAIRED }

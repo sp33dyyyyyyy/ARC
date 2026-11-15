@@ -184,6 +184,8 @@ fun SettingsScreen(app: ViperApp, back: () -> Unit) {
     var stay by remember { mutableStateOf(app.store.stayConnected) }; var hands by remember { mutableStateOf(app.store.handsFree) }
     var pcVoice by remember { mutableStateOf(app.store.usePcVoice) }; var speak by remember { mutableStateOf(app.store.speakReplies) }; var sms by remember { mutableStateOf(app.store.smsBridge) }
     var confirmForget by remember { mutableStateOf(false) }
+    var sounds by remember { mutableStateOf(app.store.notificationSounds) }
+    val pushStatus by app.pushStatus.collectAsState()
     val p = app.store.pairing
     @Composable fun Toggle(label: String, sub: String, v: Boolean, set: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text(label); Text(sub, color = Mist, fontSize = 12.sp) }
@@ -199,6 +201,13 @@ fun SettingsScreen(app: ViperApp, back: () -> Unit) {
                 OutlinedTextField(host, { host = it }, Modifier.fillMaxWidth(), label = { Text("Preferred address (e.g. VPN IP)") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { VButton("Save & reconnect", { app.store.hostOverride = host; app.client.disconnect(); app.client.connect() }); VButton("Unpair", { confirmForget = true }) }
             }
+            Panel(title = "Notifications") {
+                Toggle("Notification sounds", "Play the channel's sound for VIPER notifications. Turn off for silent notifications.", sounds) { sounds = it; app.store.notificationSounds = it }
+                Text(pushStatus.ifBlank { "Push status is checked when the phone connects to the PC." }, color = Ink2, fontSize = 13.sp)
+                Text("Without push (set up on the PC in Settings → Notifications), notifications arrive while VIPER Mobile is connected — app open, or “Stay connected” on. If the app is fully closed or the phone has no connection to the PC, they are delivered the next time it connects.", color = Mist, fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+                VButton("Notification categories", { ctx.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)) })
+            }
             Panel(title = "Background") {
                 Toggle("Stay connected", "Receive alerts while the app is closed (shows a persistent notification).", stay) { stay = it; app.store.stayConnected = it; ConnectionService.update(ctx) }
                 Toggle("Hands-free wake word", "Listen for \"VIPER\" using the PC's speech engine. Uses the microphone in the background.", hands) { hands = it; app.store.handsFree = it; ConnectionService.update(ctx) }
@@ -213,5 +222,5 @@ fun SettingsScreen(app: ViperApp, back: () -> Unit) {
         }
     }
     if (confirmForget) AlertDialog(onDismissRequest = { confirmForget = false }, confirmButton = { TextButton({ confirmForget = false; app.client.forget(); app.store.stayConnected = false; app.store.handsFree = false; ConnectionService.update(ctx); back() }) { Text("Unpair", color = Ink) } },
-        dismissButton = { TextButton({ confirmForget = false }) { Text("Cancel", color = Ink2) } }, title = { Text("Unpair this phone?") }, text = { Text("The stored credentials are deleted from this phone. Revoke it on the PC too (Communications → Phone link).") })
+        dismissButton = { TextButton({ confirmForget = false }) { Text("Cancel", color = Ink2) } }, title = { Text("Unpair this phone?") }, text = { Text("The stored credentials are deleted from this phone. Revoke it on the PC too (Manage → Connected Devices).") })
 }
