@@ -219,10 +219,10 @@ const stopFrameProbe = (win) => win.evaluate(() => {
   for (const mode of pages) {
     const t0 = Date.now();
     await win.evaluate((m) => document.querySelector(`.nav-item[data-mode="${m}"]`).click(), mode);
-    const ok = await until(() => win.evaluate((m) => window.viperApp.mode === m && document.querySelector('#view').children.length > 0 && !/failed to load/.test(document.querySelector('#view').textContent), mode), 8000, 50);
+    const ok = await until(() => win.evaluate((m) => window.viperApp.mode === m.split(':')[0] && (!m.includes(':') || window.viperApp.params?.tab === m.split(':')[1]) && document.querySelector('#view').children.length > 0 && !/failed to load/.test(document.querySelector('#view').textContent), mode), 8000, 50);
     switchMs.push(Date.now() - t0);
     if (!ok) navFail.push(mode);
-    if (['chat', 'models', 'system', 'settings', 'voice', 'image', 'code', 'comms'].includes(mode)) { await sleep(600); await win.screenshot({ path: path.join(OUT, `page-${mode}.png`) }); }
+    if (['chat', 'models', 'system', 'voice', 'image', 'agent', 'comms', 'devices', 'notifications', 'aiconfig', 'builder'].includes(mode)) { await sleep(600); await win.screenshot({ path: path.join(OUT, `page-${mode}.png`) }); }
   }
   check('App', `all ${pages.length} navigation buttons open their page`, !navFail.length, navFail.length ? `failed: ${navFail.join(', ')}` : pages.join(', '));
   switchMs.sort((a, b) => a - b);

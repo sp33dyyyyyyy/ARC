@@ -76,6 +76,46 @@ jobs:
         if: steps.e2e.outcome != 'success'
         run: exit 1
 
+  agent-e2e:
+    name: Windows — Code Agent E2E with a real local coding model
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults: { run: { working-directory: viper/desktop } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: npm ci
+      - name: Install Ollama and the coding model
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe -OutFile $env:RUNNER_TEMP\OllamaSetup.exe
+          $p = Start-Process "$env:RUNNER_TEMP\OllamaSetup.exe" -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES' -PassThru
+          if (-not $p.WaitForExit(600000)) { throw 'Ollama installer timed out' }
+          $exe = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          try { Invoke-RestMethod http://127.0.0.1:11434/api/version -TimeoutSec 3 | Out-Null } catch { Start-Process $exe -ArgumentList 'serve' -WindowStyle Hidden }
+          for ($i = 0; $i -lt 60; $i++) { try { Invoke-RestMethod http://127.0.0.1:11434/api/version | Out-Null; break } catch { Start-Sleep 2 } }
+          & $exe pull qwen2.5-coder:3b
+          & $exe pull qwen2.5:0.5b
+          python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
+          git config --global user.email "ci@viper.local"; git config --global user.name "VIPER CI"
+      - name: Code Agent scenarios (calculator, edit existing project, recover from failed build)
+        id: e2e
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force agent-out | Out-Null
+          $env:E2E_OUT = (Resolve-Path agent-out).Path
+          node test/e2e/agent-e2e.js
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: e2e-agent, path: viper/desktop/agent-out }
+
   android:
     name: Android — unit tests + signed release APK
     runs-on: ubuntu-latest
@@ -174,7 +214,8 @@ jobs:
 
   release:
     name: Test report + GitHub Release
-    needs: [desktop-windows, android, android-e2e]
+    # The Code Agent E2E result (pass or fail) is reported in the PDF; it does not block the release.
+    needs: [desktop-windows, android, android-e2e, agent-e2e]
     if: always() && github.event_name != 'pull_request' && needs.desktop-windows.result == 'success' && needs.android.result == 'success' && needs.android-e2e.result == 'success'
     runs-on: ubuntu-latest
     permissions: { contents: write }

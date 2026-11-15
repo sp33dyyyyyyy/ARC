@@ -76,7 +76,9 @@ fun AgentRunScreen(app: ViperApp, runId: String, back: () -> Unit) {
     suspend fun load() { try { run = app.client.getObj("/api/v1/agent/runs/$runId"); error = null } catch (e: Exception) { error = e.message } }
     LaunchedEffect(conn, runId) { if (conn == Conn.ONLINE) load() }
     LaunchedEffect(runId) { app.client.events.filter { it.type.startsWith("agent.") && (it.data.optString("runId") == runId || it.data.optString("run_id") == runId) }.collect { delay(150); load() } }
-    fun act(what: String) { busy = true; scope.launch { try { app.client.post("/api/v1/agent/runs/$runId/$what"); load() } catch (e: Exception) { error = e.message }; busy = false } }
+    fun act(what: String) { busy = true; scope.launch { try {
+        when (what) { "pause" -> app.client.post("/api/v1/agent/runs/$runId/pause"); "resume" -> app.client.post("/api/v1/agent/runs/$runId/resume"); else -> app.client.post("/api/v1/agent/runs/$runId/cancel") }
+        load() } catch (e: Exception) { error = e.message }; busy = false } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Header("Task", back)
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

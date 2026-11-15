@@ -13,6 +13,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 const win = json('e2e-windows/results.json');
 const and = json('e2e-android/results.json');
+const agent = json('e2e-agent/results.json');
 const unitTxt = read('e2e-windows/unit-tests.txt', '');
 const andUnit = json('VIPER-Mobile/android-unit-tests.json');
 const apkSig = read('VIPER-Mobile/apk-signature.txt', '');
@@ -68,7 +69,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>VIPER Test
   th, td { border: 1px solid #ccc; padding: 3px 5px; text-align: left; vertical-align: top; } th { background: #f1f1f1; }
   td.ev { font-family: Consolas, monospace; font-size: 9px; color: #333; word-break: break-word; }
   .kv th { width: 34%; } .b { color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 700; white-space: nowrap; }
-  .sum { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; } .sum div { border: 1px solid #ccc; padding: 6px; }
+  .sum { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; } .sum div { border: 1px solid #ccc; padding: 6px; }
   .sum b { font-size: 17px; display: block; } figure { display: inline-block; width: 31%; margin: 0 1% 8px 0; vertical-align: top; }
   figure img { width: 100%; border: 1px solid #999; } figcaption { font-size: 8.5px; color: #555; } .mono { font-family: Consolas, monospace; font-size: 9px; word-break: break-all; }
   ul { margin: 4px 0 8px 16px; padding: 0; } li { margin: 2px 0; }
@@ -81,7 +82,8 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>VIPER Test
   <div><b>${unit.pass}/${unit.tests - unit.skipped}</b>desktop unit + integration tests passed${unit.fail ? ` · <span style="color:#b00020">${unit.fail} failed</span>` : ''}${unit.skipped ? ` · ${unit.skipped} skipped` : ''}</div>
   <div><b>${count(win?.results, 'PASS')}/${(win?.results || []).length}</b>Windows installed-app checks passed · ${count(win?.results, 'FAIL')} FAIL · ${count(win?.results, 'BLOCKED')} BLOCKED</div>
   <div><b>${andUnit ? `${andUnit.tests - andUnit.failures}/${andUnit.tests}` : '—'}</b>Android unit tests passed</div>
-  <div><b>${count(and?.results, 'PASS')}/${(and?.results || []).length}</b>Android device checks passed · ${count(and?.results, 'FAIL')} FAIL · ${count(and?.results, 'NOT TESTED')} NOT TESTED</div>
+  <div><b>${count(and?.results, 'PASS')}/${(and?.results || []).length}</b>Android device checks passed · ${count(and?.results, 'FAIL')} FAIL · ${count(and?.results, 'BLOCKED')} BLOCKED · ${count(and?.results, 'NOT TESTED')} NOT TESTED</div>
+  <div><b>${count(agent?.results, 'PASS')}/${(agent?.results || []).length}</b>Code Agent checks passed (real coding model) · ${count(agent?.results, 'FAIL')} FAIL${agent ? '' : ' · not run'}</div>
 </div>
 
 <h2>Delivered files (SHA-256)</h2>
@@ -115,14 +117,33 @@ ${kv({
 <h3>Desktop unit + integration test suites</h3>
 <table><tr><th>Suite</th><th>Result</th></tr>${suites.map((s) => `<tr><td>${esc(s.name)}</td><td>${badge(s.skip ? 'BLOCKED' : s.ok ? 'PASS' : 'FAIL')}${s.skip ? ` <span class="mist">${esc(s.skip)}</span>` : ''}</td></tr>`).join('')}</table>
 
+<h2>VIPER CODE AGENT</h2>
+${kv({ 'How it was tested': 'Windows CI machine, real local coding model through Ollama, the machine\'s real Python/Node.js/git. The harness acted as the user: it approved the agent\'s command requests (listed below) and answered questions with "Decide automatically". After each run it re-ran the tests and launched the app itself instead of trusting the agent\'s report.', 'Model': agent?.metrics?.coder || '—', 'Machine': agent?.metrics ? `${agent.metrics.platform} · ${agent.metrics.cpus} CPUs · ${agent.metrics.ramGB} GB RAM · no GPU` : '—' })}
+${agent?.metrics?.scenarios ? `<table><tr><th>Scenario</th><th>Final status</th><th>Time</th><th>Fix attempts</th><th>Files created / modified</th><th>Notifications sent</th></tr>${Object.entries(agent.metrics.scenarios).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v.status)}</td><td>${v.seconds} s</td><td>${v.fixAttempts ?? '—'}</td><td>${esc([...(v.created || [])].join(', ') || '—')} / ${esc((v.modified || []).join(', ') || '—')}</td><td>${esc((v.notifications || []).join(', ') || 'none')}</td></tr>`).join('')}</table>` : ''}
+<h3>Windows calculator built from scratch</h3>${table(agent?.results, ['Agent: calculator'])}
+<h3>Editing an existing project</h3>${table(agent?.results, ['Agent: edit existing project'])}
+<h3>Recovering from a failed build</h3>${table(agent?.results, ['Agent: recover from failed build'])}
+<h3>Toolchains and approvals</h3>${table(agent?.results, ['Agent', 'Harness'])}
+<p class="mist">Deterministic behaviour (planning, approvals, pause/resume/cancel, crash recovery, the fix loop, the command policy) is also covered by the desktop unit tests with a scripted model (suite “agent”). A small local model can fail a task: such runs are reported as FAIL above and VIPER itself reports them as not finished — it never sends a completion notification unless the build/tests/launch checks passed.</p>
+
 <h2>ANDROID</h2>
 ${kv({ 'Build status': `Release APK built with Gradle (minified with R8, signed). ${esc((apkSig.match(/signing=.*/) || [''])[0])}`, 'Signer': (apkSig.match(/Signer #1 certificate DN: .*/) || ['—'])[0], 'APK size': am.apkBytes ? `${(am.apkBytes / 1048576).toFixed(1)} MB` : '—', 'Test device': and?.metrics?.device ? `Android emulator (${and.metrics.device.model}), Android ${and.metrics.device.android} (API ${and.metrics.device.sdk}), ${and.metrics.device.abi}. NOT a physical phone.` : 'no results', 'PC side': `real VIPER core (the same server code the Windows app runs) + Ollama ${esc(and?.model || '')} on the CI host, reached by the emulator at 10.0.2.2` })}
 <h3>APK installation and permissions</h3>${table(and?.results, ['Install', 'Permissions'])}
 <h3>UI tests</h3>${table(and?.results, ['UI'])}
-<h3>Phone-to-PC connection and chat</h3>${table(and?.results, ['Host', 'Pairing', 'Chat', 'Network'])}
+<h3>Phone pairing</h3>${table(and?.results, ['Host', 'Pairing'])}
+<h3>Phone-to-PC connection, offline mode and chat</h3>${table(and?.results, ['Chat', 'Network'])}
 ${am.phoneChat ? kv({ 'Tokens streamed to the phone': am.phoneChat.tokens, 'First token after tapping Send': `${am.phoneChat.firstTokenMs} ms`, 'Reply length seen growing on screen': (am.phoneChat.observedLengths || []).join(' → ') }) : ''}
 <h3>Voice</h3>${table(and?.results, ['Voice'])}
 <h3>Notifications</h3>${table(and?.results, ['Notifications'])}
+<h3>Approvals from the phone</h3>${table(and?.results, ['Approvals'])}
+<h3>Code Agent from the phone</h3>${table(and?.results, ['Code Agent (phone)'])}
+<h3>Notification delivery: what was verified where</h3>
+<table><tr><th>Situation</th><th>Mechanism</th><th>Result</th><th>Verified on</th></tr>
+${[['App in the background, “Stay connected” on', 'encrypted WebSocket kept open by a foreground service', /^task_complete|^input_required|^approval_required/],
+  ['App fully closed, no push configured', 'nothing delivered while closed (VIPER says so); delivered on the next connection', /delivered when it reconnects/],
+  ['App fully closed, Firebase push configured', 'FCM data message wakes the app', /Firebase Cloud Messaging/],
+  ['Phone or PC offline', 'kept on the PC; delivered after reconnecting', /notifications sent while the app was closed/]].map(([sit, mech, re]) => { const r = (and?.results || []).find((x) => re.test(x.name)); return `<tr><td>${esc(sit)}</td><td>${esc(mech)}</td><td>${badge(r?.status || 'NOT TESTED')}</td><td>${r ? 'Android emulator' : '—'}</td></tr>`; }).join('')}
+<tr><td>Any of the above on a physical phone</td><td>—</td><td>${badge('NOT TESTED')}</td><td>no physical device was available</td></tr></table>
 <h3>Screen sizes and stability</h3>${table(and?.results, ['Layout', 'Stability'])}
 <h3>Android unit tests</h3><p>${andUnit ? `${andUnit.tests} tests, ${andUnit.failures} failures: ${esc(andUnit.cases.join(', '))}` : 'not available'}</p>
 
@@ -131,6 +152,10 @@ ${am.phoneChat ? kv({ 'Tokens streamed to the phone': am.phoneChat.tokens, 'Firs
 <ul>
 <li>Local API listens on 127.0.0.1 only and needs a random per-launch token; foreign Host headers (DNS rebinding) are refused — automated test <i>“API rejects missing/invalid token and foreign Host headers”</i>.</li>
 <li>Phone pairing uses a single-use, 5-minute token shown only on the PC; each phone gets its own secret (stored hashed on the PC) and scopes — tests <i>“wrong token is rejected; correct token pairs exactly once”</i>, <i>“requests need the device secret, and scopes limit what a phone can reach”</i>, <i>“every phone API call targets a route a paired device may use”</i>.</li>
+<li>A new phone is paired only after its owner approves it <b>on the PC</b> (name and network address shown); a scanned code alone is not enough, a declined or reused code pairs nothing — Android E2E <i>“declining on the PC rejects the phone”</i>, <i>“a used pairing code cannot be reused”</i>, unit test <i>“pairing declined on the PC”</i>.</li>
+<li>Approvals from the phone need the device's “Approve actions” permission and a review screen showing exactly what will run (screen-lock/biometric check when the phone has one); pairing requests can never be approved from a phone; dismissing a notification never approves — ${and ? badge((and.results.find((r) => /does NOT approve/.test(r.name)) || {}).status || 'NOT TESTED') : 'not run'}.</li>
+<li>Push payloads (FCM) carry only a title, a short phrase and identifiers — never task contents; verified against a mock FCM server in the unit test <i>“FCM HTTP v1: signed service-account JWT, minimal data-only payload”</i>. The Firebase service-account key is stored encrypted in VIPER's vault.</li>
+<li>Code Agent commands go through a policy: builds/tests run, package installs, unknown programs and paths outside the project need approval, privilege escalation/system tools/deletes are never run — unit test <i>“command policy”</i>.</li>
 <li>Revoking a phone closes its connection at once and invalidates its secret — unit test <i>“revocation disconnects the phone immediately and blocks the secret”</i> and, on the emulator, ${and ? badge((and.results.find((r) => /revoking/.test(r.name)) || {}).status || 'NOT TESTED') : 'not run'}.</li>
 </ul>
 <h3>Network security checks</h3>
@@ -159,7 +184,8 @@ ${am.phoneChat ? kv({ 'Tokens streamed to the phone': am.phoneChat.tokens, 'Firs
 <ul>
 <li><b>Hardware:</b> Windows tests ran on a GitHub-hosted VM (${esc(win?.cpu || '?')}, ${win?.cores || '?'} vCPU, ${win?.ramGB || '?'} GB, no GPU, software rendering), not your Intel Core i7 laptop with integrated graphics. CPU, RAM, FPS and speed figures will differ on your PC; integrated graphics usually render the interface faster than software rendering.</li>
 <li><b>Audio:</b> CI machines have no microphone or speakers. The microphone was tested with Chromium's built-in fake audio device; speech output was verified by synthesising audio and transcribing it back with whisper.cpp, not by listening. Wake-word detection with a real voice: <b>NOT TESTED</b>.</li>
-<li><b>Android:</b> tested on an emulator only — <b>no physical phone</b>. Camera/QR scanning: <b>NOT TESTED</b> (pairing used the text pairing code). Speech captured on the phone: <b>NOT TESTED</b> with real speech.</li>
+<li><b>Android:</b> tested on an emulator only — <b>no physical phone</b>; nothing in this report was verified on a physical device. QR codes: the PC's real QR image is decoded by an Android unit test and the scanner opening is checked on the emulator, but scanning with a real camera: <b>NOT TESTED</b> (pairing on the emulator used the same code as text). Biometric/screen-lock prompt: the emulator has no screen lock, so the explicit Approve tap was the confirmation; <b>NOT TESTED</b> with a real fingerprint/PIN. Closed-app push through Firebase: <b>BLOCKED</b> (needs your Firebase project). LAN discovery after an IP change: unit-tested on the PC and phone sides, <b>NOT TESTED</b> end-to-end (the emulator network has no LAN broadcast). Speech captured on the phone: <b>NOT TESTED</b> with real speech.</li>
+<li><b>Code Agent:</b> results depend heavily on the model; CI uses a small CPU-only model, which is slower and less reliable than a 7B+ model on your PC. Remote relay for away-from-home use is not provided (use a VPN): <b>NOT TESTED</b>.</li>
 <li><b>Not tested (need your accounts, services or hardware):</b> Microsoft Foundry Local (not available on CI), Image Studio generation (needs a local Stable Diffusion server such as A1111/Forge), real e-mail (IMAP/SMTP/OAuth) and Twilio SMS accounts, SMS sending from the phone, push via ntfy, GPU acceleration. These features show their real availability status in the app and are covered by unit tests against local test servers where possible.</li>
 <li><b>Interactive installer UI:</b> the installer was tested in silent mode (/S); the wizard pages were not clicked through on CI.</li>
 </ul>
@@ -167,9 +193,12 @@ ${am.phoneChat ? kv({ 'Tokens streamed to the phone': am.phoneChat.tokens, 'Firs
 <h2>Screenshots from this run</h2>
 ${img('e2e-windows', '03-dashboard.png', 'Windows: dashboard (installed app)')}${img('e2e-windows', '05-chat-answer.png', 'Windows: real local model answering')}${img('e2e-windows', '04-settings-performance.png', 'Windows: Settings → Performance')}
 ${img('e2e-windows', 'page-models.png', 'Windows: Models')}${img('e2e-windows', 'page-system.png', 'Windows: System monitor')}${img('e2e-windows', '06-hud.png', 'Windows: floating HUD')}
-${img('e2e-android', 'a03-home-connected.png', 'Android: connected to the PC')}${img('e2e-android', 'a06-chat-reply.png', 'Android: reply streamed from the PC')}${img('e2e-android', 'a08-notification-shade.png', 'Android: notification from the PC')}
-${img('e2e-android', 'a09-pc-offline.png', 'Android: PC offline detected')}${img('e2e-android', 'a11-small-phone-home.png', 'Android: 720×1280 phone')}${img('e2e-android', 'a11-tablet-chat.png', 'Android: tablet')}
+${img('e2e-windows', 'page-agent.png', 'Windows: VIPER Code Agent workspace')}${img('e2e-windows', 'page-devices.png', 'Windows: Connected Devices')}${img('e2e-windows', 'page-notifications.png', 'Windows: Notifications')}
+${img('e2e-android', 'a01-welcome.png', 'Android: welcome screen')}${img('e2e-android', 'a02-waiting-approval.png', 'Android: waiting for approval on the PC')}${img('e2e-android', 'a03-home-connected.png', 'Android: connected to the PC')}
+${img('e2e-android', 'a08-notification-shade.png', 'Android: JARVIS-style notifications')}${img('e2e-android', 'a08b-approval-review.png', 'Android: approval review screen')}${img('e2e-android', 'a08c-agent-question.png', 'Android: Code Agent question')}
+${img('e2e-android', 'a06-chat-reply.png', 'Android: reply streamed from the PC')}${img('e2e-android', 'a09-pc-offline.png', 'Android: VIPER is currently offline')}${img('e2e-android', 'a09b-diagnostics.png', 'Android: connection diagnostics')}
+${img('e2e-android', 'a11-small-phone-prompt.png', 'Android: 720×1280 phone')}${img('e2e-android', 'a11-tablet-manage.png', 'Android: tablet')}${img('e2e-android', 'a04-tab-make.png', 'Android: Make category')}
 </body></html>`;
 
 fs.writeFileSync(OUT, html);
-console.log(`report: ${OUT} · windows ${win ? win.results.length : 0} checks · android ${and ? and.results.length : 0} checks · unit ${unit.pass}/${unit.tests} · secret-scan ${scanHits.length} hits in ${scanned} files`);
+console.log(`report: ${OUT} · windows ${win ? win.results.length : 0} checks · android ${and ? and.results.length : 0} checks · agent ${agent ? agent.results.length : 0} checks · unit ${unit.pass}/${unit.tests} · secret-scan ${scanHits.length} hits in ${scanned} files`);

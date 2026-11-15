@@ -58,7 +58,7 @@ test('every UI and phone API call has a server route', async (t) => {
   const calls = [...rendererCalls(), ...mobileCalls()];
   assert.ok(calls.length > 150, `found ${calls.length} API calls to audit`);
   // Routes served by the phone link's own HTTPS listener (pairing, handshake, event stream).
-  const remoteOnly = new Set(['POST /api/v1/pair', 'GET /api/v1/hello', 'GET /api/v1/device/me', 'POST /api/v1/transfer/upload', 'GET /api/v1/transfer/list', 'POST /api/v1/sms/result']);
+  const remoteOnly = new Set(['POST /api/v1/pair', 'GET /api/v1/hello', 'GET /api/v1/device/me', 'POST /api/v1/transfer/upload', 'GET /api/v1/transfer/list', 'POST /api/v1/sms/result', 'GET /api/v1/device/push-config', 'POST /api/v1/device/push']);
   const servedByPhoneLink = (c) => remoteOnly.has(`${c.method} ${c.path}`) || (c.method === 'GET' && c.path.startsWith('/api/v1/transfer/file/'));
   const missing = calls.filter((c) => !servedByPhoneLink(c) && !svc.router.match(c.method, c.path));
   assert.deepEqual(missing, [], `API calls with no route:\n${missing.map((m) => `${m.method} ${m.path}  (${m.file})`).join('\n')}`);
@@ -67,7 +67,7 @@ test('every UI and phone API call has a server route', async (t) => {
 test('every phone API call targets a route a paired device may use', async (t) => {
   const svc = await startViper('routes-phone');
   t.after(() => svc.shutdown());
-  const phoneOnly = /^\/api\/v1\/(pair|hello|device\/me|transfer\/|sms\/result)/;
+  const phoneOnly = /^\/api\/v1\/(pair|hello|device\/me|transfer\/|sms\/result|device\/push)/;
   const bad = mobileCalls().filter((c) => !phoneOnly.test(c.path)).map((c) => ({ ...c, route: svc.router.match(c.method, c.path)?.route }))
     .filter((c) => !c.route?.opts?.scope).map((c) => `${c.method} ${c.path} (${c.file})`);
   assert.deepEqual(bad, [], `phone calls to desktop-only routes (would return 403):\n${bad.join('\n')}`);
