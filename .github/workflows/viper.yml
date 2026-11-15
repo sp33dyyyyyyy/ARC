@@ -144,6 +144,8 @@ jobs:
       - name: Install Ollama and the test model
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          # Some runner images have no systemd, so the installer cannot start the service: start it here.
+          curl -sf http://127.0.0.1:11434/api/version || (nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &)
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/version && break; sleep 2; done
           ollama pull "$E2E_MODEL"
       - name: Enable KVM
