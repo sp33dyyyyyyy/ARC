@@ -92,7 +92,7 @@ ${kv({ 'Build status': 'Built on windows-latest with electron-builder: NSIS inst
 <h3>Installer</h3>${table(win?.results, ['Installer', 'Portable'])}
 <h3>Start-up, navigation and application behaviour</h3>${table(win?.results, ['App'])}
 <h3>Chat inference (real local model)</h3>${table(win?.results, ['AI'])}
-${m.chat ? kv({ 'Time to first token (UI)': `${m.chat.ttftMs} ms`, 'Complete reply': `${m.chat.totalMs} ms`, 'Generation speed': m.chat.tokPerS ? `${m.chat.tokPerS} tokens/s` : '—', 'Follow-up turn (prompt cache reused)': m.chatTurn2 ? `first token ${m.chatTurn2.ttftMs} ms, complete ${m.chatTurn2.totalMs} ms` : '—', 'Model warm-up': m.warmupMs != null ? `${m.warmupMs} ms` : '—' }) : ''}
+${m.chat ? kv({ 'Time to first token (UI)': `${m.chat.ttftMs} ms`, 'Complete reply': `${m.chat.totalMs} ms`, 'Generation speed': m.chat.tokPerS ? `${m.chat.tokPerS} tokens/s` : '—', 'Follow-up turn (prompt cache reused)': m.chatTurn2 ? `first token ${m.chatTurn2.ttftMs ?? m.chatTurn2.ttft} ms, complete ${m.chatTurn2.totalMs ?? m.chatTurn2.total} ms` : '—', 'Model warm-up': m.warmupMs != null ? `${m.warmupMs} ms` : '—' }) : ''}
 <h3>Voice</h3>${table(win?.results, ['Voice'])}
 <h3>UI performance, CPU and RAM</h3>${table(win?.results, ['Performance', 'System'])}
 ${kv({
