@@ -30,8 +30,16 @@ const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 <
 const sh = (cmd) => adb('shell', cmd);
 function screenshot(name) { try { const png = execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20 }); fs.writeFileSync(path.join(OUT, `${name}.png`), png); } catch (e) { console.log('screenshot failed', e.message); } }
 function dump() {
-  for (let i = 0; i < 3; i++) {
-    try { sh('uiautomator dump /sdcard/ui.xml >/dev/null'); const xml = adb('exec-out', 'cat', '/sdcard/ui.xml'); if (xml.includes('<hierarchy')) return parseNodes(xml); } catch { /* retry */ }
+  for (let i = 0; i < 4; i++) {
+    try {
+      sh('uiautomator dump /sdcard/ui.xml >/dev/null'); const xml = adb('exec-out', 'cat', '/sdcard/ui.xml');
+      if (!xml.includes('<hierarchy')) continue;
+      const nodes = parseNodes(xml);
+      // A freshly booted emulator sometimes reports its own launcher as "not responding";
+      // that system dialog belongs to Android, not VIPER: dismiss it and look again.
+      if (nodes.some((n) => /isn.t responding/.test(n.text))) { const w = nodes.find((n) => /^Wait$/.test(n.text)); if (w) { tapNode(w); execFileSync('sleep', ['1']); continue; } }
+      return nodes;
+    } catch { /* retry */ }
   }
   return [];
 }
@@ -79,6 +87,11 @@ async function startCore() {
   // ===== install =====
   try { adb('uninstall', PKG); } catch { /* not installed */ }
   sh('logcat -c'); try { adb('logcat', '-b', 'crash', '-c'); } catch { /* ignore */ }
+  // Let the emulator finish booting its own apps, and keep system "not responding" dialogs from
+  // covering the screen (VIPER crashes are still caught from the logcat crash buffer).
+  await until(() => sh('getprop sys.boot_completed').trim() === '1', 120000, 2000);
+  try { sh('settings put global hide_error_dialogs 1'); } catch { /* not available */ }
+  await sleep(5000);
   let out = ''; try { out = adb('install', '-r', APK); } catch (e) { out = e.stdout || e.message; }
   check('Install', 'APK installs on the emulator', /Success/.test(out), out.trim().split('\n').pop());
   const info = sh(`dumpsys package ${PKG}`);
