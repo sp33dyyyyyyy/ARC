@@ -160,6 +160,12 @@ class ViperApp : Application() {
                 closedConfirms.update { (it + cid).toList().takeLast(50).toSet() }
                 Notifier.cancel(this, "confirm:$cid"); confirmNotifications.remove(cid)?.let { Notifier.cancel(this, it) }
             }
+            // Read on the PC or on another screen: clear it from the phone's notification shade too.
+            "notifications.read" -> {
+                val id = d.optString("id")
+                if (id == "all") { NotificationManagerCompat.from(this).cancelAll(); notifications.update { l -> l.map { JSONObject(it.toString()).put("read", true) } } }
+                else if (id.isNotBlank()) { Notifier.cancel(this, id); notifications.update { l -> l.map { if (it.optString("id") == id) JSONObject(it.toString()).put("read", true) else it } } }
+            }
             "system.sample" -> snapshot.value = d
             "voice.stop" -> speaker.stop()
             "sms.send" -> { pendingSms.value = d; if (!foreground) notifyUser("Your PC wants to send an SMS", "To ${d.optString("to")}. Open VIPER Mobile to approve or decline.") }

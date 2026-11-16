@@ -327,9 +327,12 @@ async function startCore() {
       // Android may bundle the app's notifications into a collapsed group, or collapse the notification:
       // expand it the way a person does (drag down on it), up to twice (group, then notification).
       for (let k = 0; k < 2 && !n; k++) {
-        const m = ns.find((x) => marker.test(x.text) && x.b) || ns.find((x) => /^VIPER — (Approval|Input) Required$|^VIPER Mobile$/.test(x.text) && x.b);
+        const m = ns.find((x) => marker.test(x.text) && x.b) || ns.find((x) => /^VIPER — (Approval|Input) Required$/.test(x.text) && x.b) || ns.find((x) => /^VIPER Mobile$/.test(x.text) && x.b);
         if (!m) break;
-        sh(`input swipe ${m.b[0] + 40} ${m.b[1] + 10} ${m.b[0] + 40} ${m.b[3] + 400} 350`); await sleep(1300);
+        // Prefer the notification's own expand button (next to its title); otherwise drag it open.
+        const exp = ns.filter((x) => /^Expand/i.test(x.desc) && x.b && Math.abs(x.b[1] - m.b[1]) < 120).sort((a, b) => Math.abs(a.b[1] - m.b[1]) - Math.abs(b.b[1] - m.b[1]))[0];
+        if (exp) tapNode(exp); else sh(`input swipe ${m.b[0] + 40} ${m.b[1] + 10} ${m.b[0] + 40} ${m.b[3] + 400} 350`);
+        await sleep(1300);
         ns = dump(); n = pick(ns);
       }
       if (n) { tapNode(n); await sleep(2000); return true; }
@@ -339,6 +342,10 @@ async function startCore() {
     }
     return false;
   };
+  // Reading notifications on the PC clears them from the phone's shade (fewer notifications, no bundling).
+  svc.notify.markRead('all'); await sleep(2500);
+  const shadeAfterRead = posted().filter((p) => /^VIPER( —|$)/.test(p.title)).length;
+  check('Notifications', 'notifications read on the PC are removed from the phone\'s shade', shadeAfterRead === 0, `${shadeAfterRead} VIPER notifications left`);
   await clearShade();
   const decA = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "npm install" in Calculator?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'npm install', risk: 'network', origin: 'code agent', agent: true });
   let decAValue = null; decA.then((v) => { decAValue = v; });

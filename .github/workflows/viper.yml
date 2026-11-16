@@ -99,7 +99,7 @@ jobs:
           $exe = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
           try { Invoke-RestMethod http://127.0.0.1:11434/api/version -TimeoutSec 3 | Out-Null } catch { Start-Process $exe -ArgumentList 'serve' -WindowStyle Hidden }
           for ($i = 0; $i -lt 60; $i++) { try { Invoke-RestMethod http://127.0.0.1:11434/api/version | Out-Null; break } catch { Start-Sleep 2 } }
-          & $exe pull qwen2.5-coder:3b
+          & $exe pull qwen2.5-coder:7b
           & $exe pull qwen2.5:0.5b
           python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
           git config --global user.email "ci@viper.local"; git config --global user.name "VIPER CI"
@@ -110,6 +110,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force agent-out | Out-Null
           $env:E2E_OUT = (Resolve-Path agent-out).Path
+          $env:E2E_CODER = 'qwen2.5-coder:7b'
           node test/e2e/agent-e2e.js
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4

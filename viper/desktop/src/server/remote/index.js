@@ -274,7 +274,7 @@ class RemoteLink {
   }
   forwardEvent(evt) {
     const t = evt.type;
-    const allowed = /^(chat\.|agent\.(run|plan|step|decision|done|log)|notification$|tasks\.changed|models\.(download|health)|reminders\.changed|automations?\.|ui\.navigate|voice\.(stop|speak)|confirm\.(request|closed)|system\.(sample|alert)|image\.progress|conversations\.changed)/.test(t);
+    const allowed = /^(chat\.|agent\.(run|plan|step|decision|done|log)|notification$|notifications\.read$|tasks\.changed|models\.(download|health)|reminders\.changed|automations?\.|ui\.navigate|voice\.(stop|speak)|confirm\.(request|closed)|system\.(sample|alert)|image\.progress|conversations\.changed)/.test(t);
     if (!allowed || !this.sockets.size) return;
     if (t === 'system.sample') { if (Date.now() - this.lastSampleSent < 5000) return; this.lastSampleSent = Date.now(); }
     for (const [, set] of this.sockets) for (const ws of set) {
