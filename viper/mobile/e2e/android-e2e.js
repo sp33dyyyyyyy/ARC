@@ -236,10 +236,11 @@ async function startCore() {
   // longer answer in the same chat and watch that one (the phone screen must change several times
   // while tokens are still arriving from the PC).
   let streamSeen = seen; let streamTokens = tokens.length;
-  for (let attempt = 0; attempt < 2 && !(new Set(streamSeen).size >= 3 && streamTokens > 5); attempt++) {
+  const LONG = ['Write a numbered list of twenty fruits with one short sentence about each', 'Count from one to sixty in words, one number per line'];
+  for (let attempt = 0; attempt < 3 && !(new Set(streamSeen).size >= 3 && streamTokens > 5); attempt++) {
     const n0 = svc.orchestrator.messages(arrived?.c.id || '').filter((m) => m.role === 'assistant').length;
     const toks = []; const f = (e) => { if (e.type === 'chat.token') toks.push(Date.now()); }; svc.bus.on('event', f);
-    await tap(/^Message$/); typeText('Write a numbered list of twenty fruits with one short sentence about each'); sh('input keyevent 4'); await sleep(400);
+    await tap(/^Message$/); typeText(LONG[attempt % 2]); sh('input keyevent 4'); await sleep(400);
     await tap(/^Send$/);
     const lens = [];
     await until(() => { const l = screenWords().length; if (!lens.length || lens[lens.length - 1] !== l) lens.push(l); return svc.orchestrator.messages(arrived?.c.id || '').filter((m) => m.role === 'assistant').length > n0; }, 180000, 250);
@@ -316,7 +317,7 @@ async function startCore() {
   // Start each approval check with an empty shade so its notification is the expanded one on top.
   const clearShade = async () => {
     sh('cmd statusbar expand-notifications'); await sleep(1500);
-    const c = await scrollTo(/^Clear all$/i, 3); if (c) tapNode(c);
+    const c = find(dump(), /^Clear all$/i); if (c) tapNode(c);
     sh('cmd statusbar collapse'); await sleep(800);
   };
   // Tap an action button of ONE specific notification: the button nearest below the text `marker`.
@@ -326,7 +327,11 @@ async function startCore() {
     const rx = new RegExp(`^${label}$`, 'i');
     const pick = (ns) => { const m = ns.find((x) => marker.test(x.text) && x.b); if (!m) return null; return ns.filter((x) => rx.test(x.text) && x.b && x.b[1] >= m.b[1]).sort((a, b) => a.b[1] - b.b[1])[0] || null; };
     for (let attempt = 0; attempt < 4; attempt++) {
-      sh('cmd statusbar expand-notifications'); await sleep(1500 + attempt * 500);
+      // Open the shade with a finger swipe from the top edge (as a person does): a shade opened by the
+      // shell command alone may not take focus, and the UI dump then describes the window behind it.
+      const [sw, shh] = screenSize();
+      if (attempt % 2 === 0) { sh('cmd statusbar collapse'); await sleep(400); sh(`input swipe ${sw >> 1} 2 ${sw >> 1} ${Math.round(shh * 0.75)} 350`); } else sh('cmd statusbar expand-notifications');
+      await sleep(1500 + attempt * 500);
       let ns = dump(); let n = pick(ns);
       // Android may bundle the app's notifications into a collapsed group, or collapse the notification:
       // expand it the way a person does (drag down on it), up to twice (group, then notification).
