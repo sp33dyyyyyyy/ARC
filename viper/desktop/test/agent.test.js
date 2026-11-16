@@ -241,6 +241,11 @@ test('model-written commands: known mistakes are corrected', () => {
   assert.equal(normalizeCommand('python -m unittest discover -s tests.py'), 'python -m unittest discover -v');
   assert.equal(normalizeCommand('python -m unittest discover -s tests'), 'python -m unittest discover -s tests', 'a folder is fine');
   assert.equal(normalizeCommand('npm test'), 'npm test');
+  const root = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'viper-norm-'));
+  require('node:fs').mkdirSync(require('node:path').join(root, 'tests'));
+  assert.equal(normalizeCommand('python -m unittest discover test', 'linux', root), 'python -m unittest discover -s .', 'a missing folder would run Python\'s own "test" package');
+  assert.equal(normalizeCommand('python -m unittest discover tests', 'linux', root), 'python -m unittest discover tests', 'an existing folder is kept');
+  assert.equal(normalizeCommand('python -m unittest discover -v', 'linux', root), 'python -m unittest discover -v');
   assert.equal(normalizeCommand("python -m unittest discover -s . -p 'test_*.py'", 'win32'), 'python -m unittest discover -s . -p "test_*.py"', 'cmd.exe has no single quotes');
   assert.equal(normalizeCommand("python -m unittest discover -s . -p 'test_*.py'", 'linux'), "python -m unittest discover -s . -p 'test_*.py'");
 });

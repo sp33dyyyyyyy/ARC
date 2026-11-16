@@ -288,7 +288,7 @@ class CodeAgent {
     // Commands the user asked for, and an existing project's own npm scripts, take precedence.
     for (const m of String(run.request).matchAll(/["“`]([^"”`]{3,120})["”`]\s+(?:to|for)\s+(build|test|run)\b/gi)) j[m[2].toLowerCase()] = m[1].trim();
     try { const pkg = JSON.parse(fs.readFileSync(path.join(project.path, 'package.json'), 'utf8')); if (pkg.scripts?.build && !/\bnpm(\.cmd)? run build\b/.test(j.build || '')) j.build = 'npm run build'; if (pkg.scripts?.test && !/\bnpm(\.cmd)? (run )?test\b/.test(j.test || '')) j.test = 'npm test'; } catch { /* no package.json */ }
-    for (const k of ['build', 'test', 'run']) if (typeof j[k] === 'string') j[k] = normalizeCommand(j[k]);
+    for (const k of ['build', 'test', 'run']) if (typeof j[k] === 'string') j[k] = normalizeCommand(j[k], process.platform, project.path);
     return j;
   }
 
@@ -577,9 +577,10 @@ class CodeAgent {
     const j = extractJson(pick) || {};
     // The command itself can be wrong (bad arguments, a test runner that is not installed): let the
     // model correct it — but only to a command VIPER's policy allows without asking.
-    if (BAD_COMMAND.test(err) || PLACEHOLDER.test(command) || (typeof j.command === 'string' && j.command.trim() && j.command.trim() !== command)) {
-      const proposed = typeof j.command === 'string' && j.command.trim() ? normalizeCommand(j.command.trim()) : null;
-      let fixedCmd = proposed && proposed !== command && !PLACEHOLDER.test(proposed) ? proposed : normalizeCommand(command) !== command ? normalizeCommand(command) : null;
+    if (BAD_COMMAND.test(err) || /\[VIPER\] Stopped: exceeded the \d+-minute time limit/.test(err) || PLACEHOLDER.test(command) || (typeof j.command === 'string' && j.command.trim() && j.command.trim() !== command)) {
+      const proposed = typeof j.command === 'string' && j.command.trim() ? normalizeCommand(j.command.trim(), process.platform, project.path) : null;
+      const norm = normalizeCommand(command, process.platform, project.path);
+      let fixedCmd = proposed && proposed !== command && !PLACEHOLDER.test(proposed) ? proposed : norm !== command ? norm : null;
       if (!fixedCmd && PLACEHOLDER.test(command)) {
         const ex = extractJson(await this.llm(run, 'debug', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: `The ${stage} command contains a placeholder and cannot run: ${command}\nUSER REQUEST: ${run.request}\nReply with JSON {"command": the same command with a concrete, realistic example value instead of the placeholder}.` }], { json: true, maxTokens: 200, signal, label: 'Code Agent · fixing the command' })) || {};
         if (typeof ex.command === 'string' && ex.command.trim() && !PLACEHOLDER.test(ex.command)) fixedCmd = normalizeCommand(ex.command.trim());
@@ -667,8 +668,11 @@ function errorLocations(out, root) {
 const PLACEHOLDER = /<\s*[a-z][\w .-]*>/i;
 const BAD_COMMAND = /NO TESTS RAN|Ran 0 tests|collected 0 items|^# tests 0$|Start directory is not importable|is not recognized as an internal or external command|command not found|No module named (pytest|unittest2)\b|unrecognized arguments|error: unrecognized|Unknown option|can't open file .*No such file/im;
 /** Fix well-known mistakes in model-written commands. */
-function normalizeCommand(cmd, platform = process.platform) {
+function normalizeCommand(cmd, platform = process.platform, root = null) {
   let c = String(cmd).trim();
+  // `unittest discover <dir>` with a folder that is not in the project would import a package of the
+  // same name from Python itself (e.g. "test" = CPython's own regression suite): use the project.
+  if (root) c = c.replace(/(-m\s+unittest\s+discover)\s+(?:-s\s+)?(["']?)([\w./\\-]+)\2(?=\s|$)/i, (m, pre, q, dir) => (dir.startsWith('-') || fs.existsSync(path.join(root, dir)) ? m : `${pre} -s .`));
   // cmd.exe does not understand single quotes: 'test_*.py' would be passed with the quotes.
   if (platform === 'win32') c = c.replace(/'([^'"]*)'/g, '"$1"');
   c = c.replace(/(-m\s+unittest\s+discover)\s+(?:-s\s+)?\S+\.py\b/i, '$1 -v'); // discover takes a folder, not a file
