@@ -58,6 +58,8 @@ class ViperApp : Application() {
     val networkUp = MutableStateFlow(true)
     /** Screen to open from a notification tap: (action, link). */
     val pendingLink = MutableStateFlow<Pair<String, JSONObject?>?>(null)
+    /** Ids of approval requests that were answered, withdrawn or expired (closes a stale review screen). */
+    val closedConfirms = MutableStateFlow<Set<String>>(emptySet())
     val pushStatus = MutableStateFlow("")
     private lateinit var deduper: Deduper
     private val confirmNotifications = mutableMapOf<String, String>() // confirm id -> PC notification id
@@ -155,6 +157,7 @@ class ViperApp : Application() {
             "confirm.closed" -> {
                 val cid = d.optString("id")
                 if (pendingConfirm.value?.optString("id") == cid) pendingConfirm.value = null
+                closedConfirms.update { (it + cid).toList().takeLast(50).toSet() }
                 Notifier.cancel(this, "confirm:$cid"); confirmNotifications.remove(cid)?.let { Notifier.cancel(this, it) }
             }
             "system.sample" -> snapshot.value = d

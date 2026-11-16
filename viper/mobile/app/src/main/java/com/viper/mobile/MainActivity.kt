@@ -170,6 +170,9 @@ class MainActivity : FragmentActivity() {
         val link by app.pendingLink.collectAsState()
         // An approval request arriving while the app is open goes straight to the review screen.
         LaunchedEffect(confirm?.optString("id")) { confirm?.let { if (review == null) review = it } }
+        // A request answered on the PC (or that expired) must not stay on screen as if it were pending.
+        val closed by app.closedConfirms.collectAsState()
+        LaunchedEffect(closed, review?.optString("id")) { review?.let { r -> if (r.optString("id") in closed) { review = null; app.notifyUser("Request closed", "It was answered on your PC, or it expired.", "closed:${r.optString("id")}") } } }
         // Notification taps (deep links).
         LaunchedEffect(link) {
             val (action, l) = link ?: return@LaunchedEffect
