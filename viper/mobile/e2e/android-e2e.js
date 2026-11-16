@@ -290,6 +290,8 @@ async function startCore() {
     download_complete: ['VIPER — Download Complete', 'Your download is ready, sir.', 'viper_tasks', []],
     system_alert: ['VIPER — System Alert', 'Your system requires attention, sir.', 'viper_system', []],
   };
+  // The phone must show exactly the action buttons the PC defines for each kind.
+  for (const kind of Object.keys(EXPECT)) EXPECT[kind][3] = svc.notify.compose(kind).actions.map((a) => a[1]);
   const sentIds = {};
   for (const kind of Object.keys(EXPECT)) { const r = await svc.notify.send({ kind, link: { type: 'notifications', id: `e2e-${kind}` }, channels: ['mobile'], dedupeKey: `e2e:${kind}` }); sentIds[kind] = r.id; await sleep(400); }
   const allShown = await until(() => { const ps = posted(); return Object.values(EXPECT).every(([t]) => ps.some((p) => p.title === t)) ? ps : null; }, 30000, 1500) || posted();
@@ -307,6 +309,12 @@ async function startCore() {
   try { sh('service call notification 1'); } catch { /* best effort clear */ }
 
   // Approval escalated from the PC: "Dismiss" must NOT approve; "Review Request" opens the review screen.
+  // Start each approval check with an empty shade so its notification is the expanded one on top.
+  const clearShade = async () => {
+    sh('cmd statusbar expand-notifications'); await sleep(1500);
+    const c = await scrollTo(/^Clear all$/i, 3); if (c) tapNode(c);
+    sh('cmd statusbar collapse'); await sleep(800);
+  };
   const shadeTap = async (title, label) => {
     sh('cmd statusbar expand-notifications'); await sleep(1800);
     let n = find(dump(), new RegExp(`^${label}$`, 'i'));
@@ -314,6 +322,7 @@ async function startCore() {
     if (n) tapNode(n); else sh('cmd statusbar collapse');
     await sleep(2000); return !!n;
   };
+  await clearShade();
   const decA = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "npm install" in Calculator?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'npm install', risk: 'network', origin: 'code agent', agent: true });
   let decAValue = null; decA.then((v) => { decAValue = v; });
   const shownA = await until(() => posted().find((p) => p.title === EXPECT.approval_required[0] && /proceed/.test(p.text)), 30000, 1500);
@@ -323,6 +332,7 @@ async function startCore() {
   const pendingA = svc.permissions.listPending().find((p) => p.title.startsWith('Run "npm install"'));
   check('Approvals', 'dismissing the notification does NOT approve (request still waiting on the PC)', tappedDismiss && !!pendingA && decAValue === null, `Dismiss tapped: ${tappedDismiss} · still pending: ${!!pendingA} · answered: ${decAValue}`);
   if (pendingA) svc.permissions.respond(pendingA.id, false);
+  await clearShade();
   const decB = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "pip install requests" in Weather?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'python -m pip install requests', risk: 'network', origin: 'code agent', agent: true });
   let decBValue = null; decB.then((v) => { decBValue = v; });
   await until(() => posted().find((p) => p.title === EXPECT.approval_required[0]), 30000, 1500);
@@ -342,6 +352,7 @@ async function startCore() {
   const planObj = { title: 'Weather app', stack: 'python', steps: [{ id: 'inspect', title: 'Inspect project', status: 'complete' }, { id: 'plan', title: 'Plan the changes', status: 'needs_input' }] };
   svc.db.run('INSERT INTO agent_runs (id, project_id, request, status, plan, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', runId, proj.id, 'Build a small weather app', 'running', JSON.stringify(planObj), 'e2e', nowTs, nowTs);
   const runObj = { id: runId, project_id: proj.id, request: 'Build a small weather app', status: 'running', plan: planObj };
+  await clearShade();
   const answerP = svc.agent.ask(runObj, proj, 'Which user interface should the weather app use?', ['Desktop window (tkinter)', 'Command line']);
   let answered = null; answerP.then((a) => { answered = a; });
   const shownQ = await until(() => posted().find((p) => p.title === EXPECT.input_required[0]), 30000, 1500);
@@ -418,15 +429,16 @@ async function startCore() {
   screenshot('a10-reconnected');
   // Network change: the phone loses and regains its network; it reconnects as soon as it is back.
   sh('cmd connectivity airplane-mode enable'); await sleep(1000);
-  const lost = await until(() => svc.remote.status().connected.length === 0, 40000, 1000);
+  let lost = await until(() => svc.remote.status().connected.length === 0, 25000, 1000);
+  if (!lost) { sh('svc wifi disable; svc data disable'); lost = await until(() => svc.remote.status().connected.length === 0, 30000, 1000); }
   if (!lost) record('Network', 'reconnects as soon as the phone\'s network returns', 'BLOCKED', 'airplane mode did not cut the emulator\'s link to the host');
   else {
     await sleep(35000); // long enough for the backoff to reach its 30 s ceiling
-    const tNet = Date.now(); sh('cmd connectivity airplane-mode disable');
+    const tNet = Date.now(); sh('cmd connectivity airplane-mode disable'); sh('svc wifi enable; svc data enable');
     const regained = await until(() => svc.remote.status().connected.length === 1, 60000, 500);
     check('Network', 'reconnects as soon as the phone\'s network returns (network-change detection)', !!regained && Date.now() - tNet < 20000, regained ? `reconnected ${Date.now() - tNet} ms after the network returned` : 'did not reconnect');
   }
-  sh('cmd connectivity airplane-mode disable');
+  sh('cmd connectivity airplane-mode disable'); sh('svc wifi enable; svc data enable'); await sleep(2000);
 
   // ===== pairing persists across app restarts =====
   sh(`am force-stop ${PKG}`); await sleep(1000);

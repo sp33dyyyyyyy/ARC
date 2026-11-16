@@ -258,3 +258,14 @@ test('the same failure is recognised even when the model only edited comments or
   assert.equal(errorSignature(a), errorSignature(b));
   assert.notEqual(errorSignature(a), errorSignature(a.replace('6.0 != 14.0', '13.0 != 14.0')));
 });
+
+test('error locations: the file and line a compiler or traceback points at', () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const { errorLocations } = require('../src/server/agent/index');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'viper-loc-'));
+  for (const f of ['format.js', 'stats.js', 'calc.py', 'test_calc.py']) fs.writeFileSync(path.join(root, f), '');
+  assert.deepEqual(errorLocations(`${path.join(root, 'format.js')}:3\n  return n.toFixed(2;\nSyntaxError: missing ) after argument list`, root)[0], { file: 'format.js', line: 3 });
+  const tb = `Traceback (most recent call last):\n  File "${path.join(root, 'test_calc.py')}", line 9, in test_x\n  File "${path.join(root, 'calc.py')}", line 21, in evaluate\nZeroDivisionError`;
+  assert.deepEqual(errorLocations(tb, root)[0], { file: 'calc.py', line: 21 }, 'innermost Python frame first');
+  assert.deepEqual(errorLocations('/usr/lib/node/internal.js:10 at foo', root), [], 'files outside the project are ignored');
+});

@@ -20,17 +20,19 @@ const OUT = process.env.E2E_OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'viper-
 const CODER = process.env.E2E_CODER || 'qwen2.5-coder:3b';
 const CHAT = process.env.E2E_CHAT || 'qwen2.5:0.5b';
 const WIN = process.platform === 'win32';
+const ONLY = process.env.E2E_ONLY ? process.env.E2E_ONLY.split(',') : null; // run a subset (development)
 fs.mkdirSync(OUT, { recursive: true });
 const results = []; const metrics = { coder: CODER, platform: `${process.platform} ${os.release()}`, cpus: os.cpus().length, ramGB: Math.round(os.totalmem() / 1073741824), scenarios: {} };
 const record = (area, name, status, detail = '') => { results.push({ area, name, status, detail: String(detail).slice(0, 1500) }); console.log(`[${status}] ${area}: ${name}${detail ? ` — ${String(detail).slice(0, 300)}` : ''}`); };
 const check = (area, name, ok, detail) => record(area, name, ok ? 'PASS' : 'FAIL', detail);
 const save = () => fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ results, metrics }, null, 2));
 const PY = WIN ? 'python' : 'python3';
-const run = (cmd, args, cwd, timeout = 300000) => { const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout, shell: WIN, windowsHide: true }); return { code: r.status, out: `${r.stdout || ''}${r.stderr || ''}`.slice(-3000) }; };
+// A shell is needed only for npm.cmd on Windows; python -c "..." must not go through cmd.exe quoting.
+const run = (cmd, args, cwd, timeout = 300000) => { const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout, shell: WIN && /\.cmd$/i.test(cmd), windowsHide: true }); return { code: r.status, out: `${r.stdout || ''}${r.stderr || ''}`.slice(-3000) }; };
 /** Starts a GUI app and checks it is still running after `ms` (then closes it). */
 function staysOpen(cmd, args, cwd, ms = 6000) {
   return new Promise((resolve) => {
-    const p = spawn(cmd, args, { cwd, windowsHide: false, shell: WIN }); let exited = null; let out = '';
+    const p = spawn(cmd, args, { cwd, windowsHide: false, shell: false }); let exited = null; let out = '';
     p.stdout?.on('data', (d) => { out += d; }); p.stderr?.on('data', (d) => { out += d; });
     p.on('exit', (c) => { exited = c; });
     setTimeout(() => { const alive = exited === null; try { if (WIN) spawnSync('taskkill', ['/pid', String(p.pid), '/t', '/f']); else p.kill('SIGKILL'); } catch { /* gone */ } resolve({ alive, exited, out: out.slice(-800) }); }, ms);
@@ -75,7 +77,7 @@ function staysOpen(cmd, args, cwd, ms = 6000) {
   };
 
   // ---------- 1. Windows calculator from scratch ----------
-  try {
+  if (ONLY && !ONLY.includes('calculator')) { /* skipped */ } else try {
     const p = await svc.agent.createProject({ name: 'Calculator' });
     const s = await scenario('calculator', p, 'Create a small Windows calculator application with working buttons, using Python and tkinter (no extra packages). Put the calculation logic in calc.py (functions for add, subtract, multiply, divide — divide by zero raises ValueError — and evaluate(expression) for expressions like "12+3*4" without using eval), with unit tests in test_calc.py using unittest. main.py opens the calculator window with buttons for digits 0-9, + - * /, =, C and a display.');
     check('Agent: calculator', 'agent run finished with its completion criteria passed (build/tests/launch)', s.run.status === 'completed', `${s.run.status} in ${s.seconds} s · fix attempts ${s.run.result?.fixAttempts ?? '—'} · ${s.run.result?.remaining?.join(' ') || ''}`);
@@ -97,7 +99,7 @@ function staysOpen(cmd, args, cwd, ms = 6000) {
   save();
 
   // ---------- 2. Edit an existing project ----------
-  try {
+  if (ONLY && !ONLY.includes('edit')) { /* skipped */ } else try {
     const dir = path.join(WORK, 'TodoApp'); fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'todo.py'), 'def add(items, title):\n    items.append({"title": title, "done": False})\n    return items\n\n\ndef complete(items, title):\n    for item in items:\n        if item["title"] == title:\n            item["done"] = True\n    return items\n');
     fs.writeFileSync(path.join(dir, 'test_todo.py'), 'import unittest\nfrom todo import add, complete\n\n\nclass TodoTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add([], "milk"), [{"title": "milk", "done": False}])\n\n    def test_complete(self):\n        self.assertTrue(complete(add([], "milk"), "milk")[0]["done"])\n\n\nif __name__ == "__main__":\n    unittest.main()\n');
@@ -118,7 +120,7 @@ function staysOpen(cmd, args, cwd, ms = 6000) {
   save();
 
   // ---------- 3. Recover from a failed build ----------
-  try {
+  if (ONLY && !ONLY.includes('recover')) { /* skipped */ } else try {
     const dir = path.join(WORK, 'Stats'); fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'stats', version: '1.0.0', private: true, scripts: { build: 'node --check stats.js && node --check format.js', test: 'node --test' } }, null, 2));
     // format.js has a syntax error the request does not mention: the first build must fail.
@@ -134,6 +136,8 @@ function staysOpen(cmd, args, cwd, ms = 6000) {
     check('Agent: recover from failed build', 'the agent saw the build fail, diagnosed it and fixed it', buildFails >= 1 && s.run.status === 'completed', `${buildFails} failed build(s) observed · fixes: ${analyses.slice(0, 3).join(' | ') || 'none'} · final ${s.run.status}`);
     const b = run(WIN ? 'npm.cmd' : 'npm', ['run', 'build'], dir); const t = run(WIN ? 'npm.cmd' : 'npm', ['test'], dir);
     check('Agent: recover from failed build', 'independent re-run: build and tests pass', b.code === 0 && t.code === 0, `build exit ${b.code} · test exit ${t.code} · ${t.out.split('\n').filter((l) => /^# (pass|fail)/.test(l)).join(' ')}`);
+    const testSrc = fs.readFileSync(path.join(dir, 'stats.test.js'), 'utf8'); const passN = +(t.out.match(/^# pass (\d+)/m) || [])[1] || 0;
+    check('Agent: recover from failed build', 'existing tests kept (mean, formatNumber) and a test for max added', /test\(\s*['"]mean/.test(testSrc) && /test\(\s*['"]formatNumber/.test(testSrc) && /max/.test(testSrc) && passN >= 3, `${passN} tests passing`);
     honestNotification('Agent: recover from failed build', s);
   } catch (e) { record('Agent: recover from failed build', 'scenario', 'FAIL', e.stack); }
 

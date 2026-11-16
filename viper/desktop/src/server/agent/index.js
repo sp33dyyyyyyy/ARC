@@ -285,6 +285,9 @@ class CodeAgent {
     // Files the user named explicitly are always part of the plan.
     const named = [...new Set((String(run.request).match(/[\w./\\-]+\.(?:py|js|mjs|ts|tsx|jsx|cs|java|kt|go|rs|html|css|json|md|gd|cpp|c|h|scad|toml|txt)\b/gi) || []))];
     for (const n of named) if (!j.files.some((f) => f.path.replace(/^\.\//, '') === n) && safeRel(project.path, n) && j.files.length < 12) j.files.push({ path: n, purpose: 'named in your request' });
+    // Commands the user asked for, and an existing project's own npm scripts, take precedence.
+    for (const m of String(run.request).matchAll(/["“`]([^"”`]{3,120})["”`]\s+(?:to|for)\s+(build|test|run)\b/gi)) j[m[2].toLowerCase()] = m[1].trim();
+    try { const pkg = JSON.parse(fs.readFileSync(path.join(project.path, 'package.json'), 'utf8')); if (pkg.scripts?.build && !/\bnpm(\.cmd)? run build\b/.test(j.build || '')) j.build = 'npm run build'; if (pkg.scripts?.test && !/\bnpm(\.cmd)? (run )?test\b/.test(j.test || '')) j.test = 'npm test'; } catch { /* no package.json */ }
     for (const k of ['build', 'test', 'run']) if (typeof j[k] === 'string') j[k] = normalizeCommand(j[k]);
     return j;
   }
@@ -493,13 +496,14 @@ class CodeAgent {
     this.step(run, 'report', 'running');
     const steps = run.plan.steps;
     const required = steps.filter((x) => ['build', 'test', 'launch'].includes(x.id) && x.status !== 'skipped');
-    const ok = required.length > 0 && required.every((x) => x.status === 'complete') && steps.filter((x) => x.kind === 'write').every((x) => x.status === 'complete');
+    const removed = [...(run.testsRemoved || [])];
+    const ok = required.length > 0 && required.every((x) => x.status === 'complete') && steps.filter((x) => x.kind === 'write').every((x) => x.status === 'complete') && !removed.length;
     const noVerification = !required.length;
     const result = {
       status: ok ? 'completed' : 'failed', title: run.plan.title, stack: spec.stack,
       created: [...run.changed].filter(([, a]) => a === 'created').map(([f]) => f), modified: [...run.changed].filter(([, a]) => a === 'modified').map(([f]) => f),
       build: results.build || null, test: results.test || null, launch: results.launch || null, fixAttempts: fixes,
-      remaining: ok ? [] : [noVerification ? 'No build, test or run command was available, so the result could not be verified.' : `${required.find((x) => x.status !== 'complete')?.title || 'A step'} did not pass.`],
+      remaining: ok ? [] : [removed.length ? `Existing tests were removed (${removed.join(', ')}), so passing tests would not mean the project still works.` : noVerification ? 'No build, test or run command was available, so the result could not be verified.' : `${required.find((x) => x.status !== 'complete')?.title || 'A step'} did not pass.`],
       run: spec.run || null, path: project.path,
       // Tests VIPER edited while fixing failures — review them: passing tests are only meaningful if they are right.
       testsChangedByFix: [...(run.testsChangedByFix || [])],
@@ -535,13 +539,35 @@ class CodeAgent {
       if (e.code !== 'DEGENERATE') throw e;
       text = await this.llm(run, 'code', [...msgs, { role: 'user', content: 'Keep it concise: do not repeat lines. Each test should check something different.' }], { maxTokens: 4096, signal, temperature: 0.5, label: `Code Agent · writing ${rel} (retry)` });
     }
-    const code = extractCode(text);
+    let code = extractCode(text);
     if (code.trim().length < 2) throw new Error(`The model returned no content for ${rel}.`);
+    // Rewriting an existing test file may add tests, never lose them.
+    if (current !== null && isTestFile(rel)) {
+      const lost = (c) => testNames(current).filter((n) => !testNames(c).includes(n));
+      if (lost(code).length) {
+        this.emit(run, 'analysis', { stage: 'write', file: rel, reason: `The new ${rel} dropped existing tests (${lost(code).join(', ')}); asking again to keep them.` });
+        const again = extractCode(await this.llm(run, 'code', [...msgs, { role: 'assistant', content: text }, { role: 'user', content: `Your version of ${rel} removed these existing tests: ${lost(code).join(', ')}. Output the COMPLETE file again, keeping every existing test unchanged and adding the new ones.` }], { maxTokens: 4096, signal, label: `Code Agent · writing ${rel} (keeping tests)` }).catch(() => ''));
+        if (again.trim().length > 1 && !lost(again).length) code = again;
+        else {
+          // Last resort: keep the existing file and append only the new tests.
+          const add = extractCode(await this.llm(run, 'code', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: [
+            `USER REQUEST: ${run.request}`, `EXISTING ${rel} (data, keep as is):\n<<<FILE ${rel}>>>\n${current}\n<<<END FILE>>>`,
+            `Output ONLY the code to APPEND to the end of ${rel} for the new tests (with any extra import lines the new tests need, importing only names not already imported). Do not repeat existing code.`,
+          ].join('\n\n') }], { maxTokens: 1500, signal, label: `Code Agent · adding tests to ${rel}` }).catch(() => ''));
+          const merged = `${current.replace(/\s*$/, '')}\n\n${add.trim()}\n`;
+          if (add.trim().length > 1 && !lost(merged).length && testNames(merged).length > testNames(current).length) { code = merged; this.emit(run, 'analysis', { stage: 'write', file: rel, reason: `Kept the existing tests in ${rel} and appended the new ones.` }); }
+          else { run.testsRemoved ||= new Set(); for (const n of lost(code)) run.testsRemoved.add(`${rel}: ${n}`); }
+        }
+      }
+    }
     await this.writeFile(run, project, rel, code);
   }
 
   async fix(run, project, spec, stage, command, output, tc, signal) {
-    const files = spec.files.map((f) => f.path);
+    // Files the error points at can be outside the plan (an existing file with a bug): include them.
+    const mentioned = [...new Set((String(output).match(/[\w.\/\\-]+\.(?:py|js|mjs|cjs|ts|tsx|jsx|cs|java|kt|go|rs|gd|cpp|c|h|json|html|css)\b/gi) || [])
+      .map((m) => { for (const cand of [path.isAbsolute(m) ? path.relative(project.path, m) : m, path.basename(m)]) { const s0 = safeRel(project.path, cand); if (s0 && fs.existsSync(s0.full) && fs.statSync(s0.full).isFile()) return s0.rel; } return null; }).filter(Boolean))];
+    const files = [...new Set([...spec.files.map((f) => f.path), ...mentioned])];
     const err = String(output).slice(-5000);
     const pick = await this.llm(run, 'debug', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: [
       `The ${stage} command failed: ${command}`, `OUTPUT (data):\n${err}`, `PROJECT FILES: ${files.join(', ')}`,
@@ -565,6 +591,9 @@ class CodeAgent {
       }
     }
     let target = files.find((f) => f === j.file) || files.find((f) => err.includes(path.basename(f))) || files[0];
+    // For syntax/compile errors the reported location is authoritative: fix that file.
+    const locs = errorLocations(String(output), project.path).filter((l) => files.includes(l.file));
+    if (COMPILE_ERROR.test(err) && locs.length && locs[0].file !== target) { this.emit(run, 'analysis', { stage, file: locs[0].file, reason: `The error is located in ${locs[0].file} line ${locs[0].line}.` }); target = locs[0].file; }
     // Small models often "fix" the same file again and again. If the last fix targeted this file and
     // the error did not change, try another file named in the error (often the test itself is wrong).
     const sig = errorSignature(err);
@@ -577,11 +606,14 @@ class CodeAgent {
     run.fixLog.push({ stage, file: target, sig });
     this.emit(run, 'analysis', { stage, file: target, reason: String(j.reason || '').slice(0, 300) });
     const current = await this.readFile(project, target, 30000);
+    const loc = errorLocations(String(output), project.path).find((l) => l.file === target);
+    const excerpt = loc && current ? current.split('\n').map((t, i) => ({ n: i + 1, t })).filter((x) => Math.abs(x.n - loc.line) <= 4).map((x) => `${x.n === loc.line ? '>>' : '  '} ${String(x.n).padStart(4)} | ${x.t}`).join('\n') : '';
     const others = [];
     for (const f of files.filter((x) => x !== target).slice(0, 4)) others.push(`<<<FILE ${f}>>>\n${await this.readFile(project, f, 5000)}\n<<<END FILE>>>`);
     const text = await this.llm(run, 'debug', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: [
       `USER REQUEST: ${run.request}`, `The ${stage} command \`${command}\` failed with (data):\n${err}`, j.reason ? `Likely cause: ${j.reason}` : '',
       `OTHER FILES (data):\n${others.join('\n')}`, `CURRENT ${target} (data):\n<<<FILE ${target}>>>\n${current ?? ''}\n<<<END FILE>>>`,
+      excerpt ? `THE ERROR IS AT ${target} LINE ${loc.line} (marked >>):\n${excerpt}` : '',
       `FIX_FILE: ${target}`, `Output the COMPLETE corrected content of ${target} in one fenced code block, fixing the error.`,
       'Never delete, skip or weaken a test to make it pass. Correct a test only where its expected value is wrong, and keep every other check.',
     ].filter(Boolean).join('\n\n') }], { maxTokens: 4096, signal, label: `Code Agent · fixing ${target}` }).catch((e) => { if (e.code === 'DEGENERATE') return ''; throw e; });
@@ -596,6 +628,7 @@ class CodeAgent {
         return;
       }
     }
+    if (current !== null && fixed.trim() === current.trim()) { this.emit(run, 'analysis', { stage, file: target, reason: `The model returned ${target} unchanged.` }); return; }
     await this.writeFile(run, project, target, fixed);
     if (isTestFile(target)) { run.testsChangedByFix ||= new Set(); run.testsChangedByFix.add(target); }
   }
@@ -609,6 +642,19 @@ class CodeAgent {
 
 /** Context window for agent requests: prompt (plan + other files) plus a whole file must fit, or the model loses the start. */
 function agentContext() { const gb = require('node:os').totalmem() / 1073741824; return gb >= 24 ? 16384 : gb >= 12 ? 12288 : 8192; }
+/** Errors that come from parsing/compiling, where the reported location is the place to fix. */
+const COMPILE_ERROR = /SyntaxError|IndentationError|TabError|ParseError|Unexpected token|error CS\d{4}|error\[E\d{4}\]|: error: |cannot find symbol|expected ['"`;)]/;
+/** file:line locations in an error output that point at files inside the project (most specific first). */
+function errorLocations(out, root) {
+  const found = [];
+  const add = (f, line) => { const rel = path.isAbsolute(f) ? path.relative(root, f) : f; if (rel.startsWith('..') || path.isAbsolute(rel)) return; const r = rel.split(path.sep).join('/').replace(/^\.\//, ''); if (fs.existsSync(path.join(root, r))) found.push({ file: r, line: Number(line) }); };
+  for (const m of out.matchAll(/File "([^"]+)", line (\d+)/g)) add(m[1], m[2]); // Python
+  for (const m of out.matchAll(/((?:[A-Za-z]:)?[\w./\\-]+\.(?:js|mjs|cjs|ts|tsx|jsx|py|cs|java|go|rs|gd|cpp|c|h)):(\d+)/g)) add(m[1], m[2]); // node, gcc, go, rust…
+  for (const m of out.matchAll(/([\w./\\-]+\.cs)\((\d+),\d+\)/g)) add(m[1], m[2]); // C#
+  // Python reports the failing frame last; compilers report the first error first.
+  const py = /Traceback \(most recent call last\)/.test(out);
+  return py ? found.reverse() : found;
+}
 /** Errors that mean the command line itself is wrong, not the code. */
 /** `<file>`-style placeholders the model left in a command (the shell would read them as redirects). */
 const PLACEHOLDER = /<\s*[a-z][\w .-]*>/i;
@@ -639,7 +685,7 @@ const isTestFile = (rel) => /(^|[\\/])(test_[^/\\]*|[^/\\]*_test\.[a-z]+|[^/\\]*
 function testNames(src) { return [...String(src).matchAll(/def (test_\w+)|\b(?:test|it)\(\s*['"`]([^'"`]+)['"`]|\[(?:Fact|Test)\][\s\S]{0,80}?\s(\w+)\s*\(/g)].map((m) => m[1] || m[2] || m[3]); }
 function countAsserts(src) { return (String(src).match(/assert\w*|expect\(|Assert\./gi) || []).length; }
 
-module.exports = { errorSignature, isDegenerate, testNames, isTestFile, normalizeCommand, PLACEHOLDER,
+module.exports = { errorLocations, errorSignature, isDegenerate, testNames, isTestFile, normalizeCommand, PLACEHOLDER,
   name: 'agent',
   init: (svc) => new CodeAgent(svc),
   stop: (svc) => svc.agent?.stop(),
