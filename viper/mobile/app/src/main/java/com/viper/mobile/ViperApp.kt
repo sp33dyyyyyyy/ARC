@@ -118,7 +118,8 @@ class ViperApp : Application() {
         if (NotifyLogic.link(n)?.optString("type") == "confirm") confirmNotifications[NotifyLogic.link(n)!!.optString("id")] = id
         if (!deduper.firstTime(id)) return
         store.seenNotifications = deduper.snapshot()
-        if (fromPush || !foreground || n.optBoolean("missed")) Notifier.show(this, n, store.notificationSounds)
+        // Shown whether or not the app is open: a question or approval must never go unnoticed.
+        Notifier.show(this, n, store.notificationSounds)
     }
     fun openFromNotification(action: String, link: JSONObject?, notificationId: String?) {
         notificationId?.takeIf { it.isNotBlank() }?.let { nid -> scope.launch { runCatching { client.post("/api/v1/notifications/$nid/read") } } }

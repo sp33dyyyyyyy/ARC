@@ -312,7 +312,7 @@ class CodeAgent {
     const d = { id, runId: run.id, projectId: run.project_id, question, options: opts, expiresAt: now() + timeoutMs };
     this.svc.bus.publish('agent.decision', d);
     this.emit(run, 'decision', d);
-    this.notifyRun(run, project, 'input_required', null, { type: 'decision', id, runId: run.id, projectId: run.project_id });
+    this.notifyRun(run, project, 'input_required', String(question).slice(0, 140), { type: 'decision', id, runId: run.id, projectId: run.project_id });
     const answer = await new Promise((resolve) => {
       const t = setTimeout(() => { this.decisions.delete(id); resolve({ timeout: true }); }, timeoutMs); t.unref?.();
       this.decisions.set(id, { runId: run.id, resolve: (a) => { clearTimeout(t); resolve(a); } });
@@ -647,9 +647,16 @@ const COMPILE_ERROR = /SyntaxError|IndentationError|TabError|ParseError|Unexpect
 /** file:line locations in an error output that point at files inside the project (most specific first). */
 function errorLocations(out, root) {
   const found = [];
-  const add = (f, line) => { const rel = path.isAbsolute(f) ? path.relative(root, f) : f; if (rel.startsWith('..') || path.isAbsolute(rel)) return; const r = rel.split(path.sep).join('/').replace(/^\.\//, ''); if (fs.existsSync(path.join(root, r))) found.push({ file: r, line: Number(line) }); };
+  const add = (f, line) => {
+    const rel = path.isAbsolute(f) ? path.relative(root, f) : f;
+    let r = rel.startsWith('..') || path.isAbsolute(rel) ? null : rel.split(/[\\/]/).join('/').replace(/^\.\//, '');
+    // Paths can be shortened (C:\\PROGRA~1), contain spaces, or be cut by the pattern: fall back to
+    // the file name when a file of that name exists in the project root.
+    if (!r || !fs.existsSync(path.join(root, r))) { const b = path.basename(String(f).replace(/\\/g, '/')); r = fs.existsSync(path.join(root, b)) ? b : null; }
+    if (r && !found.some((x) => x.file === r && x.line === Number(line))) found.push({ file: r, line: Number(line) });
+  };
   for (const m of out.matchAll(/File "([^"]+)", line (\d+)/g)) add(m[1], m[2]); // Python
-  for (const m of out.matchAll(/((?:[A-Za-z]:)?[\w./\\-]+\.(?:js|mjs|cjs|ts|tsx|jsx|py|cs|java|go|rs|gd|cpp|c|h)):(\d+)/g)) add(m[1], m[2]); // node, gcc, go, rust…
+  for (const m of out.matchAll(/((?:[A-Za-z]:)?[\w./\\~-]+\.(?:js|mjs|cjs|ts|tsx|jsx|py|cs|java|go|rs|gd|cpp|c|h)):(\d+)/g)) add(m[1], m[2]); // node, gcc, go, rust…
   for (const m of out.matchAll(/([\w./\\-]+\.cs)\((\d+),\d+\)/g)) add(m[1], m[2]); // C#
   // Python reports the failing frame last; compilers report the first error first.
   const py = /Traceback \(most recent call last\)/.test(out);

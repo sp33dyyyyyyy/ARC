@@ -86,7 +86,7 @@ test('asks a critical question, waits for the answer (desktop or phone) and plan
   assert.equal(waiting.decision.question, 'Godot or Unity?');
   assert.deepEqual(JSON.parse(waiting.decision.options), ['Godot', 'Unity', 'Decide automatically']);
   const n = notes.find((x) => x.kind === 'input_required');
-  assert.equal(n.body, 'I need your input, sir.'); assert.deepEqual(n.link.type, 'decision');
+  assert.equal(n.body, 'I need your input, sir. Godot or Unity?'); assert.equal(n.phrase, 'I need your input, sir.'); assert.deepEqual(n.link.type, 'decision');
   assert.deepEqual(n.actions.map((a) => a[1]), ['Respond', 'View Task']);
   await assert.rejects(svc.call('POST', `/agent/decisions/${waiting.decision.id}`, {}), /Choose one/);
   await svc.call('POST', `/agent/decisions/${waiting.decision.id}`, { answer: 'Godot' });
@@ -268,4 +268,6 @@ test('error locations: the file and line a compiler or traceback points at', () 
   const tb = `Traceback (most recent call last):\n  File "${path.join(root, 'test_calc.py')}", line 9, in test_x\n  File "${path.join(root, 'calc.py')}", line 21, in evaluate\nZeroDivisionError`;
   assert.deepEqual(errorLocations(tb, root)[0], { file: 'calc.py', line: 21 }, 'innermost Python frame first');
   assert.deepEqual(errorLocations('/usr/lib/node/internal.js:10 at foo', root), [], 'files outside the project are ignored');
+  assert.deepEqual(errorLocations('C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\x\\format.js:3\nSyntaxError: missing )', root)[0], { file: 'format.js', line: 3 }, 'Windows short paths');
+  assert.deepEqual(errorLocations('C:\\Users\\John Smith\\proj\\stats.js:7\nSyntaxError', root)[0], { file: 'stats.js', line: 7 }, 'paths with spaces');
 });

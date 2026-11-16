@@ -315,19 +315,24 @@ async function startCore() {
     const c = await scrollTo(/^Clear all$/i, 3); if (c) tapNode(c);
     sh('cmd statusbar collapse'); await sleep(800);
   };
-  const shadeTap = async (title, label) => {
+  // Tap an action button of ONE specific notification: the button nearest below the text `marker`.
+  const shadeTap = async (marker, label) => {
+    const pick = () => {
+      const ns = dump(); const m = ns.find((x) => marker.test(x.text)); if (!m) return null;
+      return ns.filter((x) => new RegExp(`^${label}$`, 'i').test(x.text) && x.b && x.b[1] >= m.b[1]).sort((a, b) => a.b[1] - b.b[1])[0] || null;
+    };
     sh('cmd statusbar expand-notifications'); await sleep(1800);
-    let n = find(dump(), new RegExp(`^${label}$`, 'i'));
-    if (!n) { const t = find(dump(), new RegExp(title.replace(/[—]/g, '.'))); if (t) { sh(`input swipe ${t.b[0] + 40} ${t.b[1] + 10} ${t.b[0] + 40} ${t.b[3] + 300} 300`); await sleep(1200); } n = find(dump(), new RegExp(`^${label}$`, 'i')); }
+    let n = pick();
+    if (!n) { const m = dump().find((x) => marker.test(x.text)); if (m) { sh(`input swipe ${m.b[0] + 40} ${m.b[1] + 10} ${m.b[0] + 40} ${m.b[3] + 300} 300`); await sleep(1200); } n = pick(); }
     if (n) tapNode(n); else sh('cmd statusbar collapse');
     await sleep(2000); return !!n;
   };
   await clearShade();
   const decA = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "npm install" in Calculator?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'npm install', risk: 'network', origin: 'code agent', agent: true });
   let decAValue = null; decA.then((v) => { decAValue = v; });
-  const shownA = await until(() => posted().find((p) => p.title === EXPECT.approval_required[0] && /proceed/.test(p.text)), 30000, 1500);
+  const shownA = await until(() => posted().find((p) => p.title === EXPECT.approval_required[0] && /npm install/.test(p.text)), 30000, 1500);
   check('Approvals', 'approval waiting on the PC reaches the phone as "Approval Required"', !!shownA, shownA ? `${shownA.text} · [${shownA.actions.join(', ')}]` : 'not shown');
-  const tappedDismiss = await shadeTap(EXPECT.approval_required[0], 'Dismiss');
+  const tappedDismiss = await shadeTap(/npm install/, 'Dismiss');
   await sleep(2500);
   const pendingA = svc.permissions.listPending().find((p) => p.title.startsWith('Run "npm install"'));
   check('Approvals', 'dismissing the notification does NOT approve (request still waiting on the PC)', tappedDismiss && !!pendingA && decAValue === null, `Dismiss tapped: ${tappedDismiss} · still pending: ${!!pendingA} · answered: ${decAValue}`);
@@ -336,7 +341,7 @@ async function startCore() {
   const decB = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "pip install requests" in Weather?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'python -m pip install requests', risk: 'network', origin: 'code agent', agent: true });
   let decBValue = null; decB.then((v) => { decBValue = v; });
   await until(() => posted().find((p) => p.title === EXPECT.approval_required[0]), 30000, 1500);
-  const tappedReview = await shadeTap(EXPECT.approval_required[0], 'Review Request');
+  const tappedReview = await shadeTap(/pip install requests/, 'Review Request');
   const review = await until(() => { const ns = dump(); return find(ns, /pip install requests/) && find(ns, /^Approve$/) ? ns : null; }, 20000, 1000);
   check('Approvals', '"Review Request" opens the review screen showing exactly what will run', tappedReview && !!review, review ? allText(review).split('\n').filter((l) => /Weather|pip install|Risk|Requested/.test(l)).join(' | ') : 'review screen not shown');
   screenshot('a08b-approval-review');
@@ -352,12 +357,13 @@ async function startCore() {
   const planObj = { title: 'Weather app', stack: 'python', steps: [{ id: 'inspect', title: 'Inspect project', status: 'complete' }, { id: 'plan', title: 'Plan the changes', status: 'needs_input' }] };
   svc.db.run('INSERT INTO agent_runs (id, project_id, request, status, plan, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', runId, proj.id, 'Build a small weather app', 'running', JSON.stringify(planObj), 'e2e', nowTs, nowTs);
   const runObj = { id: runId, project_id: proj.id, request: 'Build a small weather app', status: 'running', plan: planObj };
+  sh('input keyevent 3'); await sleep(1500); // the question arrives while VIPER Mobile is in the background
   await clearShade();
   const answerP = svc.agent.ask(runObj, proj, 'Which user interface should the weather app use?', ['Desktop window (tkinter)', 'Command line']);
   let answered = null; answerP.then((a) => { answered = a; });
-  const shownQ = await until(() => posted().find((p) => p.title === EXPECT.input_required[0]), 30000, 1500);
+  const shownQ = await until(() => posted().find((p) => p.title === EXPECT.input_required[0] && /Which user interface/.test(p.text)), 30000, 1500);
   check('Code Agent (phone)', 'agent question reaches the phone as "Input Required"', !!shownQ, shownQ ? `${shownQ.text} · [${shownQ.actions.join(', ')}]` : 'not shown');
-  const tappedRespond = await shadeTap(EXPECT.input_required[0], 'Respond');
+  const tappedRespond = await shadeTap(/Which user interface/, 'Respond');
   const qScreen = await until(() => { const ns = dump(); return find(ns, /Which user interface should the weather app use/) && find(ns, /^Desktop window \(tkinter\)$/) ? ns : null; }, 20000, 1000);
   check('Code Agent (phone)', '"Respond" opens the task with the question and its options (incl. "Decide automatically")', tappedRespond && !!qScreen && !!find(qScreen, /^Decide automatically$/));
   screenshot('a08c-agent-question');
