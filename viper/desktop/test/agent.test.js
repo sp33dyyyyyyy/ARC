@@ -242,3 +242,19 @@ test('model-written commands: known mistakes are corrected', () => {
   assert.equal(normalizeCommand('python -m unittest discover -s tests'), 'python -m unittest discover -s tests', 'a folder is fine');
   assert.equal(normalizeCommand('npm test'), 'npm test');
 });
+
+test('placeholders left in a command are recognised (they would be shell redirects)', () => {
+  const { PLACEHOLDER } = require('../src/server/agent/index');
+  assert.ok(PLACEHOLDER.test('python3 calc.py <expression>'));
+  assert.ok(PLACEHOLDER.test('node cli.js < input file >'));
+  assert.ok(!PLACEHOLDER.test('python3 calc.py "2 + 3 * 4"'));
+  assert.ok(!PLACEHOLDER.test('node -e "console.log(1<2)"'));
+});
+
+test('the same failure is recognised even when the model only edited comments or moved lines', () => {
+  const { errorSignature } = require('../src/server/agent/index');
+  const a = 'FAIL: test_eval (test_calc.T.test_eval)\n  File "test_calc.py", line 20, in test_eval\n    self.assertAlmostEqual(evaluate("2 + 3 * 4"), 14.0)\nAssertionError: 6.0 != 14.0 within 7 places\nRan 5 tests in 0.001s';
+  const b = 'FAIL: test_eval (test_calc.T.test_eval)\n  File "test_calc.py", line 21, in test_eval\n    self.assertAlmostEqual(evaluate("2 + 3 * 4"), 14.0)  # Fixed expected value\nAssertionError: 6.0 != 14.0 within 7 places\nRan 5 tests in 0.002s';
+  assert.equal(errorSignature(a), errorSignature(b));
+  assert.notEqual(errorSignature(a), errorSignature(a.replace('6.0 != 14.0', '13.0 != 14.0')));
+});

@@ -273,7 +273,7 @@ class CodeAgent {
       ' "files": [{"path": relative path, "purpose": what it contains}] (every file to create or rewrite; keep it small: 1-6 files),',
       ' "install": shell command to install dependencies or "" if none,',
       ' "build": shell command that compiles or syntax-checks the project, "test": shell command that runs automated tests or "",',
-      ' "run": shell command that launches the app or "", "gui": true if the app opens a window,',
+      ' "run": shell command that launches the app or "" (for a command-line program include a real example argument — never a placeholder like <file>), "gui": true if the app opens a window,',
       ' "question": "" or ONE question only if a critical requirement is impossible to infer, "options": [2-3 short answers]}',
       `Use only installed toolchains. For Python use the command "${tc.python?.cmd || 'python'}". Include a test file when the project has testable logic.`,
     ].filter(Boolean).join('\n\n');
@@ -282,6 +282,9 @@ class CodeAgent {
     if (!j || !Array.isArray(j.files) || !j.files.length) throw new Error(`The model did not return a usable plan.${text ? ` (It replied: ${text.slice(0, 160)})` : ''}`);
     j.files = j.files.map((f) => (typeof f === 'string' ? { path: f, purpose: '' } : f)).filter((f) => safeRel(project.path, f.path)).slice(0, 12);
     if (!j.files.length) throw new Error('The plan only listed files outside the project folder.');
+    // Files the user named explicitly are always part of the plan.
+    const named = [...new Set((String(run.request).match(/[\w./\\-]+\.(?:py|js|mjs|ts|tsx|jsx|cs|java|kt|go|rs|html|css|json|md|gd|cpp|c|h|scad|toml|txt)\b/gi) || []))];
+    for (const n of named) if (!j.files.some((f) => f.path.replace(/^\.\//, '') === n) && safeRel(project.path, n) && j.files.length < 12) j.files.push({ path: n, purpose: 'named in your request' });
     for (const k of ['build', 'test', 'run']) if (typeof j[k] === 'string') j[k] = normalizeCommand(j[k]);
     return j;
   }
@@ -548,9 +551,13 @@ class CodeAgent {
     const j = extractJson(pick) || {};
     // The command itself can be wrong (bad arguments, a test runner that is not installed): let the
     // model correct it — but only to a command VIPER's policy allows without asking.
-    if (BAD_COMMAND.test(err) || (typeof j.command === 'string' && j.command.trim() && j.command.trim() !== command)) {
+    if (BAD_COMMAND.test(err) || PLACEHOLDER.test(command) || (typeof j.command === 'string' && j.command.trim() && j.command.trim() !== command)) {
       const proposed = typeof j.command === 'string' && j.command.trim() ? normalizeCommand(j.command.trim()) : null;
-      const fixedCmd = proposed && proposed !== command ? proposed : normalizeCommand(command) !== command ? normalizeCommand(command) : null;
+      let fixedCmd = proposed && proposed !== command && !PLACEHOLDER.test(proposed) ? proposed : normalizeCommand(command) !== command ? normalizeCommand(command) : null;
+      if (!fixedCmd && PLACEHOLDER.test(command)) {
+        const ex = extractJson(await this.llm(run, 'debug', [{ role: 'system', content: this.system(project, tc) }, { role: 'user', content: `The ${stage} command contains a placeholder and cannot run: ${command}\nUSER REQUEST: ${run.request}\nReply with JSON {"command": the same command with a concrete, realistic example value instead of the placeholder}.` }], { json: true, maxTokens: 200, signal, label: 'Code Agent · fixing the command' })) || {};
+        if (typeof ex.command === 'string' && ex.command.trim() && !PLACEHOLDER.test(ex.command)) fixedCmd = normalizeCommand(ex.command.trim());
+      }
       if (fixedCmd && classify(fixedCmd, project.path, { interpreter: tc.node?.bundled ? process.execPath : undefined }).verdict === 'allow') {
         this.emit(run, 'analysis', { stage, reason: `The ${stage} command was wrong; using \`${fixedCmd}\` instead of \`${command}\`.` });
         run.fixLog ||= []; run.fixLog.push({ stage, command: fixedCmd });
@@ -560,7 +567,7 @@ class CodeAgent {
     let target = files.find((f) => f === j.file) || files.find((f) => err.includes(path.basename(f))) || files[0];
     // Small models often "fix" the same file again and again. If the last fix targeted this file and
     // the error did not change, try another file named in the error (often the test itself is wrong).
-    const sig = err.replace(/\d+(\.\d+)?s\b/g, '').replace(/0x[0-9a-f]+/gi, '').slice(-600);
+    const sig = errorSignature(err);
     run.fixLog ||= [];
     const prev = run.fixLog[run.fixLog.length - 1];
     if (prev && prev.file === target && prev.sig === sig) {
@@ -603,12 +610,21 @@ class CodeAgent {
 /** Context window for agent requests: prompt (plan + other files) plus a whole file must fit, or the model loses the start. */
 function agentContext() { const gb = require('node:os').totalmem() / 1073741824; return gb >= 24 ? 16384 : gb >= 12 ? 12288 : 8192; }
 /** Errors that mean the command line itself is wrong, not the code. */
+/** `<file>`-style placeholders the model left in a command (the shell would read them as redirects). */
+const PLACEHOLDER = /<\s*[a-z][\w .-]*>/i;
 const BAD_COMMAND = /Start directory is not importable|is not recognized as an internal or external command|command not found|No module named (pytest|unittest2)\b|unrecognized arguments|error: unrecognized|Unknown option|can't open file .*No such file/i;
 /** Fix well-known mistakes in model-written commands. */
 function normalizeCommand(cmd) {
   let c = String(cmd).trim();
   c = c.replace(/(-m\s+unittest\s+discover)\s+(?:-s\s+)?\S+\.py\b/i, '$1 -v'); // discover takes a folder, not a file
   return c;
+}
+/** The essence of an error (exception types and messages), ignoring timings, line numbers and source lines. */
+function errorSignature(out) {
+  const lines = String(out).split('\n').map((l) => l.trim())
+    .filter((l) => /^(\w+(Error|Exception)\b|FAIL\b|ERROR\b|AssertionError|assert|error[:\s]|not ok)/i.test(l))
+    .map((l) => l.replace(/line \d+/g, '').replace(/\d+(\.\d+)?\s?(ms|s)\b/g, '').replace(/0x[0-9a-f]+/gi, '').replace(/#.*$/, '').trim());
+  return (lines.length ? [...new Set(lines)].join('\n') : String(out).slice(-600)).slice(0, 1500);
 }
 function isDegenerate(text) {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -623,7 +639,7 @@ const isTestFile = (rel) => /(^|[\\/])(test_[^/\\]*|[^/\\]*_test\.[a-z]+|[^/\\]*
 function testNames(src) { return [...String(src).matchAll(/def (test_\w+)|\b(?:test|it)\(\s*['"`]([^'"`]+)['"`]|\[(?:Fact|Test)\][\s\S]{0,80}?\s(\w+)\s*\(/g)].map((m) => m[1] || m[2] || m[3]); }
 function countAsserts(src) { return (String(src).match(/assert\w*|expect\(|Assert\./gi) || []).length; }
 
-module.exports = { isDegenerate, testNames, isTestFile, normalizeCommand,
+module.exports = { errorSignature, isDegenerate, testNames, isTestFile, normalizeCommand, PLACEHOLDER,
   name: 'agent',
   init: (svc) => new CodeAgent(svc),
   stop: (svc) => svc.agent?.stop(),
