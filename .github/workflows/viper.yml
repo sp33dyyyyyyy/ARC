@@ -173,6 +173,9 @@ jobs:
     needs: android
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # A slightly larger chat model than the Windows job: the 0.5B model sometimes answers in a few
+    # tokens, too short to observe a reply streaming onto the phone screen.
+    env: { E2E_MODEL: 'qwen2.5:1.5b' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

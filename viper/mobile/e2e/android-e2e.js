@@ -323,9 +323,11 @@ async function startCore() {
   // Tap an action button of ONE specific notification: the button nearest below the text `marker`.
   // Retries while the shade settles; on failure, records what was on screen (diagnostics).
   const shadeSeen = {};
-  const shadeTap = async (marker, label) => {
+  const shadeTap = async (marker, label, title) => {
     const rx = new RegExp(`^${label}$`, 'i');
-    const pick = (ns) => { const m = ns.find((x) => marker.test(x.text) && x.b); if (!m) return null; return ns.filter((x) => rx.test(x.text) && x.b && x.b[1] >= m.b[1]).sort((a, b) => a.b[1] - b.b[1])[0] || null; };
+    // Anchor on the notification's text, or on its title when Android does not expose the text.
+    const anchor = (ns) => ns.find((x) => marker.test(x.text) && x.b) || (title ? ns.find((x) => x.text === title && x.b) : null);
+    const pick = (ns) => { const m = anchor(ns); if (!m) return null; return ns.filter((x) => rx.test(x.text) && x.b && x.b[1] >= m.b[1]).sort((a, b) => a.b[1] - b.b[1])[0] || null; };
     for (let attempt = 0; attempt < 4; attempt++) {
       // Open the shade with a finger swipe from the top edge (as a person does): a shade opened by the
       // shell command alone may not take focus, and the UI dump then describes the window behind it.
@@ -360,7 +362,7 @@ async function startCore() {
   let decAValue = null; decA.then((v) => { decAValue = v; });
   const shownA = await until(() => posted().find((p) => p.title === EXPECT.approval_required[0] && /npm install/.test(p.text)), 30000, 1500);
   check('Approvals', 'approval waiting on the PC reaches the phone as "Approval Required"', !!shownA, shownA ? `${shownA.text} · [${shownA.actions.join(', ')}]` : 'not shown');
-  const tappedDismiss = await shadeTap(/npm install/, 'Dismiss');
+  const tappedDismiss = await shadeTap(/npm install/, 'Dismiss', 'VIPER — Approval Required');
   await sleep(2500);
   const pendingA = svc.permissions.listPending().find((p) => p.title.startsWith('Run "npm install"'));
   check('Approvals', 'dismissing the notification does NOT approve (request still waiting on the PC)', tappedDismiss && !!pendingA && decAValue === null, `Dismiss tapped: ${tappedDismiss} · still pending: ${!!pendingA} · answered: ${decAValue}${tappedDismiss ? '' : ` · shade: ${shadeSeen.Dismiss}`}`);
@@ -369,7 +371,7 @@ async function startCore() {
   const decB = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "pip install requests" in Weather?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'python -m pip install requests', risk: 'network', origin: 'code agent', agent: true });
   let decBValue = null; decB.then((v) => { decBValue = v; });
   await until(() => posted().find((p) => p.title === EXPECT.approval_required[0]), 30000, 1500);
-  const tappedReview = await shadeTap(/pip install requests/, 'Review Request');
+  const tappedReview = await shadeTap(/pip install requests/, 'Review Request', 'VIPER — Approval Required');
   const review = await until(() => { const ns = dump(); return find(ns, /pip install requests/) && find(ns, /^Approve$/) ? ns : null; }, 20000, 1000);
   check('Approvals', '"Review Request" opens the review screen showing exactly what will run', tappedReview && !!review, review ? allText(review).split('\n').filter((l) => /Weather|pip install|Risk|Requested/.test(l)).join(' | ') : `review screen not shown · tapped: ${tappedReview} · shade: ${shadeSeen['Review Request'] || ''} · screen: ${allText(dump()).replace(/\s+/g, ' ').slice(0, 300)}`);
   screenshot('a08b-approval-review');
@@ -391,7 +393,7 @@ async function startCore() {
   let answered = null; answerP.then((a) => { answered = a; });
   const shownQ = await until(() => posted().find((p) => p.title === EXPECT.input_required[0] && /Which user interface/.test(p.text)), 30000, 1500);
   check('Code Agent (phone)', 'agent question reaches the phone as "Input Required"', !!shownQ, shownQ ? `${shownQ.text} · [${shownQ.actions.join(', ')}]` : 'not shown');
-  const tappedRespond = await shadeTap(/Which user interface/, 'Respond');
+  const tappedRespond = await shadeTap(/Which user interface/, 'Respond', 'VIPER — Input Required');
   const qScreen = await until(() => { const ns = dump(); return find(ns, /Which user interface should the weather app use/) && find(ns, /^Desktop window \(tkinter\)$/) ? ns : null; }, 20000, 1000);
   check('Code Agent (phone)', '"Respond" opens the task with the question and its options (incl. "Decide automatically")', tappedRespond && !!qScreen && !!find(qScreen, /^Decide automatically$/), qScreen ? 'question and options shown' : `tapped: ${tappedRespond} · shade: ${shadeSeen.Respond || ''} · screen: ${allText(dump()).replace(/\s+/g, ' ').slice(0, 300)}`);
   screenshot('a08c-agent-question');
