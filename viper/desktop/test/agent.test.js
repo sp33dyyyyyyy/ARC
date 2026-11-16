@@ -241,6 +241,8 @@ test('model-written commands: known mistakes are corrected', () => {
   assert.equal(normalizeCommand('python -m unittest discover -s tests.py'), 'python -m unittest discover -v');
   assert.equal(normalizeCommand('python -m unittest discover -s tests'), 'python -m unittest discover -s tests', 'a folder is fine');
   assert.equal(normalizeCommand('npm test'), 'npm test');
+  assert.equal(normalizeCommand("python -m unittest discover -s . -p 'test_*.py'", 'win32'), 'python -m unittest discover -s . -p "test_*.py"', 'cmd.exe has no single quotes');
+  assert.equal(normalizeCommand("python -m unittest discover -s . -p 'test_*.py'", 'linux'), "python -m unittest discover -s . -p 'test_*.py'");
 });
 
 test('placeholders left in a command are recognised (they would be shell redirects)', () => {

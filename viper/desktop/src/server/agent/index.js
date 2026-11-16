@@ -665,10 +665,12 @@ function errorLocations(out, root) {
 /** Errors that mean the command line itself is wrong, not the code. */
 /** `<file>`-style placeholders the model left in a command (the shell would read them as redirects). */
 const PLACEHOLDER = /<\s*[a-z][\w .-]*>/i;
-const BAD_COMMAND = /Start directory is not importable|is not recognized as an internal or external command|command not found|No module named (pytest|unittest2)\b|unrecognized arguments|error: unrecognized|Unknown option|can't open file .*No such file/i;
+const BAD_COMMAND = /NO TESTS RAN|Ran 0 tests|collected 0 items|^# tests 0$|Start directory is not importable|is not recognized as an internal or external command|command not found|No module named (pytest|unittest2)\b|unrecognized arguments|error: unrecognized|Unknown option|can't open file .*No such file/im;
 /** Fix well-known mistakes in model-written commands. */
-function normalizeCommand(cmd) {
+function normalizeCommand(cmd, platform = process.platform) {
   let c = String(cmd).trim();
+  // cmd.exe does not understand single quotes: 'test_*.py' would be passed with the quotes.
+  if (platform === 'win32') c = c.replace(/'([^'"]*)'/g, '"$1"');
   c = c.replace(/(-m\s+unittest\s+discover)\s+(?:-s\s+)?\S+\.py\b/i, '$1 -v'); // discover takes a folder, not a file
   return c;
 }

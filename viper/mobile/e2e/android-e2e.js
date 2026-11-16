@@ -30,9 +30,13 @@ const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 <
 const sh = (cmd) => adb('shell', cmd);
 function screenshot(name) { try { const png = execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20 }); fs.writeFileSync(path.join(OUT, `${name}.png`), png); } catch (e) { console.log('screenshot failed', e.message); } }
 function dump() {
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     try {
-      sh('uiautomator dump /sdcard/ui.xml >/dev/null'); const xml = adb('exec-out', 'cat', '/sdcard/ui.xml');
+      // Remove the previous dump first: when uiautomator cannot dump (e.g. the screen is still
+      // animating) it leaves the old file, and reading it would describe a screen no longer shown.
+      const res = sh('rm -f /sdcard/ui.xml; uiautomator dump /sdcard/ui.xml 2>&1 || true');
+      if (!/dumped to/i.test(res)) { execFileSync('sleep', ['0.7']); continue; }
+      const xml = adb('exec-out', 'cat', '/sdcard/ui.xml');
       if (!xml.includes('<hierarchy')) continue;
       const nodes = parseNodes(xml);
       // A freshly booted emulator sometimes reports its own launcher as "not responding";
