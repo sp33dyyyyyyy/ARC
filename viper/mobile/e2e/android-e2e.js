@@ -316,16 +316,21 @@ async function startCore() {
     sh('cmd statusbar collapse'); await sleep(800);
   };
   // Tap an action button of ONE specific notification: the button nearest below the text `marker`.
+  // Retries while the shade settles; on failure, records what was on screen (diagnostics).
+  const shadeSeen = {};
   const shadeTap = async (marker, label) => {
-    const pick = () => {
-      const ns = dump(); const m = ns.find((x) => marker.test(x.text)); if (!m) return null;
-      return ns.filter((x) => new RegExp(`^${label}$`, 'i').test(x.text) && x.b && x.b[1] >= m.b[1]).sort((a, b) => a.b[1] - b.b[1])[0] || null;
-    };
-    sh('cmd statusbar expand-notifications'); await sleep(1800);
-    let n = pick();
-    if (!n) { const m = dump().find((x) => marker.test(x.text)); if (m) { sh(`input swipe ${m.b[0] + 40} ${m.b[1] + 10} ${m.b[0] + 40} ${m.b[3] + 300} 300`); await sleep(1200); } n = pick(); }
-    if (n) tapNode(n); else sh('cmd statusbar collapse');
-    await sleep(2000); return !!n;
+    const rx = new RegExp(`^${label}$`, 'i');
+    const pick = (ns) => { const m = ns.find((x) => marker.test(x.text) && x.b); if (!m) return null; return ns.filter((x) => rx.test(x.text) && x.b && x.b[1] >= m.b[1]).sort((a, b) => a.b[1] - b.b[1])[0] || null; };
+    for (let attempt = 0; attempt < 4; attempt++) {
+      sh('cmd statusbar expand-notifications'); await sleep(1500 + attempt * 500);
+      let ns = dump(); let n = pick(ns);
+      if (!n) { const m = ns.find((x) => marker.test(x.text) && x.b); if (m) { sh(`input swipe ${m.b[0] + 40} ${m.b[1] + 10} ${m.b[0] + 40} ${m.b[3] + 300} 300`); await sleep(1200); ns = dump(); n = pick(ns); } }
+      if (n) { tapNode(n); await sleep(2000); return true; }
+      shadeSeen[label] = ns.filter((x) => x.text).map((x) => x.text).slice(0, 25).join(' | ');
+      screenshot(`zz-shade-${label.replace(/\W+/g, '-').toLowerCase()}-${attempt}`);
+      sh('cmd statusbar collapse'); await sleep(800);
+    }
+    return false;
   };
   await clearShade();
   const decA = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "npm install" in Calculator?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'npm install', risk: 'network', origin: 'code agent', agent: true });
@@ -335,7 +340,7 @@ async function startCore() {
   const tappedDismiss = await shadeTap(/npm install/, 'Dismiss');
   await sleep(2500);
   const pendingA = svc.permissions.listPending().find((p) => p.title.startsWith('Run "npm install"'));
-  check('Approvals', 'dismissing the notification does NOT approve (request still waiting on the PC)', tappedDismiss && !!pendingA && decAValue === null, `Dismiss tapped: ${tappedDismiss} · still pending: ${!!pendingA} · answered: ${decAValue}`);
+  check('Approvals', 'dismissing the notification does NOT approve (request still waiting on the PC)', tappedDismiss && !!pendingA && decAValue === null, `Dismiss tapped: ${tappedDismiss} · still pending: ${!!pendingA} · answered: ${decAValue}${tappedDismiss ? '' : ` · shade: ${shadeSeen.Dismiss}`}`);
   if (pendingA) svc.permissions.respond(pendingA.id, false);
   await clearShade();
   const decB = svc.permissions.requestConfirmation({ tool: 'agent_command', title: 'Run "pip install requests" in Weather?', reason: 'The Code Agent wants to install packages from the internet.', preview: 'python -m pip install requests', risk: 'network', origin: 'code agent', agent: true });
@@ -343,7 +348,7 @@ async function startCore() {
   await until(() => posted().find((p) => p.title === EXPECT.approval_required[0]), 30000, 1500);
   const tappedReview = await shadeTap(/pip install requests/, 'Review Request');
   const review = await until(() => { const ns = dump(); return find(ns, /pip install requests/) && find(ns, /^Approve$/) ? ns : null; }, 20000, 1000);
-  check('Approvals', '"Review Request" opens the review screen showing exactly what will run', tappedReview && !!review, review ? allText(review).split('\n').filter((l) => /Weather|pip install|Risk|Requested/.test(l)).join(' | ') : 'review screen not shown');
+  check('Approvals', '"Review Request" opens the review screen showing exactly what will run', tappedReview && !!review, review ? allText(review).split('\n').filter((l) => /Weather|pip install|Risk|Requested/.test(l)).join(' | ') : `review screen not shown · tapped: ${tappedReview} · shade: ${shadeSeen['Review Request'] || ''} · screen: ${allText(dump()).replace(/\s+/g, ' ').slice(0, 300)}`);
   screenshot('a08b-approval-review');
   if (review) await tap(/^Approve$/);
   const approvedB = await until(() => decBValue !== null, 15000, 500);
@@ -365,7 +370,7 @@ async function startCore() {
   check('Code Agent (phone)', 'agent question reaches the phone as "Input Required"', !!shownQ, shownQ ? `${shownQ.text} · [${shownQ.actions.join(', ')}]` : 'not shown');
   const tappedRespond = await shadeTap(/Which user interface/, 'Respond');
   const qScreen = await until(() => { const ns = dump(); return find(ns, /Which user interface should the weather app use/) && find(ns, /^Desktop window \(tkinter\)$/) ? ns : null; }, 20000, 1000);
-  check('Code Agent (phone)', '"Respond" opens the task with the question and its options (incl. "Decide automatically")', tappedRespond && !!qScreen && !!find(qScreen, /^Decide automatically$/));
+  check('Code Agent (phone)', '"Respond" opens the task with the question and its options (incl. "Decide automatically")', tappedRespond && !!qScreen && !!find(qScreen, /^Decide automatically$/), qScreen ? 'question and options shown' : `tapped: ${tappedRespond} · shade: ${shadeSeen.Respond || ''} · screen: ${allText(dump()).replace(/\s+/g, ' ').slice(0, 300)}`);
   screenshot('a08c-agent-question');
   if (qScreen) await tap(/^Desktop window \(tkinter\)$/);
   await until(() => answered !== null, 15000, 500);
